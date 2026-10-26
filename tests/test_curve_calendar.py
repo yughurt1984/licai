@@ -84,12 +84,10 @@ A_PX = dict(zip(A_DAYS, [10, 10, 10, 11, 11]))
 
 
 @pytest.fixture
-def fake_env(monkeypatch, tmp_path):
+def fake_env(monkeypatch, temp_db):
     import database as db
     from services import market_data as md
     from services import portfolio_curve as pc
-    monkeypatch.setattr("config.config.db_path", str(tmp_path / "t.db"))
-    asyncio.run(db.init_db())
     pc._cache.clear()
     pc._price_cache.clear()
     csi = pd.DataFrame([{"date": d, "close": 4000.0 + i} for i, d in enumerate(A_DAYS)])

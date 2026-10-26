@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import re
 
+from services.context import current_user_id
+
 MAX_ITEMS = 6
 _INDEX_NAMES = {"sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指",
                 "sh000688": "科创50", "sh000300": "沪深300", "sh000905": "中证500",
@@ -128,12 +130,13 @@ async def stock_card(code: str) -> dict:
     db = await get_db()
     try:
         row = await (await db.execute(
-            "SELECT stock_name, shares, cost_price FROM holdings WHERE stock_code = ?", (c,))).fetchone()
+            "SELECT stock_name, shares, cost_price FROM holdings WHERE user_id = ? AND stock_code = ?",
+            (current_user_id(), c))).fetchone()
         if row and (row[1] or 0) > 0:
             card.update(stock_name=row[0] or card["stock_name"], shares=row[1], cost_price=row[2] or 0)
         ext = await (await db.execute(
-            "SELECT id, name, shares, cost_amount FROM external_assets WHERE code = ? "
-            "AND COALESCE(closed, 0) = 0 ORDER BY id DESC LIMIT 1", (c,))).fetchone()
+            "SELECT id, name, shares, cost_amount FROM external_assets WHERE user_id = ? AND code = ? "
+            "AND COALESCE(closed, 0) = 0 ORDER BY id DESC LIMIT 1", (current_user_id(), c))).fetchone()
         if ext:
             card["asset_id"] = ext[0]
             if (ext[2] or 0) > 0:

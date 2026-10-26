@@ -18,24 +18,25 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 async def main(apply: bool, purge_confirmed: bool) -> None:
-    import aiosqlite
-    from config import config
+    from db import get_conn
 
-    async with aiosqlite.connect(config.db_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT id FROM external_assets") as cur:
-            live = {r["id"] for r in await cur.fetchall()}
+    db = await get_conn()
+    try:
+        cur = await db.execute("SELECT id FROM external_assets")
+        live = {r["id"] for r in await cur.fetchall()}
 
-        async with db.execute(
-            "SELECT id, asset_id, mode, value, status, next_due FROM dca_schedules") as cur:
-            scheds = [dict(r) for r in await cur.fetchall()]
+        cur = await db.execute(
+            "SELECT id, asset_id, mode, value, status, next_due FROM dca_schedules")
+        scheds = [dict(r) for r in await cur.fetchall()]
         orphan_scheds = [s for s in scheds if s["asset_id"] not in live]
 
-        async with db.execute(
+        # PG 的 round(double, int) 不存在, 显式 cast 成 numeric 再舍入
+        cur = await db.execute(
             "SELECT asset_id, COUNT(*) n, MIN(trade_date) d0, MAX(trade_date) d1, "
-            "ROUND(SUM(amount),2) amt, SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) np "
-            "FROM external_asset_actions GROUP BY asset_id") as cur:
-            groups = [dict(r) for r in await cur.fetchall()]
+            "ROUND(CAST(SUM(amount) AS numeric), 2) amt, "
+            "SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) np "
+            "FROM external_asset_actions GROUP BY asset_id")
+        groups = [dict(r) for r in await cur.fetchall()]
         orphan_groups = [g for g in groups if g["asset_id"] not in live]
 
         if not orphan_scheds and not orphan_groups:
@@ -53,12 +54,12 @@ async def main(apply: bool, purge_confirmed: bool) -> None:
             print("\n孤儿 pending 流水(从未确认, 无份额无净值 → 垃圾):")
             for g in junk:
                 print(f"  asset#{g['asset_id']}  {g['np']} 条 pending  "
-                      f"{g['d0']}…{g['d1']}  名义 {g['amt']:,.2f} 元")
+                      f"{g['d0']}…{g['d1']}  名义 {float(g['amt'] or 0):,.2f} 元")
         if keep:
             print(f"\n孤儿已确认流水({'一起删' if purge_confirmed else '真实成交记录, 保留不动'}):")
             for g in keep:
                 print(f"  asset#{g['asset_id']}  {g['n'] - g['np']} 条已确认  "
-                      f"{g['d0']}…{g['d1']}  合计 {g['amt']:,.2f} 元")
+                      f"{g['d0']}…{g['d1']}  合计 {float(g['amt'] or 0):,.2f} 元")
 
         n_pend = sum(g["np"] for g in junk)
         n_conf = sum(g["n"] - g["np"] for g in keep) if purge_confirmed else 0
@@ -80,6 +81,8 @@ async def main(apply: bool, purge_confirmed: bool) -> None:
         await db.commit()
         print(f"\n已删除 {len(orphan_scheds)} 个孤儿计划 + {n_pend} 条 pending 流水"
               + (f" + {n_conf} 条已确认流水" if n_conf else "") + "。")
+    finally:
+        await db.close()
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ const innerW = W - P.l - P.r, innerH = H - P.t - P.b
 const volH = 70, volGap = 30                 // 底部副图加高; volGap 留出空隙放图例/切换钮, 不压副图内容
 const priceH = innerH - volH - volGap        // 价格区高度
 const volTop = P.t + priceH + volGap         // 副图顶部
-const MA_DEFS = [{ n: 5, c: '#e8e0cf' }, { n: 10, c: '#c8a876' }, { n: 20, c: '#7aa2d6' }, { n: 30, c: '#6fc0b2' }, { n: 60, c: '#9a8cf0' }]
+const MA_DEFS = [{ n: 5, c: '#5f5a52' }, { n: 10, c: '#c8a876' }, { n: 20, c: '#7aa2d6' }, { n: 30, c: '#6fc0b2' }, { n: 60, c: '#9a8cf0' }]
 
 // ---------------------------------------------------------------------------
 export function CandleChart({ series, cost, actions, warmup = [] }) {
@@ -203,9 +203,9 @@ export function CandleChart({ series, cost, actions, warmup = [] }) {
             <g>
               <line x1={P.l} y1={zeroY} x2={W - P.r} y2={zeroY} stroke="var(--color-border-subtle)" strokeWidth="0.5" strokeDasharray="2 3" />
               {points.map(p => { const v = indic.hist[p.i]; return <rect key={'m' + p.i} x={p.x - candleW / 2} y={v >= 0 ? zeroY - v * sc : zeroY} width={candleW} height={Math.max(0.4, Math.abs(v * sc))} fill={v >= 0 ? UP : DOWN} opacity="0.85" /> })}
-              <polyline points={line(indic.dif)} fill="none" stroke="#e8e0cf" strokeWidth="1" />
+              <polyline points={line(indic.dif)} fill="none" stroke="#5f5a52" strokeWidth="1" />
               <polyline points={line(indic.dea)} fill="none" stroke="#c8a876" strokeWidth="1" />
-              {subLegend([{ c: '#e8e0cf', t: `DIF ${fmtVal(indic.dif[lastI])}` }, { c: '#c8a876', t: `DEA ${fmtVal(indic.dea[lastI])}` }, { c: indic.hist[lastI] >= 0 ? UP : DOWN, t: `MACD ${fmtVal(indic.hist[lastI])}` }])}
+              {subLegend([{ c: '#5f5a52', t: `DIF ${fmtVal(indic.dif[lastI])}` }, { c: '#c8a876', t: `DEA ${fmtVal(indic.dea[lastI])}` }, { c: indic.hist[lastI] >= 0 ? UP : DOWN, t: `MACD ${fmtVal(indic.hist[lastI])}` }])}
             </g>
           )
         })()}
@@ -214,10 +214,10 @@ export function CandleChart({ series, cost, actions, warmup = [] }) {
           const line = (arr) => points.map(p => `${p.x},${yOf(arr[p.i])}`).join(' ')
           return (
             <g>
-              <polyline points={line(indic.k)} fill="none" stroke="#e8e0cf" strokeWidth="1" />
+              <polyline points={line(indic.k)} fill="none" stroke="#5f5a52" strokeWidth="1" />
               <polyline points={line(indic.d)} fill="none" stroke="#c8a876" strokeWidth="1" />
               <polyline points={line(indic.j)} fill="none" stroke="#7aa2d6" strokeWidth="1" />
-              {subLegend([{ c: '#e8e0cf', t: `K ${fmtVal(indic.k[lastI])}` }, { c: '#c8a876', t: `D ${fmtVal(indic.d[lastI])}` }, { c: '#7aa2d6', t: `J ${fmtVal(indic.j[lastI])}` }])}
+              {subLegend([{ c: '#5f5a52', t: `K ${fmtVal(indic.k[lastI])}` }, { c: '#c8a876', t: `D ${fmtVal(indic.d[lastI])}` }, { c: '#7aa2d6', t: `J ${fmtVal(indic.j[lastI])}` }])}
             </g>
           )
         })()}

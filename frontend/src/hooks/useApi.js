@@ -4,6 +4,10 @@ const BASE = ''
 // 立即重拉, 免得各自的轮询周期造成"改完了顶条还是旧数"的观感。
 export const MUTATED_EVENT = 'licai:data-mutated'
 
+// 鉴权失效广播: 任一 /api 请求吃 401 时派发, App 顶层据此切换到登录页。
+// 只在本文件统一派发一次(裸 fetch 不用各自处理 —— cookie 由浏览器带, 401 统一在这暴露)。
+export const AUTH_EVENT = 'licai:auth-changed'
+
 // GET 预取缓存: 同 URL 短 TTL 内复用同一个 promise——榜单预取光标附近个股的K线,
 // 方向键翻股时 ProKline 直接命中, 不再等网络。失败的请求立即出缓存, 下次可重试。
 const _prefetched = new Map()
@@ -28,6 +32,11 @@ export async function fetchJSON(path, options) {
     if (method !== 'GET' && /^\/api\/(assets|portfolio)/.test(path)) {
       try { window.dispatchEvent(new CustomEvent(MUTATED_EVENT, { detail: path })) } catch {}
     }
+  }
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
+    // 会话过期/未登录: 广播给 App 顶层切登录页。auth 自身的 401(密码错)不触发,
+    // 否则登录页点一次错误密码就自己把自己关了。
+    try { window.dispatchEvent(new CustomEvent(AUTH_EVENT)) } catch {}
   }
   if (!res.ok) {
     // FastAPI/Pydantic 422: {detail: [{loc, msg, type}, ...]}

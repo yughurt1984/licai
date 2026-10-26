@@ -2,12 +2,20 @@
 
 >>> cp config.example.py config.py
 """
+import os
 from dataclasses import dataclass, field
 
 
 @dataclass
 class Config:
     # --- 数据库 ---
+    # PostgreSQL (账本 ledger schema + 行情 market schema)。
+    # 优先读环境变量 PG_DSN (run.py 已自动加载 .env), 便于不同环境切换。
+    pg_dsn: str = os.environ.get(
+        "PG_DSN", "postgresql://postgres:postgres@localhost:5432/licai")
+    # 测试用独立库(或同一实例上的另一个库), 不设则回落 pg_dsn (测试 fixture 会用临时 schema 隔离)
+    pg_dsn_test: str = os.environ.get("PG_DSN_TEST", "")
+    # 旧 SQLite 文件, 仅作为一次性迁移(migrate_sqlite_to_pg.py)的数据源保留
     db_path: str = "portfolio.db"
 
     # --- 行情刷新 ---

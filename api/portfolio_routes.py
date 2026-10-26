@@ -19,6 +19,12 @@ from services.market_data import (
 )
 from services.position_ledger import compute_position_state, ledger_state
 
+def _uid() -> int:
+    """当前用户 id(鉴权中间件注入上下文)。直连 SQL 的兜底过滤用。"""
+    from services.context import current_user_id
+    return current_user_id()
+
+
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
@@ -256,7 +262,8 @@ async def realized_pnl():
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT DISTINCT stock_code FROM position_actions ORDER BY stock_code"
+            "SELECT DISTINCT stock_code FROM position_actions WHERE user_id = ? ORDER BY stock_code",
+            (_uid(),),
         )
         rows = await cursor.fetchall()
         codes = [r[0] for r in rows]
@@ -346,7 +353,7 @@ async def trade_review():
 
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT DISTINCT stock_code FROM position_actions ORDER BY stock_code")
+        cursor = await db.execute("SELECT DISTINCT stock_code FROM position_actions WHERE user_id = ? ORDER BY stock_code", (_uid(),))
         codes = [r[0] for r in await cursor.fetchall()]
     finally:
         await db.close()
@@ -503,7 +510,7 @@ async def trade_journal(limit: int = 80):
 
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT DISTINCT stock_code FROM position_actions")
+        cursor = await db.execute("SELECT DISTINCT stock_code FROM position_actions WHERE user_id = ?", (_uid(),))
         codes = [r[0] for r in await cursor.fetchall()]
     finally:
         await db.close()
@@ -1708,7 +1715,7 @@ async def modify_action(action_id: int, data: ActionUpdate):
     from database import get_db
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM position_actions WHERE id = ?", (action_id,))
+        cursor = await db.execute("SELECT * FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
         old = await cursor.fetchone()
     finally:
         await db.close()
@@ -1747,7 +1754,7 @@ async def remove_action(action_id: int):
     from database import get_db
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT stock_code FROM position_actions WHERE id = ?", (action_id,))
+        cursor = await db.execute("SELECT stock_code FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
         row = await cursor.fetchone()
     finally:
         await db.close()

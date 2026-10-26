@@ -10,11 +10,12 @@
 3. 没数据就说没数据。覆盖率不够时那张回测表要自己标 可用=false, 不能拿 30% 的样本讲全市场。
 """
 import asyncio
-import os
-import sqlite3
-import tempfile
 
 import pytest
+
+from tests.conftest import insert_rows
+
+# temp_db 由 tests/conftest.py 提供(指向每次清空重建的 PG 测试库)
 
 
 def _stub_themes(monkeypatch, fn):
@@ -32,17 +33,6 @@ def _stub_themes(monkeypatch, fn):
             return None
     from services.providers import gateway
     monkeypatch.setattr(gateway, "try_call", _try_call)
-
-
-@pytest.fixture
-def temp_db(monkeypatch):
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    monkeypatch.setattr("config.config.db_path", path)
-    from database import init_db
-    asyncio.run(init_db())
-    yield path
-    os.unlink(path)
 
 
 # ── 字段口径归一 ────────────────────────────────────────
@@ -171,8 +161,8 @@ def test_missing_klines_criterion_is_per_archive_day_not_a_bar_count(temp_db):
         _row("301999", "em", snap_date="2026-08-20"),      # 新股: 只有很少几根, 但那天有
         _row("600001", "em", snap_date="2026-08-20"),      # 老票: 根数多, 但偏偏缺那天
     ]))
-    _seed_bars(temp_db, "301999", [("2026-08-19", 10, 10), ("2026-08-20", 10, 11)])
-    _seed_bars(temp_db, "600001", [(f"2026-07-{d:02d}", 10, 10) for d in range(1, 29)])
+    _seed_bars("301999", [("2026-08-19", 10, 10), ("2026-08-20", 10, 11)])
+    _seed_bars("600001", [(f"2026-07-{d:02d}", 10, 10) for d in range(1, 29)])
     codes, since = asyncio.run(pool_codes_missing_klines())
     assert codes == ["600001"]          # 只有真正缺当日日线的那只进名单
     assert since == "2026-08-20"
@@ -204,22 +194,17 @@ def test_warm_reports_what_it_did_not_do(temp_db, monkeypatch):
 
 # ── 兑现度回测的自我约束 ────────────────────────────────
 
-def _seed_bars(path, code, bars):
-    con = sqlite3.connect(path)
-    try:
-        con.executemany(
-            "INSERT INTO kline_cache (stock_code, date, open, high, low, close, volume, amount)"
-            " VALUES (?,?,?,?,?,?,1,1)",
-            [(code, d, o, max(o, c), min(o, c), c) for d, o, c in bars])
-        con.commit()
-    finally:
-        con.close()
+def _seed_bars(code, bars):
+    asyncio.run(insert_rows(
+        "kline_cache",
+        [{"stock_code": code, "date": d, "open": o, "high": max(o, c), "low": min(o, c),
+          "close": c, "volume": 1, "amount": 1} for d, o, c in bars]))
 
 
 def test_next_bars_are_strictly_after_the_day(temp_db):
     """涨停发生在 day, 要看的是 day 之后那根 —— 取到当天自己就等于用结果解释结果。"""
     from database import get_next_bars
-    _seed_bars(temp_db, "600001", [("2026-08-19", 9, 10), ("2026-08-20", 10, 11),
+    _seed_bars("600001", [("2026-08-19", 9, 10), ("2026-08-20", 10, 11),
                                    ("2026-08-21", 11, 12), ("2026-08-24", 12, 13)])
     got = asyncio.run(get_next_bars(["600001"], "2026-08-20"))
     assert got["600001"]["date"] == "2026-08-21"     # 不是 08-20, 也不是 08-24
@@ -231,7 +216,7 @@ def test_backtest_flags_itself_unusable_when_coverage_is_thin(temp_db):
     from services.limit_up_pool import seal_backtest
     rows = [_row(f"60{i:04d}", "em", seal_amount=3e8) for i in range(40)]
     asyncio.run(save_limit_up_pool(rows))
-    _seed_bars(temp_db, "600000", [("2026-08-20", 10, 11), ("2026-08-21", 11, 12)])
+    _seed_bars("600000", [("2026-08-20", 10, 11), ("2026-08-21", 11, 12)])
     r = asyncio.run(seal_backtest(days=5))
     assert r["可用"] is False
     assert r["覆盖率%"] < 30 and r["warning"]
@@ -256,7 +241,7 @@ def test_backtest_reports_control_failure_instead_of_the_headline(temp_db):
                             ("2026-08-21", 10.0, 10.0 * (1 + ret / 100))]))
     asyncio.run(save_limit_up_pool(rows))
     for code, bs in bars:
-        _seed_bars(temp_db, code, bs)
+        _seed_bars(code, bs)
     r = asyncio.run(seal_backtest(days=5, min_per_bucket=20))
     assert r["可用"] is True                      # 覆盖率是够的, 问题不在样本量
     assert r["规模对照"], "对照表不该为空"
@@ -269,7 +254,7 @@ def test_backtest_refuses_to_score_a_thin_bucket(temp_db):
     from database import save_limit_up_pool
     from services.limit_up_pool import seal_backtest
     asyncio.run(save_limit_up_pool([_row("600001", "em", seal_amount=3e8)]))
-    _seed_bars(temp_db, "600001", [("2026-08-20", 10, 11), ("2026-08-21", 12, 13)])
+    _seed_bars("600001", [("2026-08-20", 10, 11), ("2026-08-21", 12, 13)])
     r = asyncio.run(seal_backtest(days=5, min_per_bucket=20))
     thin = [b for b in r["按封单额"] + r["按封成比"] if b["样本"] < 20]
     assert thin and all(b.get("结论") == "样本不足, 不给数" for b in thin)

@@ -1,33 +1,50 @@
-"""Feishu (飞书) webhook notification service."""
+"""Feishu (飞书) webhook notification service.
+
+多用户: webhook/静音是**个人配置**(app_config 的 PER_USER_KEYS), 按 current_user_id
+解析。{uid: 配置} 内存缓存由 refresh_config() 维护 —— 后台循环在 run_as_user(uid) 里
+逐用户刷新, 设置页保存后由路由刷新。没刷新过 = 未配置 = 不推送(安全默认)。
+"""
 from __future__ import annotations
 import asyncio
 import json
 import requests as _requests
 
-# Webhook URL, set via API or config
-_webhook_url: str = ""
-_configured: bool = False  # 是否配过 webhook
-_muted: bool = False       # 是否被用户主动静音 (持久化到 DB)
+from services.context import current_user_id
+
+# {uid: {"url": str, "muted": bool}}
+_configs: dict[int, dict] = {}
+
+
+def _cfg() -> dict:
+    return _configs.get(current_user_id()) or {"url": "", "muted": True}
+
+
+async def refresh_config():
+    """从 app_config 读当前用户的 webhook/静音 进缓存。循环逐用户开头、设置页读/写后调用。"""
+    from database import get_config
+    uid = current_user_id()
+    url = (await get_config("feishu_webhook_url") or "").strip()
+    muted = (await get_config("feishu_muted")) == "1"
+    _configs[uid] = {"url": url, "muted": muted}
 
 
 def configure(webhook_url: str):
-    global _webhook_url, _configured
-    _webhook_url = webhook_url.strip()
-    _configured = bool(_webhook_url)
+    """写缓存(不落库 —— 落库由 settings 路由的 set_config 负责)。"""
+    _configs.setdefault(current_user_id(), {"url": "", "muted": False})["url"] = (webhook_url or "").strip()
 
 
 def set_muted(muted: bool):
-    global _muted
-    _muted = bool(muted)
+    _configs.setdefault(current_user_id(), {"url": "", "muted": False})["muted"] = bool(muted)
 
 
 def is_muted() -> bool:
-    return _muted
+    return _cfg()["muted"]
 
 
 def is_enabled() -> bool:
     """既配过 webhook 又没被静音才推送."""
-    return _configured and not _muted
+    cfg = _cfg()
+    return bool(cfg["url"]) and not cfg["muted"]
 
 
 def _send_sync(payload: dict) -> bool:
@@ -35,7 +52,7 @@ def _send_sync(payload: dict) -> bool:
         return False
     try:
         resp = _requests.post(
-            _webhook_url,
+            _cfg()["url"],
             json=payload,
             headers={"Content-Type": "application/json"},
             timeout=5,

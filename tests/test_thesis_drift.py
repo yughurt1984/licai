@@ -195,9 +195,8 @@ def test_pnl_track_survives_missing_snapshots():
 # 本仓没装 pytest-asyncio, 异步用例一律 asyncio.run 包一层(与 test_multi_lens 同写法)。
 
 @pytest.fixture
-def tmp_db(tmp_path, monkeypatch):
-    import config as cfg
-    monkeypatch.setattr(cfg.config, "db_path", str(tmp_path / "t.db"))
+def tmp_db(temp_db):
+    """temp_db(conftest) 已把 config.pg_dsn 指到清空重建的 PG 测试库并 init_db。"""
     import database as d
     return d
 

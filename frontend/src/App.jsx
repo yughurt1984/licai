@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
-import { api } from './hooks/useApi'
+import { api, fetchJSON, AUTH_EVENT } from './hooks/useApi'
+import AuthPage from './components/AuthPage'
 import Header from './components/Header'
 import Sidebar, { NAV } from './components/Sidebar'
 import Dashboard from './components/Dashboard'
@@ -93,6 +94,8 @@ export default function App() {
   const [editTarget, setEditTarget] = useState(null)
   const [historyTarget, setHistoryTarget] = useState(null)
   const [lastUpdate, setLastUpdate] = useState(null)
+  // 多用户: undefined=会话探测中, null=未登录(整屏 AuthPage), object=已登录
+  const [user, setUser] = useState(undefined)
   const [view, _setView] = useState(resolveHash)
   const setView = (v) => {
     const next = normalizeView(v)
@@ -109,6 +112,21 @@ export default function App() {
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
+  // 会话探测 + 登录态失效广播(任一 /api 请求吃 401 → useApi 统一派发 AUTH_EVENT)。
+  // 监听器只把 user 置空, 不重新探测 —— 401 后再探测还是 401, 白打一轮请求。
+  useEffect(() => {
+    let alive = true
+    fetchJSON('/api/auth/me')
+      .then(u => { if (alive) setUser(u) })
+      .catch(() => { if (alive) setUser(null) })
+    const onAuthLost = () => setUser(null)
+    window.addEventListener(AUTH_EVENT, onAuthLost)
+    return () => { alive = false; window.removeEventListener(AUTH_EVENT, onAuthLost) }
+  }, [])
+  const handleLogout = async () => {
+    try { await fetchJSON('/api/auth/logout', { method: 'POST' }) } catch {}
+    setUser(null)
+  }
   // 侧栏(NAV) 与页面映射(PAGES) 必须一一对应。两边都手写, 漂了各有一种静默失败:
   // NAV 多一项 → 点了是空内容区(现在会显示兜底文案); PAGES 多一项 → 一页谁也点不到。
   // 生产构建里 import.meta.env.DEV 是常量 false, 整块被摇掉。
@@ -129,6 +147,11 @@ export default function App() {
     try { setHoldings(await api.getPortfolio()) } catch {}
   }, [])
   useEffect(() => { loadPortfolio() }, [loadPortfolio])
+  // 登录成功的下一拍: 挂载时的首轮拉取都被 401 挡了, 这里重拉 + 全局版本号+1
+  useEffect(() => {
+    if (user) { loadPortfolio(); setDataVersion(v => v + 1) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.user_id])
   // 港美股的 today_valid(今日涨跌算不算今天)只在 /api/portfolio 里按「港交所交易日 / 美股那场收盘距今」
   // 判, WebSocket 推价不带它(带了就直接用, 见下)。它只在开收盘/跨日这类时段边界翻转, 所以有港美股
   // 持仓时每 10 分钟整体重拉一次就够, 不在前端复刻两地交易日历。
@@ -175,7 +198,7 @@ export default function App() {
       }))
     }
   }, [])
-  useWebSocket(handleWsMessage)
+  useWebSocket(handleWsMessage, user !== null)   // 未登录不连(4401 循环)
 
   const handleHoldingChange = () => { loadPortfolio(); setDataVersion(v => v + 1) }
 
@@ -300,6 +323,15 @@ export default function App() {
     ),
   }
 
+  // ---- 多用户 auth gate: 会话探测中给个空屏, 未登录整屏登录/注册页(主界面不挂载,
+  // 个人数据接口一个都不会发)。登录成功(user 翻真)后走上面的重拉 effect。----
+  if (user === undefined) {
+    return <div className="min-h-screen bg-bg" />
+  }
+  if (user === null) {
+    return <AuthPage onAuthed={setUser} />
+  }
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <Header
@@ -307,6 +339,8 @@ export default function App() {
         lastUpdate={lastUpdate}
         onRefresh={loadPortfolio}
         onSettings={() => setView('settings')}
+        user={user}
+        onLogout={handleLogout}
       />
 
       <div className="flex flex-1 min-h-0">

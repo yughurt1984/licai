@@ -28,20 +28,23 @@ async def main() -> int:
 
     import config
     if args.db:
-        config.config.db_path = args.db
+        config.config.pg_dsn = args.db
 
     if args.clear:
-        import aiosqlite
-        async with aiosqlite.connect(config.config.db_path) as db:
+        from db import get_conn
+        db = await get_conn()
+        try:
             await db.execute("DELETE FROM tool_gap")
             await db.commit()
+        finally:
+            await db.close()
         print("台账已清空")
         return 0
 
     from services.tool_gaps import report
     rows = await report(args.min)
     if not rows:
-        print(f"账本={config.config.db_path}: 没有命中 {args.min} 次以上的缺口")
+        print(f"账本={config.config.pg_dsn}: 没有命中 {args.min} 次以上的缺口")
         return 0
 
     print(f"账本={config.config.db_path}  缺口 {len(rows)} 类\n")

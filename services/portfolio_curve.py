@@ -658,21 +658,29 @@ async def correlation_matrix(days: int = 60) -> dict:
 
 
 async def curve_prewarm_loop():
-    """后台预热(首算 ~1 分钟, 预热后前端秒开) + 每日收盘市值快照。"""
+    """后台预热(首算 ~1 分钟, 预热后前端秒开) + 每日收盘市值快照。
+
+    多用户: 曲线/快照都是个人数据, 逐用户预热(run_as_user 注入上下文,
+    database 层自动按该用户过滤)。
+    """
+    from database import list_user_ids
+    from services.context import run_as_user
     await asyncio.sleep(90)
     while True:
-        for win in (60, 120, 250):
-            try:
-                await build_curve(win)
-            except Exception:
-                pass
-        try:
-            await correlation_matrix(60)
-        except Exception:
-            pass
-        try:
-            from services.portfolio_snapshot import maybe_snapshot
-            await maybe_snapshot()
-        except Exception:
-            pass
+        for uid in await list_user_ids():
+            with run_as_user(uid):
+                for win in (60, 120, 250):
+                    try:
+                        await build_curve(win)
+                    except Exception:
+                        pass
+                try:
+                    await correlation_matrix(60)
+                except Exception:
+                    pass
+                try:
+                    from services.portfolio_snapshot import maybe_snapshot
+                    await maybe_snapshot()
+                except Exception:
+                    pass
         await asyncio.sleep(1200)

@@ -8,22 +8,11 @@
 一刻就已经在库里(哪怕答案还没出来, 历史里也看得见"我问过什么")。
 """
 import asyncio
-import os
-import tempfile
 import time
 
 import pytest
 
-
-@pytest.fixture
-def temp_db(monkeypatch):
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    monkeypatch.setattr("config.config.db_path", path)
-    from database import init_db
-    asyncio.run(init_db())
-    yield path
-    os.unlink(path)
+# temp_db 由 tests/conftest.py 提供(指向每次清空重建的 PG 测试库)
 
 
 @pytest.fixture

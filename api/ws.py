@@ -5,39 +5,58 @@ import json
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from database import get_all_holdings
 from services.market_data import (get_realtime_quotes, is_trading_day_active, markets_open,
                                   split_stock_code)
 from services import feishu_notify
+from services.context import run_as_user, current_user_id
 from config import config
 
 router = APIRouter()
 
-_clients: set[WebSocket] = set()
+# 连接注册表按用户分桶: 推送只发本人连接, 不再全量广播(多用户隔离)。
+_clients: dict[int, set[WebSocket]] = {}
+_WS_AUTH_FAIL = 4401      # 自定义 close code: 会话无效(前端据此停重连)
 
 
-async def broadcast(message: dict):
+async def broadcast(message: dict, user_id: int | None = None):
+    """user_id=None 全用户广播(plan_alert 等系统事件); 指定则只发该用户的连接。"""
+    targets = []
+    if user_id is None:
+        for conns in _clients.values():
+            targets.extend(conns)
+    else:
+        targets = list(_clients.get(user_id, ()))
     dead = set()
     data = json.dumps(message, ensure_ascii=False, default=str)
-    for ws in list(_clients):
+    for ws in targets:
         try:
             await ws.send_text(data)
         except Exception:
             dead.add(ws)
     for d in dead:
-        _clients.discard(d)
+        for conns in _clients.values():
+            conns.discard(d)
 
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    # WebSocket 不受 CORS 约束, 也不走 http 中间件: 别的网站可以直接连上来读推送的持仓行情。
-    # 和 http 一样只收本机名/IP 的 Host 与本应用页面的 Origin。
+    # WebSocket 不受 CORS 约束, 也不走 http 中间件。三道检查: 本机 Host/Origin + 会话 cookie
+    # (浏览器同源握手自动带上)。会话无效关连接(4401), 前端据此停止重连。
     from services.origin_guard import ws_allowed
+    from services import auth
+    from services.context import set_current_user
     if not ws_allowed(ws.headers.get("host", ""), ws.headers.get("origin")):
         await ws.close(code=1008)
         return
+    token = _cookie_of(ws, auth.COOKIE_NAME)
+    session = await auth.resolve_session(token or "")
+    if not session:
+        await ws.close(code=_WS_AUTH_FAIL)
+        return
+    uid = session["user_id"]
+    set_current_user(uid)
     await ws.accept()
-    _clients.add(ws)
+    _clients.setdefault(uid, set()).add(ws)
     try:
         while True:
             try:
@@ -53,7 +72,18 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        _clients.discard(ws)
+        _clients.get(uid, set()).discard(ws)
+        if uid in _clients and not _clients[uid]:
+            _clients.pop(uid, None)
+
+
+def _cookie_of(ws: WebSocket, name: str) -> str:
+    raw = ws.headers.get("cookie") or ""
+    for part in raw.split(";"):
+        k, _, v = part.strip().partition("=")
+        if k == name:
+            return v
+    return ""
 
 
 def _push_interval(opened: dict, holdings: list[dict]) -> int:
@@ -65,35 +95,41 @@ def _push_interval(opened: dict, holdings: list[dict]) -> int:
 
 
 async def price_monitor_loop():
-    """Background task: push prices every cycle, recompute suggestions every 5min."""
+    """Background task: push prices every cycle, recompute suggestions every 5min.
+
+    多用户: 逐用户取各自持仓的行情、只推给本人的连接(以前是全表持仓广播给所有连接)。
+    """
+    from database import list_user_ids
     while True:
         try:
             if not _clients:
                 await asyncio.sleep(5)
                 continue
 
-            holdings = await get_all_holdings()
             opened = markets_open()
-            interval = _push_interval(opened, holdings)
-            if not holdings:
-                await asyncio.sleep(interval)
-                continue
-
-            codes = [h["stock_code"] for h in holdings]
-            quotes = await get_realtime_quotes(codes)
-            if not quotes:
-                await asyncio.sleep(interval)
-                continue
-
-            # Push price updates (lightweight)
-            await broadcast({
-                "type": "price_update",
-                "data": quotes,
-                "market_open": is_trading_day_active(),    # A 股口径(含午休), 前端沿用
-                "markets_open": opened,                    # {A, HK, US} 各自是否在连续交易时段
-            })
-
-            await asyncio.sleep(interval)
+            any_pushed = False
+            for uid in await list_user_ids():
+                conns = _clients.get(uid)
+                if not conns:
+                    continue
+                with run_as_user(uid):
+                    from database import get_all_holdings
+                    holdings = await get_all_holdings()
+                    if not holdings:
+                        continue
+                    codes = [h["stock_code"] for h in holdings]
+                    quotes = await get_realtime_quotes(codes)
+                    if not quotes:
+                        continue
+                    interval = _push_interval(opened, holdings)
+                    await broadcast({
+                        "type": "price_update",
+                        "data": quotes,
+                        "market_open": is_trading_day_active(),    # A 股口径(含午休), 前端沿用
+                        "markets_open": opened,                    # {A, HK, US} 各自是否在连续交易时段
+                    }, user_id=uid)
+                    any_pushed = True
+            await asyncio.sleep(config.refresh_interval if any_pushed else config.idle_interval)
         except Exception as e:
             print(f"[monitor] Error: {e}")
             await asyncio.sleep(10)
@@ -104,14 +140,33 @@ async def price_monitor_loop():
 _backup_done_date: str = ""
 
 async def backup_loop():
-    """Backup portfolio.db daily at 20:00 CST."""
+    """每天 20:00 CST 用 pg_dump 备份 ledger + market 两个 schema, 保留最近 30 份。
+
+    SQLite 时代是 shutil.copy2 整个文件; PG 时代换 pg_dump 自定义格式(-Fc, 可
+    pg_restore 精确还原)。找不到 pg_dump 就记日志跳过 —— 备份缺一天不该连累行情。
+    """
     global _backup_done_date
-    import shutil
+    import subprocess
+    import shutil as _shutil
     from datetime import datetime, timezone, timedelta
     from pathlib import Path
 
-    backup_dir = Path(config.db_path).parent / "backups"
+    backup_dir = Path("backups")
     backup_dir.mkdir(exist_ok=True)
+
+    def _find_pg_dump() -> str | None:
+        found = _shutil.which("pg_dump")
+        if found:
+            return found
+        for base in (r"D:\Program Files\PostgreSQL", r"C:\Program Files\PostgreSQL"):
+            p = Path(base)
+            if not p.is_dir():
+                continue
+            for v in sorted(p.iterdir(), reverse=True):
+                cand = v / "bin" / "pg_dump.exe"
+                if cand.exists():
+                    return str(cand)
+        return None
 
     while True:
         try:
@@ -121,17 +176,26 @@ async def backup_loop():
             hour = cst_now.hour
 
             if hour == 20 and today != _backup_done_date:
-                src = Path(config.db_path)
-                if src.exists():
-                    dst = backup_dir / f"portfolio_{today}.db"
-                    shutil.copy2(str(src), str(dst))
-                    _backup_done_date = today
-                    print(f"[backup] Database backed up to {dst}")
+                pg_dump = _find_pg_dump()
+                if pg_dump:
+                    dst = backup_dir / f"licai_{today}.dump"
+                    r = await asyncio.to_thread(
+                        subprocess.run,
+                        [pg_dump, "--dbname", config.pg_dsn, "--file", str(dst),
+                         "--format", "custom", "--schema", "ledger", "--schema", "market"],
+                        capture_output=True, text=True, timeout=300)
+                    if r.returncode == 0:
+                        _backup_done_date = today
+                        print(f"[backup] Database backed up to {dst}")
+                    else:
+                        print(f"[backup] pg_dump 失败: {(r.stderr or '')[:200]}")
+                else:
+                    print("[backup] 找不到 pg_dump, 今天没备份 (把它加进 PATH 即可)")
 
-                    # Keep only last 30 backups
-                    backups = sorted(backup_dir.glob("portfolio_*.db"))
-                    for old in backups[:-30]:
-                        old.unlink()
+                # Keep only last 30 backups
+                backups = sorted(backup_dir.glob("licai_*.dump")) + sorted(backup_dir.glob("portfolio_*.db"))
+                for old in backups[:-30]:
+                    old.unlink()
 
             await asyncio.sleep(300)  # check every 5 minutes
         except Exception as e:
@@ -140,7 +204,7 @@ async def backup_loop():
 
 
 # --- Morning briefing daily loop ---
-_briefing_done_date: str = ""
+_briefing_done: dict[int, str] = {}   # {uid: 最后生成日}
 
 async def briefing_loop():
     """Generate LLM briefing for each holding around 9:00 CST on weekdays.
@@ -148,9 +212,10 @@ async def briefing_loop():
     Once per day. Runs asynchronously while market opens at 9:30 so user
     sees it before placing orders.
     """
-    global _briefing_done_date
     from datetime import datetime, timezone, timedelta
     from services.morning_briefing import generate_all_briefings
+    from database import list_user_ids
+    from services.context import run_as_user
 
     while True:
         try:
@@ -158,25 +223,29 @@ async def briefing_loop():
             today = cst_now.strftime("%Y-%m-%d")
             t = cst_now.hour * 60 + cst_now.minute
 
-            # Window: weekdays 8:55 ~ 9:10 CST, once per day
-            if (cst_now.weekday() < 5 and 535 <= t <= 550
-                    and today != _briefing_done_date):
-                print(f"[briefing] Generating morning briefings for {today}")
-                try:
-                    results = await generate_all_briefings()
-                    _briefing_done_date = today
-                    print(f"[briefing] Done: {len(results)} briefings saved")
-                    # Push a one-line summary to feishu (signal 模型: 客观信息倾向, 非操作建议)
-                    if feishu_notify.is_enabled() and results:
-                        lines = [f"{today} 早盘简报"]
-                        for b in results:
-                            sig = b.get("signal", "中性")
-                            lines.append(
-                                f"【{b.get('stock_name')}】{sig} — {b.get('summary', '')}"
-                            )
-                        await feishu_notify.send_text("\n".join(lines))
-                except Exception as e:
-                    print(f"[briefing] Generation failed: {e}")
+            # Window: weekdays 8:55 ~ 9:10 CST, once per day, per user
+            if cst_now.weekday() < 5 and 535 <= t <= 550:
+                for uid in await list_user_ids():
+                    if _briefing_done.get(uid) == today:
+                        continue
+                    with run_as_user(uid):
+                        await feishu_notify.refresh_config()
+                        print(f"[briefing] Generating morning briefings for {today} (user {uid})")
+                        try:
+                            results = await generate_all_briefings()
+                            _briefing_done[uid] = today
+                            print(f"[briefing] Done: {len(results)} briefings saved")
+                            # Push a one-line summary to feishu (signal 模型: 客观信息倾向, 非操作建议)
+                            if feishu_notify.is_enabled() and results:
+                                lines = [f"{today} 早盘简报"]
+                                for b in results:
+                                    sig = b.get("signal", "中性")
+                                    lines.append(
+                                        f"【{b.get('stock_name')}】{sig} — {b.get('summary', '')}"
+                                    )
+                                await feishu_notify.send_text("\n".join(lines))
+                        except Exception as e:
+                            print(f"[briefing] Generation failed: {e}")
 
             await asyncio.sleep(60)
         except Exception as e:
@@ -199,9 +268,16 @@ async def eod_summary_loop():
             if 910 <= t <= 940 and today != _eod_done_date:
                 from services.market_data import _is_a_share_trading_day
                 if _is_a_share_trading_day(cst_now.date()):
-                    from services.eod_summary import push_eod_summary
-                    r = await push_eod_summary()
-                    print(f"[eod] 收盘小结 {today} pushed={r.get('pushed')}")
+                    # 收盘小结是个人数据(读各自持仓/自选), 逐用户推送; 下面 5 个市场级
+                    # 入档任务(板块份额/涨停档案/归类/补日线)与用户无关, 只跑一次。
+                    from database import list_user_ids
+                    from services.context import run_as_user
+                    for uid in await list_user_ids():
+                        with run_as_user(uid):
+                            await feishu_notify.refresh_config()
+                            from services.eod_summary import push_eod_summary
+                            r = await push_eod_summary()
+                            print(f"[eod] 收盘小结 {today} user={uid} pushed={r.get('pushed')}")
                     try:
                         from services.sector_share import archive_today
                         n = await archive_today()
@@ -249,9 +325,9 @@ async def eod_summary_loop():
             await asyncio.sleep(300)
 
 
-_dca_done_date: str = ""
-_dca_settle_date: str = ""      # 已跑过自动结算的日期
-_dca_catchup_done: bool = False  # 本进程是否已补过隔夜积压
+_dca_done: dict[int, str] = {}     # {uid: 最后触发日}
+_dca_settle: dict[int, str] = {}   # {uid: 已跑过自动结算的日期}
+_dca_catchup: set[int] = set()     # 已补过隔夜积压的用户
 
 async def dca_loop():
     """每天最多跑一次定投扫描.
@@ -264,9 +340,10 @@ async def dca_loop():
     出门几天回来就是一堆 pending, 成本口径一直飘。这里每晚 19:00 后自动跑一次,
     另外进程启动时若发现隔夜积压立即补一次(出差回来打开就是干净的)。
     settle_pending 扫的是全部 pending 而不只今天的, 所以漏几天也能一次追平。"""
-    global _dca_done_date, _dca_settle_date, _dca_catchup_done
     from datetime import datetime, timezone, timedelta
     from services.dca import fire_due_dcas
+    from database import list_user_ids
+    from services.context import run_as_user
 
     async def _settle(reason: str):
         from api.assets_routes import settle_pending_dca
@@ -302,35 +379,39 @@ async def dca_loop():
             cst_now = datetime.now(timezone.utc) + timedelta(hours=8)
             today = cst_now.strftime("%Y-%m-%d")
 
-            if today != _dca_done_date:
-                try:
-                    fired = await fire_due_dcas()
-                    _dca_done_date = today
-                    if fired:
-                        print(f"[dca] Fired {len(fired)} schedules on {today}")
-                        if feishu_notify.is_enabled():
-                            lines = [f"💸 {today} 定投触发 {len(fired)} 笔"]
-                            for f in fired:
-                                v = f["value"]
-                                unit = "¥" if f["mode"] == "amount" else "份"
-                                lines.append(f"  asset#{f['asset_id']} {unit}{v} → action #{f['action_id']} (pending)")
-                            await feishu_notify.send_text("\n".join(lines))
-                except Exception as e:
-                    print(f"[dca] fire_due_dcas failed: {e}")
+            for uid in await list_user_ids():
+                with run_as_user(uid):
+                    await feishu_notify.refresh_config()
 
-            # 启动补账: 有隔夜积压就立刻结算一次, 不等到晚上
-            if not _dca_catchup_done:
-                _dca_catchup_done = True
-                try:
-                    if await _has_stale_pending(today):
-                        await _settle("隔夜积压补账")
-                except Exception as e:
-                    print(f"[dca] catchup check failed: {e}")
+                    if today != _dca_done.get(uid):
+                        try:
+                            fired = await fire_due_dcas()
+                            _dca_done[uid] = today
+                            if fired:
+                                print(f"[dca] user={uid} Fired {len(fired)} schedules on {today}")
+                                if feishu_notify.is_enabled():
+                                    lines = [f"💸 {today} 定投触发 {len(fired)} 笔"]
+                                    for f in fired:
+                                        v = f["value"]
+                                        unit = "¥" if f["mode"] == "amount" else "份"
+                                        lines.append(f"  asset#{f['asset_id']} {unit}{v} → action #{f['action_id']} (pending)")
+                                    await feishu_notify.send_text("\n".join(lines))
+                        except Exception as e:
+                            print(f"[dca] fire_due_dcas failed: {e}")
 
-            # 每晚净值出了之后自动结算一次(海外基金当天没出的, 明晚这一轮补上)
-            if today != _dca_settle_date and cst_now.hour >= 19:
-                if await _settle(f"{today} 自动结算"):
-                    _dca_settle_date = today
+                    # 启动补账: 有隔夜积压就立刻结算一次, 不等到晚上
+                    if uid not in _dca_catchup:
+                        _dca_catchup.add(uid)
+                        try:
+                            if await _has_stale_pending(today):
+                                await _settle("隔夜积压补账")
+                        except Exception as e:
+                            print(f"[dca] catchup check failed: {e}")
+
+                    # 每晚净值出了之后自动结算一次(海外基金当天没出的, 明晚这一轮补上)
+                    if today != _dca_settle.get(uid) and cst_now.hour >= 19:
+                        if await _settle(f"{today} 自动结算"):
+                            _dca_settle[uid] = today
 
             await asyncio.sleep(60)
         except Exception as e:
@@ -338,7 +419,7 @@ async def dca_loop():
             await asyncio.sleep(120)
 
 
-_rule_mine_date: str = ""
+_rule_mine: dict[int, str] = {}   # {uid: 最后挖掘日}
 
 
 async def rule_mine_loop():
@@ -347,17 +428,22 @@ async def rule_mine_loop():
     周一早上 9:20 前后跑, 每次最多起草 3 条 —— 后台循环不该悄悄烧模型额度, 而且待审
     队列一次涌进十条也没人看得完。批准/否决在设置页里点。
     """
-    global _rule_mine_date
     from datetime import datetime, timezone, timedelta
+    from database import list_user_ids
+    from services.context import run_as_user
     while True:
         try:
             cst_now = datetime.now(timezone.utc) + timedelta(hours=8)
             today = cst_now.strftime("%Y-%m-%d")
             t = cst_now.hour * 60 + cst_now.minute
-            if cst_now.weekday() == 0 and 560 <= t <= 600 and today != _rule_mine_date:
-                _rule_mine_date = today          # 先占位: 失败也不在同一窗口内反复重试
-                from services import rule_forge as rf
-                st = await rf.mine_new(max_drafts=3)
+            if cst_now.weekday() == 0 and 560 <= t <= 600:
+                for uid in await list_user_ids():
+                    if _rule_mine.get(uid) == today:
+                        continue
+                    _rule_mine[uid] = today      # 先占位: 失败也不在同一窗口内反复重试
+                    with run_as_user(uid):
+                        from services import rule_forge as rf
+                        st = await rf.mine_new(max_drafts=3)
                 print(f"[rules] 本周挖掘: 新纠正 {st['corrections']} 条, "
                       f"新增候选 {st['added']}, 判为非规则 {st['skipped']}, "
                       f"重复 {st['dup']}, 失败 {st['failed']}")

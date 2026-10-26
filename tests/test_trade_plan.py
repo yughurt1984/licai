@@ -1,26 +1,19 @@
 """交易计划: 触发/失效判定、计划对照成交、落库与盯价推送。"""
 import asyncio
-import os
-import tempfile
 
 import pytest
 
 from services import trade_plan as tp
 
+# temp_db 由 tests/conftest.py 提供(指向每次清空重建的 PG 测试库)
+
 
 @pytest.fixture
-def temp_db(monkeypatch):
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    monkeypatch.setattr("config.config.db_path", path)
-    from database import init_db
-    asyncio.run(init_db())
-
+def plan_names(temp_db, monkeypatch):
+    """计划里两只票的名称打桩(与库无关)。"""
     async def name_of(code):
         return {"600036": "招商银行", "588080": "科创50ETF易方达"}.get(code, "")
     monkeypatch.setattr(tp, "_name_of", name_of)
-    yield path
-    os.unlink(path)
 
 
 def _p(**kw):
@@ -62,7 +55,7 @@ def test_compare_triggered_not_executed_and_after_invalidation():
     assert r["plans"][0]["对照"] == "失效后仍成交"
 
 
-def test_add_validates_and_monitor_notifies_once(temp_db, monkeypatch):
+def test_add_validates_and_monitor_notifies_once(plan_names, monkeypatch):
     day = tp.today()
 
     async def main():
@@ -89,7 +82,7 @@ def test_add_validates_and_monitor_notifies_once(temp_db, monkeypatch):
     assert plans[0]["status"] == "triggered" and plans[0]["triggered_price"] == 44.8
 
 
-def test_expire_old(temp_db):
+def test_expire_old(plan_names):
     async def main():
         await tp.add_plans([{"code": "600036", "side": "BUY", "trigger_op": "<=", "trigger_price": 45,
                              "plan_date": "2020-01-02"}])
@@ -99,7 +92,7 @@ def test_expire_old(temp_db):
     assert n == 1 and plans[0]["status"] == "expired"
 
 
-def test_replace_cancels_old(temp_db):
+def test_replace_cancels_old(plan_names):
     day = tp.today()
 
     async def main():

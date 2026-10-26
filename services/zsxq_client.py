@@ -28,8 +28,15 @@ from urllib.parse import unquote, urlparse
 
 from services import mcp_http
 
-_URL = ""               # https://mcp.zsxq.com/topic/mcp?api_key=... (含凭证, 别外泄)
-_GROUPS: list = []      # 纳入财经流水线的星球: [{"group_id": "...", "name": "...", "owner_only": bool}]
+# 多用户: {uid: {"url", "groups"}} —— url 含 api_key 是个人凭证, 按当前用户解析。
+# 缓存由 refresh_config() 维护(设置页读/写后、agent 工具调用前)。
+_cfgs: dict[int, dict] = {}
+
+
+def _state() -> dict:
+    """当前用户的星球配置; 未刷新过 = 未配置(url 空, is_enabled False)。"""
+    from services.context import current_user_id
+    return _cfgs.get(current_user_id()) or {"url": "", "groups": []}
 
 # 只读白名单 —— 不在这张表里的远端工具一律不调
 _READ_TOOLS = frozenset({
@@ -53,27 +60,43 @@ def configure(url: str | None = None, groups: list | None = None) -> None:
     别把 url 的默认值写成 "" —— configure(groups=[...]) 会把默认空串当成「清空端点」,
     保存星球选择的那一下就把 api_key 抹了(实测踩过: 存完 groups 后 configured 变 False)。
     """
-    global _URL, _GROUPS
+    from services.context import current_user_id
+    st = _cfgs.setdefault(current_user_id(), {"url": "", "groups": []})
     if url is not None:
-        _URL = (url or "").strip()
+        st["url"] = (url or "").strip()
     if groups is not None:
-        _GROUPS = [g for g in groups if g.get("group_id")]
+        st["groups"] = [g for g in groups if g.get("group_id")]
+
+
+async def refresh_config():
+    """从 app_config 读当前用户的星球配置进缓存(设置页读/写后、循环逐用户开头调用)。"""
+    import json as _json
+    from services.context import current_user_id
+    from database import get_config
+    uid = current_user_id()
+    st = _cfgs.setdefault(uid, {"url": "", "groups": []})
+    st["url"] = (await get_config("zsxq_mcp_url") or "").strip()
+    try:
+        st["groups"] = _json.loads(await get_config("zsxq_groups") or "[]")
+    except Exception:
+        st["groups"] = []
 
 
 def configured_groups() -> list:
-    return list(_GROUPS)
+    return list(_state()["groups"])
 
 
 def is_enabled() -> bool:
-    return bool(_URL and _GROUPS)
+    st = _state()
+    return bool(st["url"] and st["groups"])
 
 
 def endpoint_label() -> str:
     """给前端/日志看的脱敏标识: 只留 host+path, 绝不带 api_key。"""
-    if not _URL:
+    if not _state()["url"]:
         return ""
     try:
-        u = urlparse(_URL)
+        u = urlparse(_state()["url"])
         return f"{u.hostname or ''}{u.path or ''}"
     except ValueError:
         return "已配置"
@@ -89,11 +112,11 @@ def _call(name: str, args: dict | None = None) -> dict:
                                            "message": f"通用 API 只放行 GET + 取文件直链, 拒绝 {method} {path}"}}
     elif name not in _READ_TOOLS:
         return {"ok": False, "error": {"type": "forbidden", "message": f"{name} 不在只读白名单"}}
-    if not _URL:
+    if not _state()["url"]:
         return {"ok": False, "error": {"type": "not_configured",
                                        "message": "未配置知识星球 MCP 端点",
                                        "hint": "设置 → 知识星球 填入带 api_key 的 URL"}}
-    return mcp_http.call_tool(_URL, name, args or {})
+    return mcp_http.call_tool(_state()["url"], name, args or {})
 
 
 def _dig(obj, *keys):
@@ -307,15 +330,15 @@ def topic_detail(topic_id: str, group_name: str = "", with_comments: bool = Fals
 
 def health() -> dict:
     """设置页/启动日志用: 端点通不通、凭证有效否、选了几个星球。不返回任何含 key 的串。"""
-    if not _URL:
+    if not _state()["url"]:
         return {"configured": False, "ok": False, "group_count": len(_GROUPS),
                 "error": "未配置 MCP 端点"}
     me = self_info()
     if me.get("ok"):
-        return {"configured": True, "ok": True, "group_count": len(_GROUPS),
+        return {"configured": True, "ok": True, "group_count": len(_state()["groups"]),
                 "endpoint": endpoint_label(), "account": me.get("name") or ""}
     err = me.get("error") or {}
-    return {"configured": True, "ok": False, "group_count": len(_GROUPS),
+    return {"configured": True, "ok": False, "group_count": len(_state()["groups"]),
             "endpoint": endpoint_label(),
             "error": err.get("message") or "", "hint": err.get("hint") or ""}
 

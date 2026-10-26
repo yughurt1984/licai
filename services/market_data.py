@@ -49,6 +49,106 @@ def _cache_set(key: str, data):
     _cache[key] = (data, time.time())
 
 
+# ---- 行情库 read-through: 成功即落 PG, 失败回退最后快照(见 services/market_store.py) ----
+from services import market_store  # noqa: E402  (只依赖 config, 无循环导入)
+
+_ATYPE_BY_MARKET = {"A": "a_stock", "HK": "hk_stock", "US": "us_stock"}
+_MARKET_BY_ATYPE = {v: k for k, v in _ATYPE_BY_MARKET.items()}
+_MACRO_ATYPE = {"fx": "fx", "metal_base": "commodity", "metal_minor": "commodity",
+                "metal_precious": "commodity", "energy_new_black": "commodity",
+                "energy_chem": "commodity"}
+
+
+def _quote_to_store_rows(result: dict) -> list[dict]:
+    """get_realtime_quotes 的产物 → quote_latest 行。非股票类(A/HK/US 之外)跳过。"""
+    rows = []
+    for code, q in (result or {}).items():
+        market = q.get("market") or (split_stock_code(code)[0] if code else "")
+        atype = _ATYPE_BY_MARKET.get(market)
+        if not atype:
+            continue
+        rows.append({
+            "symbol": code,
+            "asset_type": atype,
+            "name": q.get("stock_name") or "",
+            "price": q.get("price"), "open": q.get("open"), "high": q.get("high"),
+            "low": q.get("low"), "prev_close": q.get("prev_close"),
+            "volume": q.get("volume"), "amount": q.get("amount"),
+            "change_pct": q.get("change_pct"), "turnover_rate": q.get("turnover_rate"),
+            "currency": q.get("currency") or "CNY",
+            "quote_time": str(q.get("quote_time") or ""),
+            "source": "sina",
+        })
+    return rows
+
+
+def _store_rows_to_quotes(rows: dict[str, dict]) -> dict[str, dict]:
+    """quote_latest 快照 → get_realtime_quotes 形状的 quote(远端全挂时的兜底)。"""
+    out = {}
+    for sym, r in (rows or {}).items():
+        cur = r.get("currency") or "CNY"
+        out[sym] = {
+            "stock_code": sym,
+            "stock_name": r.get("name") or "",
+            "market": _MARKET_BY_ATYPE.get(r.get("asset_type") or "", ""),
+            "currency": cur,
+            "fx_rate": get_fx_info(cur)["rate"],
+            "price": r.get("price"), "open": r.get("open"), "high": r.get("high"),
+            "low": r.get("low"), "prev_close": r.get("prev_close"),
+            "volume": r.get("volume"), "amount": r.get("amount"),
+            "change_pct": r.get("change_pct"), "turnover_rate": r.get("turnover_rate") or 0,
+            "quote_time": r.get("quote_time") or "",
+            "source": "db",
+            "stale": True,                     # 标注: PG 最后快照, 非实时
+            "fetched_at": r.get("fetched_at"),
+        }
+    return out
+
+
+def _macro_groups_to_store_rows(groups: dict) -> list[dict]:
+    """get_macro_quotes 的产物 → quote_latest 行(指数/汇率/商品期货)。"""
+    rows = []
+    for grp, items in (groups or {}).items():
+        atype = _MACRO_ATYPE.get(grp, "index")
+        for it in items:
+            rows.append({
+                "symbol": it.get("symbol") or "",
+                "asset_type": atype,
+                "name": it.get("name") or "",
+                "price": it.get("price"), "open": it.get("open"), "high": it.get("high"),
+                "low": it.get("low"), "prev_close": it.get("prev_close"),
+                "volume": it.get("volume"), "amount": it.get("amount"),
+                "change_pct": it.get("change_pct"), "turnover_rate": None,
+                "currency": "CNY" if grp != "fx" else "",
+                "quote_time": "",
+                "source": "sina",
+            })
+    return [r for r in rows if r["symbol"]]
+
+
+async def _macro_from_store() -> dict:
+    """远端全挂时从 PG 快照重建宏观分组(MACRO_SYMBOLS 给分组与名字)。"""
+    syms = [s for _, s, _ in MACRO_SYMBOLS]
+    stored = await market_store.get_stored_quotes(syms)
+    if not stored:
+        return {}
+    labels = {s: label for _, s, label in MACRO_SYMBOLS}
+    groups: dict[str, list[dict]] = {}
+    for grp, sym, label in MACRO_SYMBOLS:
+        r = stored.get(sym)
+        if not r:
+            continue
+        groups.setdefault(grp, []).append({
+            "symbol": sym, "name": label,
+            "price": r.get("price"), "open": r.get("open"), "high": r.get("high"),
+            "low": r.get("low"), "prev_close": r.get("prev_close"),
+            "volume": r.get("volume"), "amount": r.get("amount"),
+            "change_pct": r.get("change_pct"),
+            "stale": True, "fetched_at": r.get("fetched_at"),
+        })
+    return groups
+
+
 def get_fx_info(currency: str) -> dict:
     """Fetch CNY conversion info for a quote currency.
 
@@ -87,6 +187,12 @@ def get_fx_info(currency: str) -> dict:
                 }
                 _cache_set(cache_key, data)
                 _fx_remember(currency, rate)
+                # write-through: 实时汇率落 PG(fx_daily 攒历史 + quote_latest 存最新)
+                market_store.spawn(market_store.save_fx_day(
+                    symbol, _cst_now().date().isoformat(), rate, "sina"))
+                market_store.spawn(market_store.save_quotes([{
+                    "symbol": symbol, "asset_type": "fx", "name": f"{currency}/CNY",
+                    "price": rate, "currency": "CNY", "source": "sina"}]))
                 return data
     except Exception:
         pass
@@ -191,19 +297,38 @@ _FX_HIST_TTL = 6 * 3600
 
 
 def fx_history(currency: str) -> dict[str, float]:
-    """date(YYYY-MM-DD) → 当日汇率(每 1 外币折人民币)。只支持 USD / HKD; 取不到返回 {}。"""
+    """date(YYYY-MM-DD) → 当日汇率(每 1 外币折人民币)。只支持 USD / HKD; 取不到返回 {}。
+
+    历史序列的持久层是 PG fx_daily(进程缓存, 见 market_store.warm_fx_cache), 旧了才回源
+    磁盘/BOC, 回源成功后回写 PG。
+    """
     currency = (currency or "").upper()
     if currency not in _FX_HIST_BOC:
         return {}
     cached = _cache_get("fx_hist_all", _FX_HIST_TTL)
     if cached is None:
-        cached = _fx_history_disk()
-        yday = (_cst_now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        if not cached or max(cached.get("USD") or {"": 0}) < yday:   # 盘上那份旧了(只用到昨天为止)才重拉
-            cached = _fx_history_fetch()
+        cached = _fx_history_all()
         if cached:
             _cache_set("fx_hist_all", cached)
     return (cached or {}).get(currency) or {}
+
+
+def _fx_history_all() -> dict:
+    """全货币历史汇率: PG 缓存优先, 旧了/空了走 磁盘→BOC→SAFE, 成功后回写 PG。"""
+    from services import market_store as _ms
+    yday = (_cst_now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    # PG: fx_daily 经进程缓存读出(同步、零 IO)
+    from_db = {c: _ms.fx_history_cached(f"{c}CNY") for c in _FX_HIST_BOC}
+    from_db = {c: v for c, v in from_db.items() if v}
+    if from_db and max(max(v) for v in from_db.values()) >= yday:
+        return from_db
+    cached = _fx_history_disk()
+    if not cached or max(cached.get("USD") or {"": 0}) < yday:   # 盘上那份旧了(只用到昨天为止)才重拉
+        cached = _fx_history_fetch()
+    if cached:
+        for cur, series in cached.items():
+            _ms.spawn(_ms.save_fx_history(f"{cur}CNY", series, source="boc"))
+    return cached
 
 
 def _fx_history_disk() -> dict:
@@ -477,10 +602,19 @@ async def get_realtime_quotes(stock_codes: list[str]) -> dict:
             result[code] = quote
         if result:
             _cache_set(cache_key, result)
-        return result
+            # write-through: 成功的快照落 PG(远端再挂, 这就是下一次的兜底数据)
+            market_store.spawn(market_store.save_quotes(_quote_to_store_rows(result)))
+            return result
+        # 远端一个都没取到 → PG 最后快照兜底(带 stale 标注)
+        stored = await market_store.get_stored_quotes(codes)
+        return _store_rows_to_quotes(stored)
     except Exception as e:
         print(f"[market_data] Error fetching Sina quotes: {e}")
-        return {}
+        try:
+            stored = await market_store.get_stored_quotes(codes)
+            return _store_rows_to_quotes(stored)
+        except Exception:
+            return {}
 
 
 async def get_stock_name(stock_code: str) -> str:
@@ -1538,9 +1672,24 @@ async def get_market_indices() -> list[dict]:
         result = await asyncio.to_thread(_fetch_indices_sina)
         if result:
             _cache_set(cache_key, result)
-        return result
+            market_store.spawn(market_store.save_quotes([
+                {"symbol": r["symbol"], "asset_type": "index", "name": r["name"],
+                 "price": r.get("price"), "change_pct": r.get("change_pct"),
+                 "currency": "CNY", "source": "sina"} for r in result]))
+            return result
+        return await _indices_from_store()
     except Exception:
-        return []
+        return await _indices_from_store()
+
+
+async def _indices_from_store() -> list[dict]:
+    """四大指数的 PG 兜底(远端挂时)。"""
+    stored = await market_store.get_stored_quotes(
+        ["sh000001", "sz399001", "sz399006", "sh000688"])
+    return [{"symbol": r["symbol"], "name": r.get("name") or r["symbol"],
+             "price": r.get("price"), "change_pct": r.get("change_pct"),
+             "stale": True, "fetched_at": r.get("fetched_at")}
+            for r in stored.values() if r.get("price")]
 
 
 # ============================================================
@@ -1801,9 +1950,12 @@ async def get_macro_quotes() -> dict:
         result = await asyncio.to_thread(_fetch_macro_sina)
         if result:
             _cache_set(cache_key, result)
-        return result
+            # write-through: 全球指数/汇率/期货快照落 PG
+            market_store.spawn(market_store.save_quotes(_macro_groups_to_store_rows(result)))
+            return result
+        return await _macro_from_store()
     except Exception:
-        return {}
+        return await _macro_from_store()
 
 
 # ============================================================

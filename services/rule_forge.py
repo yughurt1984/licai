@@ -175,16 +175,20 @@ def render_rules(rules: list[dict]) -> str:
 # ── DB ──────────────────────────────────────────────────
 
 async def _conn():
-    import aiosqlite
-    from config import config as _cfg
-    return await aiosqlite.connect(_cfg.db_path)
+    from db import get_conn
+    return await get_conn()
+
+
+def _uid() -> int:
+    from services.context import current_user_id
+    return current_user_id()
 
 
 async def fetch_messages() -> list[dict]:
     db = await _conn()
     try:
         cur = await db.execute(
-            "SELECT session_id, role, content FROM ask_message ORDER BY session_id, id")
+            "SELECT session_id, role, content FROM ask_message WHERE user_id = ? ORDER BY session_id, id", (_uid(),))
         return [{"session_id": r[0], "role": r[1], "content": r[2]} for r in await cur.fetchall()]
     finally:
         await db.close()
@@ -194,12 +198,12 @@ async def add_candidate(title: str, body: str, evidence: str, session_id=None) -
     """插入候选。同标题已存在(任何状态)就不重复插 —— 免得同一类纠正反复提案。"""
     db = await _conn()
     try:
-        cur = await db.execute("SELECT 1 FROM prompt_rule WHERE title = ?", (title,))
+        cur = await db.execute("SELECT 1 FROM prompt_rule WHERE user_id = ? AND title = ?", (_uid(), title))
         if await cur.fetchone():
             return False
         await db.execute(
-            "INSERT INTO prompt_rule (title, body, evidence, session_id) VALUES (?, ?, ?, ?)",
-            (title, body, evidence[:500], session_id))
+            "INSERT INTO prompt_rule (user_id, title, body, evidence, session_id) VALUES (?, ?, ?, ?, ?)",
+            (_uid(), title, body, evidence[:500], session_id))
         await db.commit()
         return True
     finally:
@@ -210,8 +214,8 @@ async def list_rules(status: str = "") -> list[dict]:
     db = await _conn()
     try:
         sql = ("SELECT id, title, body, status, evidence, created_at FROM prompt_rule"
-               + (" WHERE status = ?" if status else "") + " ORDER BY id")
-        cur = await db.execute(sql, (status,) if status else ())
+               " WHERE user_id = ?" + (" AND status = ?" if status else "") + " ORDER BY id")
+        cur = await db.execute(sql, (_uid(), status) if status else (_uid(),))
         cols = ("id", "title", "body", "status", "evidence", "created_at")
         return [dict(zip(cols, r)) for r in await cur.fetchall()]
     finally:
@@ -222,31 +226,43 @@ async def decide(rule_id: int, status: str) -> bool:
     db = await _conn()
     try:
         cur = await db.execute(
-            "UPDATE prompt_rule SET status = ?, decided_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (status, rule_id))
+            "UPDATE prompt_rule SET status = ?, decided_at = utc_now_text() WHERE user_id = ? AND id = ?",
+            (status, _uid(), rule_id))
         await db.commit()
+        await refresh_rules_cache()
         return cur.rowcount > 0
     finally:
         await db.close()
 
 
-def active_rules_sync() -> list[dict]:
-    """给 _system() 用的同步读取。prompt 每轮都要拼, 不能在这儿开 async。
+# active_rules_sync 是同步函数(agent 每轮拼 system prompt 时调, 不能开 async), PG 时代
+# 无法在同步上下文里安全读库。改走内存缓存: 每次 agent 轮次开头 await refresh_rules_cache()
+# (async 上下文里), 批准/否决规则时也主动刷。读缓存永远不抛错。
+_RULES_CACHE: dict[int, list[dict]] = {}   # {uid: 规则} —— agent 按当前用户拼 system prompt
 
-    读不到就返回空 —— 表还没建、库被占用都不该让整个 agent 起不来。
-    """
+
+async def refresh_rules_cache():
+    """把当前用户生效中的规则拉进内存缓存, 供 active_rules_sync() 同步读取。"""
+    uid = _uid()
     try:
-        import sqlite3
-        from config import config as _cfg
-        con = sqlite3.connect(_cfg.db_path, timeout=1.0)
+        db = await _conn()
         try:
-            rows = con.execute("SELECT title, body FROM prompt_rule "
-                               "WHERE status = 'active' ORDER BY id").fetchall()
+            cur = await db.execute(
+                "SELECT title, body FROM prompt_rule WHERE user_id = ? AND status = 'active' ORDER BY id",
+                (uid,))
+            _RULES_CACHE[uid] = [{"title": t, "body": b} for t, b in await cur.fetchall()]
         finally:
-            con.close()
-        return [{"title": t, "body": b} for t, b in rows]
+            await db.close()
     except Exception:
-        return []
+        pass          # 刷不动就用旧缓存/空 —— 不该让 agent 起不来
+
+
+def active_rules_sync() -> list[dict]:
+    """给 _system() 用的同步读取: 读内存缓存(由 refresh_rules_cache() 维护)。
+
+    缓存没建好就返回空 —— 少一轮规则不致命, agent 起不来才致命。
+    """
+    return _RULES_CACHE.get(_uid(), [])
 
 
 async def known_evidence() -> set:
@@ -257,7 +273,7 @@ async def known_evidence() -> set:
     """
     db = await _conn()
     try:
-        cur = await db.execute("SELECT evidence FROM prompt_rule WHERE evidence <> ''")
+        cur = await db.execute("SELECT evidence FROM prompt_rule WHERE user_id = ? AND evidence <> ''", (_uid(),))
         return {(r[0] or "").strip() for r in await cur.fetchall()}
     finally:
         await db.close()
@@ -306,8 +322,8 @@ async def decide_by_evidence(evidence: str, status: str) -> None:
     db = await _conn()
     try:
         await db.execute(
-            "UPDATE prompt_rule SET status = ?, decided_at = CURRENT_TIMESTAMP "
-            "WHERE evidence = ? AND status = 'pending'", (status, (evidence or "")[:500]))
+            "UPDATE prompt_rule SET status = ?, decided_at = utc_now_text() "
+            "WHERE user_id = ? AND evidence = ? AND status = 'pending'", (status, _uid(), (evidence or "")[:500]))
         await db.commit()
     finally:
         await db.close()
@@ -316,7 +332,7 @@ async def decide_by_evidence(evidence: str, status: str) -> None:
 async def pending_count() -> int:
     db = await _conn()
     try:
-        cur = await db.execute("SELECT COUNT(*) FROM prompt_rule WHERE status = 'pending'")
+        cur = await db.execute("SELECT COUNT(*) FROM prompt_rule WHERE user_id = ? AND status = 'pending'", (_uid(),))
         return (await cur.fetchone())[0]
     finally:
         await db.close()

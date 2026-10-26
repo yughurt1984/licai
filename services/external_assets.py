@@ -214,13 +214,50 @@ async def get_fund_quote(code: str) -> dict | None:
             data = await _fetch_onchain_etf_quote(code)
             if data:
                 _fund_cache[code] = (data, time.time())
+                await _store_fund_quote(code, data, "sina")
                 return data
         except Exception as e:
             print(f"[fund] onchain quote {code} failed, fallback to NAV: {e}")
     data = await asyncio.to_thread(_fetch_fund_sync, code)
     if data:
         _fund_cache[code] = (data, time.time())
-    return data
+        await _store_fund_quote(code, data, "fundgz")
+        return data
+    # 远端没取到 → PG 最后快照兜底
+    return await _fund_from_store(code)
+
+
+async def _store_fund_quote(code: str, data: dict, source: str):
+    """基金报价 write-through 到 quote_latest。场外净值与盘中估值的字段形状不同, 取有值的。"""
+    try:
+        from services import market_store
+        price = data.get("price") or data.get("nav") or data.get("est_nav")
+        prev = data.get("prev_close")
+        await market_store.save_quotes([{
+            "symbol": f"fund_{code}", "asset_type": "fund",
+            "name": data.get("name") or "",
+            "price": price, "prev_close": prev,
+            "change_pct": data.get("change_pct"),
+            "currency": "CNY",
+            "quote_time": str(data.get("nav_date") or data.get("est_time") or ""),
+            "source": source,
+        }])
+    except Exception as e:
+        print(f"[fund] quote 落库失败(不影响报价): {e}")
+
+
+async def _fund_from_store(code: str) -> dict | None:
+    from services import market_store
+    rows = await market_store.get_stored_quotes([f"fund_{code}"])
+    r = rows.get(f"fund_{code}")
+    if not r or not r.get("price"):
+        return None
+    q = {"code": code, "name": r.get("name") or "",
+         "price": r["price"], "change_pct": r.get("change_pct"),
+         "stale": True, "fetched_at": r.get("fetched_at"), "source": "db"}
+    if r.get("prev_close"):
+        q["prev_close"] = r["prev_close"]
+    return q
 
 
 async def search_fund_by_name(keyword: str, limit: int = 5) -> list[dict]:
@@ -310,7 +347,35 @@ async def get_crypto_quote(symbol: str) -> dict | None:
         data["usdcny"] = rate
         data["price_cny"] = round(data["price"] * rate, 2)
         _crypto_cache[symbol] = (data, time.time())
-    return data
+        # write-through: 币价落 PG(远端挂时兜底)
+        try:
+            from services import market_store
+            await market_store.save_quotes([{
+                "symbol": symbol, "asset_type": "crypto", "name": symbol,
+                "price": data.get("price"), "open": None,
+                "high": data.get("high24h"), "low": data.get("low24h"),
+                "change_pct": data.get("change_pct"),
+                "currency": "USD", "source": "okx",
+                "quote_time": str(data.get("timestamp") or ""),
+            }])
+        except Exception as e:
+            print(f"[crypto] quote 落库失败(不影响报价): {e}")
+        return data
+    # 远端没取到 → PG 最后快照兜底
+    try:
+        from services import market_store
+        rows = await market_store.get_stored_quotes([symbol])
+        r = rows.get(symbol)
+        if r and r.get("price"):
+            rate = await asyncio.to_thread(_fetch_usdcny_sync)
+            return {"symbol": symbol, "price": r["price"],
+                    "change_pct": r.get("change_pct"),
+                    "high24h": r.get("high") or 0, "low24h": r.get("low") or 0,
+                    "usdcny": rate, "price_cny": round((r["price"] or 0) * rate, 2),
+                    "stale": True, "fetched_at": r.get("fetched_at"), "source": "db"}
+    except Exception as e:
+        print(f"[crypto] PG 兜底失败: {e}")
+    return None
 
 
 # ---------------------------------------------------------------------------

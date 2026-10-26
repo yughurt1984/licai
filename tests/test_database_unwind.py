@@ -1,21 +1,7 @@
 """Tests for unwind-related DB operations."""
 import asyncio
-import os
-import tempfile
-import pytest
 
-
-@pytest.fixture
-def temp_db(monkeypatch):
-    """Use a temp SQLite file for tests."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    monkeypatch.setattr("config.config.db_path", path)
-    # Reset cached module state if any
-    from database import init_db
-    asyncio.run(init_db())
-    yield path
-    os.unlink(path)
+# temp_db 由 tests/conftest.py 提供(指向每次重建的 PG 测试库)
 
 
 def test_create_and_get_unwind_plan(temp_db):

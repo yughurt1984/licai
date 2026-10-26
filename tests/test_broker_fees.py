@@ -1,20 +1,14 @@
 import asyncio
-import os
-import tempfile
+
 import pytest
-import config as cfg
 import database as db
+
+# fresh_db 的库部分由 tests/conftest.py 的 temp_db 提供(指向每次清空重建的 PG 测试库)
 
 
 @pytest.fixture
-def fresh_db(monkeypatch):
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    # database.get_db() reads config.config.db_path (the singleton instance)
-    monkeypatch.setattr("config.config.db_path", path)
-    asyncio.run(db.init_db())
-    yield path
-    os.remove(path)
+def fresh_db(temp_db):
+    yield
 
 
 def test_seed_creates_zhaoshang_yinhe(fresh_db):

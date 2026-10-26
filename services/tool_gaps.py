@@ -156,17 +156,14 @@ async def record(tool: str, args: dict, out) -> None:
         kind, detail = hit
         market = _market_of(args)
         sample = json.dumps(args or {}, ensure_ascii=False)[:160]
-        import aiosqlite
-        # 用单例 config, 不是 Config 类 —— 类属性只是 dataclass 的默认值, 改它不生效,
-        # 会静默连到默认的 portfolio.db(真实账本)。这个坑今天踩了三次。
-        from config import config as _cfg
-        async with aiosqlite.connect(_cfg.db_path) as db:
+        from db import get_conn
+        async with await get_conn() as db:
             await db.execute(
                 """INSERT INTO tool_gap (tool, kind, market, hits, detail, sample)
                    VALUES (?, ?, ?, 1, ?, ?)
                    ON CONFLICT(tool, kind, market) DO UPDATE SET
-                     hits = hits + 1, detail = excluded.detail,
-                     sample = excluded.sample, last_seen = CURRENT_TIMESTAMP""",
+                     hits = tool_gap.hits + 1, detail = excluded.detail,
+                     sample = excluded.sample, last_seen = utc_now_text()""",
                 (tool, kind, market, detail, sample))
             await db.commit()
     except Exception:
@@ -175,12 +172,14 @@ async def record(tool: str, args: dict, out) -> None:
 
 async def report(min_hits: int = 1) -> list[dict]:
     """读台账, 按命中次数倒序。"""
-    import aiosqlite
-    from config import config as _cfg
-    async with aiosqlite.connect(_cfg.db_path) as db:
+    from db import get_conn
+    db = await get_conn()
+    try:
         cur = await db.execute(
             """SELECT tool, kind, market, hits, detail, sample, first_seen, last_seen
                FROM tool_gap WHERE hits >= ? ORDER BY hits DESC, tool""", (min_hits,))
         rows = await cur.fetchall()
+    finally:
+        await db.close()
     cols = ("tool", "kind", "market", "hits", "detail", "sample", "first_seen", "last_seen")
     return [dict(zip(cols, r)) for r in rows]

@@ -137,10 +137,8 @@ def test_rmb_declared_and_missing_hkd_need_attention():
 # ---------- 接口: 建议 → 一键记入 → 不再重复 ----------
 
 @pytest.fixture
-def fresh_db(monkeypatch, tmp_path):
+def fresh_db(temp_db):
     import database as db
-    monkeypatch.setattr("config.config.db_path", str(tmp_path / "t.db"))
-    asyncio.run(db.init_db())
     return db
 
 

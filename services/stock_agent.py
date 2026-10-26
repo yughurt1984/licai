@@ -36,107 +36,29 @@ _code_name_cache: tuple[dict, dict, float] | None = None
 _etf_codes: set = set()      # 全表里属于场内基金的代码, 搜索排序用(个股优先于 ETF)
 
 
-def _load_a_code_name_sync():
-    import os
-    for k in list(os.environ):
-        if "proxy" in k.lower():
-            os.environ.pop(k, None)
-    import akshare as ak
-    df = ak.stock_info_a_code_name()
-    name2code, code2name = {}, {}
-    for _, r in df.iterrows():
-        code = str(r.get("code") or "").strip()
-        name = str(r.get("name") or "").strip()
-        if code and name:
-            name2code[name] = code
-            code2name[code] = name
-    # 并入场内 ETF/LOF: stock_info_a_code_name 只有个股, ETF 此前只能靠"6位数字代码"
-    # 兜底分支精确命中, 按名称/前缀/拼音一律查不到(如 588710 科创半导体设备ETF华泰柏瑞)。
-    # 并进同一张表后, 名称匹配/子串/拼音索引(从这张表建)对 ETF 一并生效。
-    # 走新浪源: 东财 fund_etf_spot_em 在本机被网关拦。失败则跳过, 不影响个股。
-    try:
-        edf = ak.fund_etf_category_sina(symbol="ETF基金")
-        for _, r in edf.iterrows():
-            code = str(r.get("代码") or "").strip()[-6:]      # 源带 sh/sz 前缀
-            name = str(r.get("名称") or "").strip()
-            if not (len(code) == 6 and code.isdigit() and name):
-                continue
-            _etf_codes.add(code)
-            code2name.setdefault(code, name)
-            name2code.setdefault(name, code)                  # 不覆盖同名个股
-    except Exception as e:
-        print(f"[stock_agent] ETF 全表并入失败(个股不受影响): {e}")
-    return name2code, code2name
-
-
-_dict_refreshing = False
-
-
-async def _refresh_symbol_dict_bg():
-    """后台重拉全表并落盘。只在库里数据偏旧时触发, 不阻塞当次搜索。"""
-    global _dict_refreshing, _code_name_cache
-    if _dict_refreshing:
-        return
-    _dict_refreshing = True
-    try:
-        from database import save_symbol_dict
-        n2c, c2n = await asyncio.to_thread(_load_a_code_name_sync)
-        if c2n:
-            await save_symbol_dict([(cd, nm, 1 if cd in _etf_codes else 0)
-                                    for cd, nm in c2n.items()])
-            _code_name_cache = (n2c, c2n, _time.time())
-            print(f"[stock_agent] 代码字典已刷新落盘: {len(c2n)} 条")
-    except Exception as e:
-        print(f"[stock_agent] 代码字典后台刷新失败: {e}")
-    finally:
-        _dict_refreshing = False
-
-
 async def _code_name_maps():
-    """代码↔名称全表。内存缓存 → SQLite → 现拉。
+    """代码↔名称全表, **只从 PG(symbol_dict 表)读** —— 不再从互联网拉全表。
 
-    现拉要 20s+(stock_info_a_code_name 17 个分页约 21s + ETF 表 2.4s), 每次重启都
-    重付会让首次搜索卡几十秒。落盘后重启直接用库里的, 只有库为空才同步拉;
-    库里超过 3 天则照常返回旧数据, 同时后台刷新, 用户不等。
+    表数据来源: 旧 SQLite 迁移(scripts/migrate_sqlite_to_pg.py)带来的 7289+ 条。
+    库里为空时返回空表: 搜索退化成只能按精确代码/实时报价匹配, 不阻塞、不联网。
+    实时报价不受影响 —— 那条链路保留互联网获取(market_data read-through)。
     """
     global _code_name_cache
     if _code_name_cache and _time.time() - _code_name_cache[2] < 43200:
         return _code_name_cache[0], _code_name_cache[1]
-    # 1) 库里有就先用(顺带恢复 ETF 标记, 搜索排序要用)
     try:
         from database import load_symbol_dict
-        rows, ts = await load_symbol_dict()
-        if rows:
-            n2c, c2n = {}, {}
-            for cd, nm, is_etf in rows:
-                c2n[cd] = nm
-                n2c.setdefault(nm, cd)
-                if is_etf:
-                    _etf_codes.add(cd)
-            _code_name_cache = (n2c, c2n, _time.time())
-            stale = True
-            try:
-                from datetime import datetime as _dt
-                stale = (_dt.utcnow() - _dt.fromisoformat(str(ts)[:19])).days >= 3
-            except Exception:
-                pass
-            if stale:
-                asyncio.create_task(_refresh_symbol_dict_bg())
-            return n2c, c2n
-    except Exception as e:
-        print(f"[stock_agent] 读代码字典失败, 回退现拉: {e}")
-    # 2) 库为空(首次运行): 只能同步拉一次, 之后落盘
-    try:
-        n2c, c2n = await asyncio.to_thread(_load_a_code_name_sync)
+        rows, _ts = await load_symbol_dict()
+        n2c, c2n = {}, {}
+        for cd, nm, is_etf in rows:
+            c2n[cd] = nm
+            n2c.setdefault(nm, cd)
+            if is_etf:
+                _etf_codes.add(cd)
         _code_name_cache = (n2c, c2n, _time.time())
-        try:
-            from database import save_symbol_dict
-            await save_symbol_dict([(cd, nm, 1 if cd in _etf_codes else 0)
-                                    for cd, nm in c2n.items()])
-        except Exception:
-            pass
         return n2c, c2n
-    except Exception:
+    except Exception as e:
+        print(f"[stock_agent] 读代码字典失败: {e}")
         return ({}, {}) if not _code_name_cache else (_code_name_cache[0], _code_name_cache[1])
 
 
@@ -3914,6 +3836,15 @@ async def _llm_round(messages: list):
     """
     for attempt in range(_OVERLOAD_ROUND_RETRIES + 1):
         try:
+            if attempt == 0:
+                # 规则/画像是同步读缓存的(见 rule_forge.refresh_rules_cache / user_memory
+                # .refresh_active_cache), 在 async 轮次开头刷一次, _system() 拿到的才是最新。
+                try:
+                    from services import rule_forge as _rf
+                    await _rf.refresh_rules_cache()
+                    await _user_memory.refresh_active_cache()
+                except Exception:
+                    pass
             resp = await asyncio.to_thread(
                 _llm.call_claude_messages, messages, _system(), _MODEL, _ROUND_MAX_TOKENS,
                 await _active_tools(), thinking=_THINKING, effort=_EFFORT)

@@ -1,7 +1,9 @@
 """OKX API v5 client (read-only for trading bot + account).
 
-Credentials stored in macOS Keychain via `security` CLI. Service name: `okx-trading-api`.
-Format: JSON {api_key, secret_key, passphrase}.
+凭证按用户存 PG(app_config 个人键 okx_credentials, JSON {api_key, secret_key, passphrase})。
+老版本存 macOS Keychain —— Windows 上 security CLI 不存在, 功能本来就不可用; 多用户改造
+时顺势迁库。签名请求在 to_thread 里跑(同步), 读的是 refresh_credentials() 预热好的进程内
+缓存, 不碰 IO。
 
 设计约束(不可变更): 本客户端只使用只读 API Key, 只读取用户自有账户数据;
 永不添加下单/划转/交易执行类接口 —— 这是本项目的合规边界, 不是待办。
@@ -38,74 +40,57 @@ _okx_direct_session = _requests.Session()
 _okx_direct_session.trust_env = False
 
 
-# --- Credential storage (macOS Keychain, explicit login.keychain-db path) ---
+# --- Credential storage (PG, app_config 个人键 okx_credentials, 按当前用户) ---
 
-def _login_keychain() -> str | None:
-    """Absolute path to the user's login.keychain-db."""
-    home = os.path.expanduser("~")
-    p = os.path.join(home, "Library/Keychains/login.keychain-db")
-    return p if os.path.exists(p) else None
+_creds_cache: dict[int, Optional[dict]] = {}   # {uid: 凭证|None}, refresh_credentials() 维护
 
 
-def save_credentials(api_key: str, secret_key: str, passphrase: str) -> tuple[bool, str]:
+async def refresh_credentials() -> None:
+    """把当前用户的凭证读进进程缓存(签名请求是同步的, 读缓存不读库)。"""
+    from services.context import current_user_id
+    from database import get_config
+    uid = current_user_id()
+    raw = await get_config("okx_credentials")
+    try:
+        _creds_cache[uid] = json.loads(raw) if raw else None
+    except Exception:
+        _creds_cache[uid] = None
+
+
+async def save_credentials(api_key: str, secret_key: str, passphrase: str) -> tuple[bool, str]:
     """Returns (ok, error_detail)."""
-    blob = json.dumps({"api_key": api_key, "secret_key": secret_key, "passphrase": passphrase})
-    kc = _login_keychain()
-    args = ["security", "add-generic-password",
-            "-s", KEYCHAIN_SERVICE,
-            "-a", KEYCHAIN_ACCOUNT,
-            "-w", blob,
-            "-U"]
-    if kc:
-        args.append(kc)
-    try:
-        # Delete any existing entry first
-        subprocess.run(
-            ["security", "delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT]
-            + ([kc] if kc else []),
-            capture_output=True, timeout=5,
-        )
-        r = subprocess.run(args, capture_output=True, text=True, timeout=10)
-        if r.returncode != 0:
-            return False, (r.stderr or r.stdout or f"rc={r.returncode}").strip()
-        # Immediately verify the item is readable
-        verify = load_credentials()
-        if not verify:
-            return False, "add 成功但立即读取不到（Keychain 被锁？）"
-        return True, ""
-    except Exception as e:
-        return False, str(e)
+    from database import set_config
+    await set_config("okx_credentials", json.dumps(
+        {"api_key": api_key, "secret_key": secret_key, "passphrase": passphrase}))
+    await refresh_credentials()
+    return True, ""
 
 
-def load_credentials() -> Optional[dict]:
-    """Return {api_key, secret_key, passphrase} or None."""
-    kc = _login_keychain()
-    args = ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"]
-    if kc:
-        args.append(kc)
-    try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=5)
-        if r.returncode != 0:
-            return None
-        return json.loads(r.stdout.strip())
-    except Exception:
-        return None
+async def load_credentials() -> Optional[dict]:
+    """Return {api_key, secret_key, passphrase} or None(带一次缓存预热)。"""
+    from services.context import current_user_id
+    uid = current_user_id()
+    if uid not in _creds_cache:
+        await refresh_credentials()
+    return _creds_cache.get(uid)
 
 
-def clear_credentials() -> bool:
-    kc = _login_keychain()
-    args = ["security", "delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT]
-    if kc:
-        args.append(kc)
-    try:
-        r = subprocess.run(args, capture_output=True, timeout=5)
-        return r.returncode == 0
-    except Exception:
-        return False
+def _load_credentials_sync() -> Optional[dict]:
+    """同步读缓存(_authed_get 在 to_thread 里用, 不碰 IO)。"""
+    from services.context import current_user_id
+    return _creds_cache.get(current_user_id())
 
 
-def has_credentials() -> bool:
-    return load_credentials() is not None
+async def clear_credentials() -> bool:
+    from database import set_config
+    await set_config("okx_credentials", "")
+    from services.context import current_user_id
+    _creds_cache[current_user_id()] = None
+    return True
+
+
+async def has_credentials() -> bool:
+    return await load_credentials() is not None
 
 
 # --- Request signing ---
@@ -124,7 +109,7 @@ def _timestamp() -> str:
 
 def _authed_get(path: str, params: dict | None = None) -> dict | None:
     """Execute a signed GET request. `path` should start with /api/v5/..."""
-    creds = load_credentials()
+    creds = _load_credentials_sync()   # to_thread 同步上下文, 读 refresh_credentials() 的缓存
     if not creds:
         return {"error": "credentials not configured"}
 
@@ -585,6 +570,6 @@ def _spot_sync() -> dict:
 
 async def spot_balances() -> dict:
     """策略之外的现货(交易账户可用 + 资金账户), 不含被策略冻结的部分。"""
-    if not has_credentials():
+    if not await has_credentials():
         return {"ok": False, "errors": ["OKX 凭证未配置"], "currencies": [], "frozen": []}
     return await asyncio.to_thread(_spot_sync)

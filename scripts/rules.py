@@ -93,15 +93,18 @@ async def main() -> int:
 
     import config
     if args.db:
-        config.config.db_path = args.db
-    print(f"账本={config.config.db_path}\n")
+        config.config.pg_dsn = args.db
+    print(f"账本={config.config.pg_dsn}\n")
 
     from services import rule_forge as rf
     if args.clear_pending:
-        import aiosqlite
-        async with aiosqlite.connect(config.config.db_path) as db:
+        from db import get_conn
+        db = await get_conn()
+        try:
             cur = await db.execute("DELETE FROM prompt_rule WHERE status = 'pending'")
             await db.commit()
+        finally:
+            await db.close()
         print(f"清掉 {cur.rowcount} 条待审")
         return 0
     if args.mine:

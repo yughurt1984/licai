@@ -190,6 +190,7 @@ async def clear_provider_config():
 async def get_zsxq_config():
     """当前配置 + 端点健康度。绝不回传含 api_key 的 URL, 只给脱敏 host+path。"""
     import asyncio
+    await zsxq_client.refresh_config()          # 按当前用户加载个人配置进缓存
     h = await asyncio.to_thread(zsxq_client.health)
     # 显式列字段, 不 **h —— health 里也有个同名的计数字段, 盲展开会把 groups 列表覆盖成整数,
     # 前端拿到数字再 .find 就白屏了(实测踩过)
@@ -216,9 +217,11 @@ async def set_zsxq_config(data: ZsxqConfig):
     if data.url is not None:
         await set_config("zsxq_mcp_url", data.url)
         zsxq_client.configure(url=data.url)
+        await zsxq_client.refresh_config()
     if data.groups is not None:
         await set_config("zsxq_groups", _json.dumps(data.groups, ensure_ascii=False))
         zsxq_client.configure(groups=data.groups)
+        await zsxq_client.refresh_config()
     return {"message": "saved", "enabled": zsxq_client.is_enabled(),
             "endpoint": zsxq_client.endpoint_label(),
             "groups": zsxq_client.configured_groups()}
@@ -280,6 +283,7 @@ class FeishuConfig(BaseModel):
 
 @router.get("/feishu")
 async def get_feishu_config():
+    await feishu_notify.refresh_config()        # 按当前用户加载个人配置进缓存
     url = await get_config("feishu_webhook_url") or ""
     return {
         "webhook_url": url,
@@ -292,6 +296,7 @@ async def get_feishu_config():
 async def save_feishu_config(data: FeishuConfig):
     await set_config("feishu_webhook_url", data.webhook_url)
     feishu_notify.configure(data.webhook_url)
+    await feishu_notify.refresh_config()
     return {"message": "保存成功", "enabled": feishu_notify.is_enabled()}
 
 
@@ -304,6 +309,7 @@ async def set_feishu_mute(data: FeishuMute):
     """切换飞书推送静音 (用于前端"通知开/关"按钮联动后端)."""
     feishu_notify.set_muted(data.muted)
     await set_config("feishu_muted", "1" if data.muted else "0")
+    await feishu_notify.refresh_config()
     return {"muted": data.muted, "enabled": feishu_notify.is_enabled()}
 
 

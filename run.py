@@ -53,26 +53,30 @@ from services.sector_matrix import sector_matrix_prewarm_loop
 from services.coiled_scanner import coiled_prewarm_loop
 from services.portfolio_curve import curve_prewarm_loop
 from api.broker_routes import router as broker_router
+from api.auth_routes import router as auth_router
 from api.ws import (router as ws_router, price_monitor_loop, backup_loop, briefing_loop,
                     dca_loop, eod_summary_loop, rule_mine_loop)
 from services import feishu_notify
 
 
 async def _symbol_dict_prewarm():
-    """搜股底表(代码↔名称全表 + 拼音索引)后台预热。
+    """搜股底表(代码↔名称全表 + 拼音索引)后台预热 —— 只读 PG 的 symbol_dict 表, 不联网。
 
-    库为空时现拉要 20s+, 若等用户第一次搜索才建, 那一次就卡几十秒。启动后台建好,
-    搜索永远走缓存。库里已有数据时这步只是读库 + 建拼音索引(<1s)。"""
+    表数据来自旧 SQLite 迁移(scripts/migrate_sqlite_to_pg.py)。库为空时这只预热返回
+    0 条(搜索退化成按精确代码匹配), 不会现拉互联网。
+    """
     try:
         await asyncio.sleep(2)                     # 让端口先起来, 不拖慢启动
         from services.stock_agent import _code_name_maps, _pinyin_rows
-        await _code_name_maps()
+        n2c, _c2n = await _code_name_maps()
         rows = await _pinyin_rows()
+        if not n2c:
+            print("[startup] 搜股底表为空: 跑 python scripts/migrate_sqlite_to_pg.py 从旧库带入, 或手工补 symbol_dict 表")
         print(f"[startup] 搜股底表就绪: {len(rows)} 条")
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        print(f"[startup] 搜股底表预热失败(搜索首次会现拉): {e}")
+        print(f"[startup] 搜股底表预热失败: {e}")
 
 
 async def plan_monitor_loop():
@@ -89,16 +93,24 @@ async def plan_monitor_loop():
             await feishu_notify.send_text(text)
         except Exception as e:
             print(f"[plan] 飞书推送失败: {e}")
-        await broadcast(ev)
+        # 盯价跑在 run_as_user(uid) 里, 推送只发给该用户的连接
+        from services.context import current_user_id
+        await broadcast(ev, user_id=current_user_id())
 
-    last_expire = ""
+    last_expire: dict[int, str] = {}     # {uid: 最后过期清理日}
+    from database import list_user_ids
+    from services.context import run_as_user
     while True:
         try:
-            if last_expire != tp.today():
-                await tp.expire_old()          # 每天一次: 过了生效日还没触发的计划标过期
-                last_expire = tp.today()
             if market_open("A"):
-                await tp.monitor_once(notify)
+                for uid in await list_user_ids():
+                    with run_as_user(uid):
+                        await feishu_notify.refresh_config()
+                        if last_expire.get(uid) != tp.today():
+                            await tp.expire_old()   # 每天一次: 过了生效日还没触发的计划标过期
+                            last_expire[uid] = tp.today()
+                        # notify 里 broadcast 按当前用户定向推送(run_as_user 上下文)
+                        await tp.monitor_once(notify)
                 await asyncio.sleep(15)
             else:
                 await asyncio.sleep(60)
@@ -125,15 +137,15 @@ async def lifespan(app: FastAPI):
     from services.startup_config import apply_saved_config
     await apply_saved_config()
 
-    # Restore saved feishu webhook config + 静音状态
-    url = await get_config("feishu_webhook_url")
-    if url:
-        feishu_notify.configure(url)
-    muted_val = await get_config("feishu_muted")
-    if muted_val == "1":
-        feishu_notify.set_muted(True)
-    if url:
-        print(f"飞书推送 {'静音中' if feishu_notify.is_muted() else '已启用'}")
+    # 行情库(fx_daily)汇率缓存预热: 同步读路径(fx_rate_on 等)靠它零 IO 取 PG 数据
+    try:
+        from services import market_store
+        await market_store.warm_fx_cache()
+    except Exception as e:
+        print(f"[startup] 汇率缓存预热失败(用磁盘/远端兜底): {e}")
+
+    # 飞书 webhook 是个人配置(PER_USER_KEYS): 不在启动时恢复, 由各后台循环在
+    # run_as_user(uid) 里 feishu_notify.refresh_config() 按用户加载。
     task1 = asyncio.create_task(price_monitor_loop())
     task2 = asyncio.create_task(backup_loop())
     task3 = asyncio.create_task(briefing_loop())
@@ -146,7 +158,7 @@ async def lifespan(app: FastAPI):
     task10 = asyncio.create_task(_symbol_dict_prewarm())
     task11 = asyncio.create_task(rule_mine_loop())
     task12 = asyncio.create_task(plan_monitor_loop())
-    print(f"理财助手已启动: http://localhost:{config.port}")
+    print(f"全资产看板已启动: http://localhost:{config.port}")
     yield
     task1.cancel()
     task2.cancel()
@@ -160,11 +172,44 @@ async def lifespan(app: FastAPI):
     task10.cancel()
     task11.cancel()
     task12.cancel()
+    try:
+        from services import market_store
+        await market_store.close_pool()
+    except Exception:
+        pass
 
 
-app = FastAPI(title="理财助手", lifespan=lifespan)
+app = FastAPI(title="全资产看板", lifespan=lifespan)
 
 from services.origin_guard import host_ok as _host_ok, LOCAL_HOSTS as _LOCAL_HOSTS
+from services.context import set_current_user as _set_current_user
+
+# /api 里不需要登录就能访问的路径(注册/登录本身, 以及给已开标签页检测 bundle 版本的)
+_AUTH_WHITELIST = {"/api/auth/login", "/api/auth/register", "/api/app-version"}
+
+
+async def _resolve_session_user(request):
+    """cookie → 用户。有效返回 dict, 无效/缺失返回 None。"""
+    token = request.cookies.get("licai_session") or ""
+    if not token:
+        return None
+    from services import auth
+    return await auth.resolve_session(token)
+
+
+@app.middleware("http")
+async def auth_gate(request, call_next):
+    """多用户鉴权: /api/* 全部要有效会话(白名单除外), 校验通过把 user_id 注入上下文
+    —— 之后所有 database.py 的用户数据 SQL 自动按该用户过滤。静态页面放行,
+    前端启动时用 /api/auth/me 的结果决定渲染主界面还是登录页。"""
+    from fastapi.responses import JSONResponse
+    path = request.url.path
+    if path.startswith("/api/"):
+        user = await _resolve_session_user(request)
+        if user is None and path not in _AUTH_WHITELIST:
+            return JSONResponse({"detail": "未登录"}, status_code=401)
+        _set_current_user(user["user_id"] if user else 0)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -205,6 +250,7 @@ app.include_router(dca_router)
 app.include_router(news_router)
 app.include_router(ask_router)
 app.include_router(broker_router)
+app.include_router(auth_router)
 app.include_router(ws_router)
 
 

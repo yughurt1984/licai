@@ -184,10 +184,8 @@ def test_today_pnl_flow_reads_split_ratio_and_auto_fee():
 # ---------- 库 ----------
 
 @pytest.fixture
-def fresh_db(monkeypatch, tmp_path):
+def fresh_db(temp_db):
     import database as db
-    monkeypatch.setattr("config.config.db_path", str(tmp_path / "t.db"))
-    asyncio.run(db.init_db())
     return db
 
 

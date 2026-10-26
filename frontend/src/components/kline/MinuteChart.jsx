@@ -84,12 +84,12 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
       layout: { background: { color: 'transparent' }, textColor: '#9aa0a6', fontSize: 11,
         attributionLogo: false,
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif' },
-      grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+      grid: { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
       crosshair: { mode: CrosshairMode.Normal,
         vertLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 },
         horzLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 } },
-      rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)', scaleMargins: { top: 0.06, bottom: 0.28 } },
-      timeScale: { borderColor: 'rgba(255,255,255,0.08)', rightOffset: 2, minBarSpacing: 0.05, fixLeftEdge: true, fixRightEdge: true,
+      rightPriceScale: { borderColor: 'rgba(0,0,0,0.10)', scaleMargins: { top: 0.06, bottom: 0.28 } },
+      timeScale: { borderColor: 'rgba(0,0,0,0.10)', rightOffset: 2, minBarSpacing: 0.05, fixLeftEdge: true, fixRightEdge: true,
         // 序号 → 真实 HH:MM(查 rowsRef); 下标越界给空串
         tickMarkFormatter: (t) => { const r = rowsRef.current[t]; return r ? r.time.slice(0, 5) : '' } },
     })

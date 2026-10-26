@@ -11,11 +11,11 @@
 <!-- badge 必须整行写在一起: 源码里换行会被渲染成一个一列, 排不成横排 -->
 [![release](https://img.shields.io/github/v/release/SnowWarri0r/licai?style=flat-square&label=release&color=c8a876&labelColor=201f2a)](https://github.com/SnowWarri0r/licai/releases) [![license](https://img.shields.io/github/license/SnowWarri0r/licai?style=flat-square&color=85a0b4&labelColor=201f2a)](./LICENSE) [![stars](https://img.shields.io/github/stars/SnowWarri0r/licai?style=flat-square&color=d4a05c&labelColor=201f2a)](https://github.com/SnowWarri0r/licai/stargazers) [![last commit](https://img.shields.io/github/last-commit/SnowWarri0r/licai?style=flat-square&color=5fa86c&labelColor=201f2a)](https://github.com/SnowWarri0r/licai/commits/main)
 
-[![Python](https://img.shields.io/badge/Python-3.9+-c8a876?style=flat-square&labelColor=201f2a&logo=python&logoColor=c8a876)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-backend-7a9b8e?style=flat-square&labelColor=201f2a&logo=fastapi&logoColor=7a9b8e)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React_+_Vite-frontend-85a0b4?style=flat-square&labelColor=201f2a&logo=react&logoColor=85a0b4)](https://react.dev/) [![SQLite](https://img.shields.io/badge/SQLite-local--first-d4a05c?style=flat-square&labelColor=201f2a&logo=sqlite&logoColor=d4a05c)](https://www.sqlite.org/) [![PWA](https://img.shields.io/badge/PWA-installable-5fa86c?style=flat-square&labelColor=201f2a)](#技术栈)
+[![Python](https://img.shields.io/badge/Python-3.9+-c8a876?style=flat-square&labelColor=201f2a&logo=python&logoColor=c8a876)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-backend-7a9b8e?style=flat-square&labelColor=201f2a&logo=fastapi&logoColor=7a9b8e)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React_+_Vite-frontend-85a0b4?style=flat-square&labelColor=201f2a&logo=react&logoColor=85a0b4)](https://react.dev/) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-storage-4a7096?style=flat-square&labelColor=201f2a&logo=postgresql&logoColor=4a7096)](https://www.postgresql.org/) [![PWA](https://img.shields.io/badge/PWA-installable-5fa86c?style=flat-square&labelColor=201f2a)](#技术栈)
 
 **没有云端** · **没有账号** · **数据全部跑在你自己的机器上**
 
-SQLite 单文件存储，你随时可以拷走、删掉、备份
+PostgreSQL 单实例存储（账本 + 行情两个 schema），`pg_dump` 一条命令备份还原
 
 **只给客观信息，不给买卖建议。**
 
@@ -92,6 +92,12 @@ cd licai
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
+# PostgreSQL (账本 ledger schema + 行情 market schema 的存储)
+# 本机装好 PostgreSQL 16 后, 默认连接串即可; 密码不同就在项目根目录 .env 里写:
+#   PG_DSN=postgresql://postgres:你的密码@localhost:5432/licai
+# 库不存在会在首次启动时自动创建。老 SQLite 用户迁移:
+#   python scripts/migrate_sqlite_to_pg.py   # portfolio.db → PG 一次性导入
+
 # 复制配置模板
 cp config.example.py config.py
 # 按需修改: commission_rate (你的券商佣金率) / commission_min (单笔最低佣金)
@@ -104,15 +110,17 @@ python run.py
 # 访问 http://localhost:8888
 ```
 
-第一次启动会自动建空 SQLite (`portfolio.db`) 在项目根目录。
+第一次启动会自动建空数据库(账本 `ledger` schema + 行情库 `market` schema)。每日 20:00 自动
+`pg_dump` 备份到 `backups/`(保留 30 份, 需 `pg_dump` 在 PATH 或标准安装路径)。行情库覆盖度
+可访问 `/api/market/db-status` 观测。
 
 ### 演示模式（不录数据先看效果）
 
 ```bash
-python scripts/seed_demo.py --use   # 备份你的 DB + 写入演示数据 (4 只 A股 + 11 笔外部资产)
+python scripts/seed_demo.py --use   # pg_dump 备份 + 写入演示数据 (4 只 A股 + 11 笔外部资产)
 # 重启服务器, 看演示效果
 
-python scripts/seed_demo.py --restore   # 看完恢复真实 DB
+python scripts/seed_demo.py --restore   # 看完恢复真实数据
 ```
 
 也可以 `--peek` 只生成 `portfolio.demo.db` 不动当前 DB。
@@ -162,7 +170,7 @@ export TDX_BASE_URL=http://localhost:8080     # 环境变量
 
 - **只读白名单** — 远端 21 个工具里有 `create_topic` / `create_topic_comment` / `set_topic_digested` / `set_topic_tags` / `create_note` 这些写口，白名单（`_READ_TOOLS`）只放行取数的 10 个；万能口 `call_zsxq_api` 仅在「`GET` + 取文件直链」这一条组合下放行（见下方附件那条），其余一律拒且不发请求（有测试盯着）
 - **可按星主收窄** — `scope=by_owner` 每个星球单独开关，默认不开：实测有的星球发帖人不算「星主/合伙人」，一开就筛成空（只剩几个月前的附件帖），所以默认全量、内容太杂再收
-- **原文不落库** — 只在内存里过一遍送进模型，落 SQLite 的只该是提炼后的结论；不做成付费内容的本地镜像
+- **原文不落库** — 只在内存里过一遍送进模型，落库的只该是提炼后的结论；不做成付费内容的本地镜像
 - **附件按需读、不批量爬** — 帖子里的研报/会议记录（docx·pdf）可按 `file_id` 单份取正文（`read_zsxq_file`），字节只过内存不落盘、有大小上限、扫描件取不到文字会如实说明。取直链要走远端那个万能 `call_zsxq_api`，所以额外钉死成**只允许 `GET` + 只允许「取文件直链」这一条 path**（有测试覆盖 POST / 其他 path / 路径穿越都被拒）。**平台对每个附件按次计数**，所以只做按需单取，不做遍历下载
 - **单独一档可信度** — 返回带 `stance=opinion`，回答里按 `[星球观点]` 标注并带作者日期；数字与结论一律以 `[实测]`/`[联网]` 为准，原文里的操作倾向只当「有人这么说」的舆情记录
 
@@ -386,7 +394,7 @@ prompt 里已经堆了几十条读盘原则，靠"再加一句嘱咐"来修 bug 
 
 （雷达本身是「你 vs 参照物」，所以住在【我的·绩效·基准】；下面两件是市场级参照，分别在【市场·开盘·情绪】和【市场·板块】。）
 
-还有两件市场级参照，都是**逐交易日收盘定格进 SQLite**、越攒越长：
+还有两件市场级参照，都是**逐交易日收盘定格进数据库**、越攒越长：
 
 **情绪周期时间轴**（在情绪温度计里）
 
@@ -699,7 +707,7 @@ A股 / 港股 / 美股个股实时报价全部走 Sina 免费接口，无需 API
 
 ## 技术栈
 
-**后端**：FastAPI + SQLite + akshare + Sina API + 东方财富 API + 同花顺 API + Claude API（OAuth，含 tool-calling agent + SSE 流式）
+**后端**：FastAPI + PostgreSQL (asyncpg) + akshare + Sina API + 东方财富 API + 同花顺 API + Claude API（OAuth，含 tool-calling agent + SSE 流式）
 
 **前端**：React + Vite + Tailwind CSS + PWA（可装到桌面）
 
@@ -723,7 +731,7 @@ A股 / 港股 / 美股个股实时报价全部走 Sina 免费接口，无需 API
 - 行业板块：同花顺（akshare 内置）
 - 数字资产：交易所公开 ticker
 - 问问市场 agent：东财 个股资金流(fflow/kline) / 龙虎榜(全榜单+席位明细, akshare; 营业部历史明细走 datacenter dataapi) / 涨跌家数与涨跌分布(push2/push2ex) / F10 所属概念 / 财务摘要 / 港美股财务(em) / 板块成分 / 个股公告(np-anotice) / 业绩预告(akshare)
-- 板块成交份额 / 情绪周期档案：同花顺板块汇总(akshare) / 东财涨停池系(akshare), 逐日定格进本地 SQLite
+- 板块成交份额 / 情绪周期档案：同花顺板块汇总(akshare) / 东财涨停池系(akshare), 逐日定格进本地数据库
 - 盘口异动：东财交易所盘口异动事件流(akshare stock_changes_em, 22 类事件逐类解析)
 - 历史分时（K线浮层）：通达信协议，可选，见[可选：通达信数据源](#tdx)；昨收基准的除权还原用 东财分红送配明细（akshare）
 - 自由查股搜索：与 agent 同一条 resolve 链路（持仓优先 → A股全表 → 6位代码直查 → 美股 ticker）
@@ -789,7 +797,9 @@ licai/
 │   └── news              # 新闻抓取
 ├── frontend/             # React + Vite
 ├── config.example.py     # 配置模板
-├── database.py           # SQLite + schema
+├── database.py           # PostgreSQL 账本库 (ledger schema) + schema
+├── db.py                 # asyncpg 池 + aiosqlite 兼容层 (SQL 方言转译)
+├── services/market_store.py  # 行情库 (market schema): quote_latest / fx_daily read-through
 ├── run.py                # FastAPI entry
 └── requirements.txt
 ```
@@ -854,7 +864,7 @@ UI 行为（hover 出行内操作、弹窗开关、切页）**没有**自动化�
 
 ## 数据隐私
 
-- **所有数据存本地 SQLite**，不上传任何云端
+- **所有数据存本地 PostgreSQL**，不上传任何云端
 - 实时行情从公开接口拉，**不需要任何账号**
 - 交易所 / LLM 凭证存数据库本地，飞书 webhook 也是
 - `portfolio.db` 已在 `.gitignore` 里，不会被 commit

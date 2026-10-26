@@ -12,6 +12,11 @@ from zoneinfo import ZoneInfo
 
 from database import get_db
 
+
+def _uid() -> int:
+    from services.context import current_user_id
+    return current_user_id()
+
 _CST = ZoneInfo("Asia/Shanghai")
 OPS = ("<=", ">=")
 SIDES = {"BUY": "买入", "SELL": "卖出"}
@@ -99,12 +104,12 @@ async def add_plans(items: list[dict], session_id: int | None = None) -> dict:
             inv = float(inv) if inv not in (None, "") and inv_op else None
             name = await _name_of(code) or code
             if it.get("replace_id"):
-                await db.execute("UPDATE trade_plan SET status='cancelled' WHERE id=? AND status IN ('active','triggered')",
-                                 (int(it["replace_id"]),))
+                await db.execute("UPDATE trade_plan SET status='cancelled' WHERE user_id=? AND id=? AND status IN ('active','triggered')",
+                                 (_uid(), int(it["replace_id"])))
             cur = await db.execute(
-                "INSERT INTO trade_plan (plan_date, code, name, side, trigger_op, trigger_price, qty, reason, "
-                "invalid_op, invalid_price, session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (day, code, name, side, op, price, it.get("qty"), (it.get("reason") or "")[:300],
+                "INSERT INTO trade_plan (user_id, plan_date, code, name, side, trigger_op, trigger_price, qty, reason, "
+                "invalid_op, invalid_price, session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                (_uid(), day, code, name, side, op, price, it.get("qty"), (it.get("reason") or "")[:300],
                  inv_op, inv, session_id))
             saved.append({"id": cur.lastrowid, "code": code, "name": name, "side": side, "trigger_op": op,
                           "trigger_price": price, "qty": it.get("qty"), "invalid_op": inv_op,
@@ -117,7 +122,7 @@ async def add_plans(items: list[dict], session_id: int | None = None) -> dict:
 
 
 async def list_plans(date: str | None = None, status: str | None = None) -> list[dict]:
-    sql, args = "SELECT * FROM trade_plan WHERE 1=1", []
+    sql, args = "SELECT * FROM trade_plan WHERE user_id = ?", [_uid()]
     if date:
         sql += " AND plan_date = ?"
         args.append(date)
@@ -135,8 +140,8 @@ async def list_plans(date: str | None = None, status: str | None = None) -> list
 async def cancel(plan_id: int) -> bool:
     db = await get_db()
     try:
-        cur = await db.execute("UPDATE trade_plan SET status='cancelled' WHERE id=? AND status IN ('active','triggered')",
-                               (plan_id,))
+        cur = await db.execute("UPDATE trade_plan SET status='cancelled' WHERE user_id=? AND id=? AND status IN ('active','triggered')",
+                               (_uid(), plan_id))
         await db.commit()
         return cur.rowcount > 0
     finally:
@@ -146,8 +151,9 @@ async def cancel(plan_id: int) -> bool:
 async def expire_old() -> int:
     db = await get_db()
     try:
-        cur = await db.execute("UPDATE trade_plan SET status='expired' WHERE status='active' AND plan_date < ?",
-                               (today(),))
+        # expire_old 由后台循环在 run_as_user(uid) 里逐用户调用, 上下文取 uid
+        cur = await db.execute("UPDATE trade_plan SET status='expired' WHERE user_id=? AND status='active' AND plan_date < ?",
+                               (_uid(), today()))
         await db.commit()
         return cur.rowcount
     finally:
@@ -177,8 +183,8 @@ async def _set_status(plan_id: int, status: str, price: float) -> None:
     db = await get_db()
     try:
         col = "triggered" if status == "triggered" else "invalidated"
-        await db.execute(f"UPDATE trade_plan SET status=?, {col}_at=?, {col}_price=? WHERE id=?",
-                         (status, now_cst().strftime("%H:%M:%S"), price, plan_id))
+        await db.execute(f"UPDATE trade_plan SET status=?, {col}_at=?, {col}_price=? WHERE user_id=? AND id=?",
+                         (status, now_cst().strftime("%H:%M:%S"), price, _uid(), plan_id))
         await db.commit()
     finally:
         await db.close()

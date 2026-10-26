@@ -19,10 +19,8 @@ SELL_ACTS = {"SELL", "REDUCE", "REDEEM", "WITHDRAW"}
 
 
 async def main(start: str) -> None:
-    import aiosqlite
-    from config import config
     from database import list_portfolio_snapshots
-    DB_PATH = config.db_path
+    from db import get_conn
 
     snaps = {r["snap_date"]: json.loads(r["by_asset"] or "{}")
              for r in await list_portfolio_snapshots(limit=730)}
@@ -55,33 +53,35 @@ async def main(start: str) -> None:
     # 期间现金流(start 之后到今天, 含今天)
     flow: dict[str, float] = {}
     pend: dict[str, float] = {}
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
+    db = await get_conn()
+    try:
+        cur = await db.execute(
             "SELECT stock_code,action_type,price,shares,COALESCE(fee,0) fee,stock_code "
-            "FROM position_actions WHERE trade_date > ?", (start,)) as cur:
-            for r in await cur.fetchall():
-                k = f"A:{r['stock_code']}"
-                gross = float(r["price"]) * float(r["shares"])
-                act = (r["action_type"] or "").upper()
-                if act in BUY_ACTS:
-                    flow[k] = flow.get(k, 0) + gross + float(r["fee"])
-                elif act in SELL_ACTS:
-                    flow[k] = flow.get(k, 0) - (gross - float(r["fee"]))
-        async with db.execute(
+            "FROM position_actions WHERE trade_date > ?", (start,))
+        for r in await cur.fetchall():
+            k = f"A:{r['stock_code']}"
+            gross = float(r["price"]) * float(r["shares"])
+            act = (r["action_type"] or "").upper()
+            if act in BUY_ACTS:
+                flow[k] = flow.get(k, 0) + gross + float(r["fee"])
+            elif act in SELL_ACTS:
+                flow[k] = flow.get(k, 0) - (gross - float(r["fee"]))
+        cur = await db.execute(
             "SELECT asset_id,action_type,COALESCE(amount,0) amount,status,shares "
-            "FROM external_asset_actions WHERE trade_date > ?", (start,)) as cur:
-            for r in await cur.fetchall():
-                k = f"EXT:{r['asset_id']}"
-                act = (r["action_type"] or "").upper()
-                amt = float(r["amount"])
-                if (r["status"] or "confirmed") != "confirmed":
-                    pend[k] = pend.get(k, 0) + amt
-                    continue
-                if act in BUY_ACTS:
-                    flow[k] = flow.get(k, 0) + amt
-                elif act in SELL_ACTS:
-                    flow[k] = flow.get(k, 0) - amt
+            "FROM external_asset_actions WHERE trade_date > ?", (start,))
+        for r in await cur.fetchall():
+            k = f"EXT:{r['asset_id']}"
+            act = (r["action_type"] or "").upper()
+            amt = float(r["amount"])
+            if (r["status"] or "confirmed") != "confirmed":
+                pend[k] = pend.get(k, 0) + amt
+                continue
+            if act in BUY_ACTS:
+                flow[k] = flow.get(k, 0) + amt
+            elif act in SELL_ACTS:
+                flow[k] = flow.get(k, 0) - amt
+    finally:
+        await db.close()
 
     rows, noise = [], []
     for k in set(base) | set(now) | set(flow):

@@ -382,13 +382,13 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
       layout: { background: { color: 'transparent' }, textColor: '#9aa0a6', fontSize: 11,
         attributionLogo: false,
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif' },
-      grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+      grid: { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
       crosshair: { mode: CrosshairMode.Normal,
         vertLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 },
         horzLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 } },
-      rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)', scaleMargins: { top: 0.08, bottom: 0.06 } },
+      rightPriceScale: { borderColor: 'rgba(0,0,0,0.10)', scaleMargins: { top: 0.08, bottom: 0.06 } },
       // 日期轴交给下方量/额副图统一显示, 主图隐掉避免上下两条重复
-      timeScale: { borderColor: 'rgba(255,255,255,0.08)', rightOffset: 4, minBarSpacing: 1.5, visible: false },
+      timeScale: { borderColor: 'rgba(0,0,0,0.10)', rightOffset: 4, minBarSpacing: 1.5, visible: false },
     })
     chartRef.current = chart
     const candle = chart.addSeries(CandlestickSeries, {
@@ -443,13 +443,13 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
         layout: { background: { color: 'transparent' }, textColor: '#9aa0a6', fontSize: 11,
           attributionLogo: false,
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif' },
-        grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+        grid: { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
         crosshair: { mode: CrosshairMode.Normal,
           vertLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 },
           horzLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 } },
         // bottom 留一点: 0 刻度紧贴容器下沿会被裁掉半截(副图还要分一截高度给日期轴)
-        rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)', scaleMargins: { top: 0.12, bottom: 0.10 } },
-        timeScale: { borderColor: 'rgba(255,255,255,0.08)', rightOffset: 4, minBarSpacing: 1.5,
+        rightPriceScale: { borderColor: 'rgba(0,0,0,0.10)', scaleMargins: { top: 0.12, bottom: 0.10 } },
+        timeScale: { borderColor: 'rgba(0,0,0,0.10)', rightOffset: 4, minBarSpacing: 1.5,
           visible: true, timeVisible: false },
         // 副图纵轴不给拖: 量柱看的是相对高低, 手工量程没有用处, 却一拖就退出自动量程
         // (再切「量↔额」量级差 5 个数量级, 柱子被压平)。时间轴照旧可拖可缩, 与主图同步。

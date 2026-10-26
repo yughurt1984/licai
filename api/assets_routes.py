@@ -344,7 +344,7 @@ async def _enrich(asset: dict) -> dict:
             "auto_yield": True,
             "released_total": round(total_released, 2),
         }
-    elif t == "BOT" and asset.get("okx_algo_id") and okx_client.has_credentials():
+    elif t == "BOT" and asset.get("okx_algo_id") and await okx_client.has_credentials():
         # Auto-sync from OKX
         algo_id = asset["okx_algo_id"]
         bot_type = asset.get("okx_bot_type") or "grid"
@@ -1359,7 +1359,8 @@ async def quote_crypto(symbol: str):
 @router.get("/okx/status")
 async def okx_status():
     """Check if OKX credentials are configured + live test."""
-    if not okx_client.has_credentials():
+    await okx_client.refresh_credentials()      # 当前用户的凭证进缓存
+    if not await okx_client.has_credentials():
         return {"configured": False}
     test = await okx_client.test_credentials()
     return {"configured": True, **test}
@@ -1367,14 +1368,14 @@ async def okx_status():
 
 @router.post("/okx/credentials")
 async def set_okx_credentials(data: OkxCredentials):
-    """Save OKX API credentials to macOS Keychain. Read-only keys only — server
+    """Save OKX API credentials (存当前用户名下, PG). Read-only keys only — server
     never places trades. Validates by calling the trading-bot list endpoint."""
-    ok, err = okx_client.save_credentials(data.api_key, data.secret_key, data.passphrase)
+    ok, err = await okx_client.save_credentials(data.api_key, data.secret_key, data.passphrase)
     if not ok:
         raise HTTPException(500, f"凭证保存失败：{err}")
     test = await okx_client.test_credentials()
     if not test.get("ok"):
-        okx_client.clear_credentials()
+        await okx_client.clear_credentials()
         detail = "; ".join(test.get("errors") or []) or "未知"
         raise HTTPException(400, f"凭证校验失败: {detail}")
     return {"message": "saved", **test}
@@ -1382,7 +1383,7 @@ async def set_okx_credentials(data: OkxCredentials):
 
 @router.delete("/okx/credentials")
 async def remove_okx_credentials():
-    ok = okx_client.clear_credentials()
+    ok = await okx_client.clear_credentials()
     return {"message": "cleared" if ok else "nothing to clear"}
 
 
@@ -1393,7 +1394,7 @@ async def okx_spot():
     为什么不做成"读到就自动建仓": 余额只给数量, 给不出成本 —— 凭空建一笔成本会让盈亏
     从第一天就是错的。所以这里只给差异和建议动作, 建/更新由用户点一下确认。
     """
-    if not okx_client.has_credentials():
+    if not await okx_client.has_credentials():
         raise HTTPException(400, "OKX 凭证未配置")
     spot = await okx_client.spot_balances()
     if not spot.get("ok"):
@@ -1455,7 +1456,7 @@ async def okx_spot():
 @router.get("/okx/debug/dca-raw")
 async def okx_debug_dca_raw():
     """Debug: 返回 OKX DCA 多个 endpoint 的 raw 字段, 用来找"总预算"键名."""
-    if not okx_client.has_credentials():
+    if not await okx_client.has_credentials():
         raise HTTPException(400, "OKX 凭证未配置")
     import asyncio as _asyncio
     out = {}
@@ -1490,7 +1491,8 @@ async def okx_debug_dca_raw():
 @router.get("/okx/bots")
 async def list_okx_bots():
     """List user's OKX trading bots (grid family + DCA + signal). Requires credentials."""
-    if not okx_client.has_credentials():
+    await okx_client.refresh_credentials()
+    if not await okx_client.has_credentials():
         raise HTTPException(400, "OKX 未配置凭证")
     grids = await okx_client.list_bots()
     dcas = await okx_client.list_dca_bots()
@@ -1503,7 +1505,8 @@ async def list_okx_bots():
 @router.get("/okx/debug")
 async def okx_debug():
     """Raw diagnostic: dump each endpoint's response so we can see what's returned."""
-    if not okx_client.has_credentials():
+    await okx_client.refresh_credentials()
+    if not await okx_client.has_credentials():
         raise HTTPException(400, "OKX 未配置凭证")
 
     import asyncio as _asyncio

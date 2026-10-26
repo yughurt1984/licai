@@ -42,7 +42,7 @@ function CycleStrip() {
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" style={{ height: 'auto' }}>
-        <line x1={P.l} x2={W - P.r} y1={midY} y2={midY} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+        <line x1={P.l} x2={W - P.r} y1={midY} y2={midY} stroke="rgba(0,0,0,0.12)" strokeWidth="1" />
         {s.map((r, i) => {
           const hu = (r.n_zt / maxZt) * half
           const hd = (r.n_dt / maxDt) * half

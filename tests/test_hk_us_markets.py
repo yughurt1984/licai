@@ -141,11 +141,7 @@ def test_search_hk_filters_warrants_and_rmb_counter(monkeypatch):
 
 
 @pytest.fixture
-def resolver(tmp_path, monkeypatch):
-    import config as cfg
-    monkeypatch.setattr(cfg.config, "db_path", str(tmp_path / "t.db"))
-    import database as d
-    asyncio.run(d.init_db())
+def resolver(temp_db, monkeypatch):
     import services.stock_agent as sa
 
     async def _maps():

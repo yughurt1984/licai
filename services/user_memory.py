@@ -48,24 +48,41 @@ def _readonly() -> bool:
     return os.environ.get("AGENT_MEMORY_READONLY", "").lower() in ("1", "true", "yes")
 
 
-def _db_path() -> str:
-    from config import config as _cfg
-    return _cfg.db_path
+async def _conn():
+    from db import get_conn
+    return await get_conn()
+
+
+def _uid() -> int:
+    from services.context import current_user_id
+    return current_user_id()
+
+
+# active_sync 是同步函数(agent 每轮拼 system prompt 时调, 不能开 async), PG 时代无法在
+# 同步上下文里读库。改走内存缓存: 每次 agent 轮次开头 await refresh_active_cache(),
+# 增删画像条目时也主动刷。缓存读永远不抛错。
+_ACTIVE_CACHE: dict[int, list[dict]] = {}   # {uid: 条目} —— agent 按当前用户的画像拼 prompt
+
+
+async def refresh_active_cache():
+    """把当前用户生效中的画像条目拉进内存缓存, 供 active_sync() 同步读取。"""
+    uid = _uid()
+    try:
+        db = await _conn()
+        try:
+            cur = await db.execute(
+                "SELECT id, fact FROM user_memory WHERE user_id = ? AND status = 'active' ORDER BY id",
+                (uid,))
+            _ACTIVE_CACHE[uid] = [{"id": i, "fact": f} for i, f in await cur.fetchall()]
+        finally:
+            await db.close()
+    except Exception:
+        pass          # 刷不动就用旧缓存/空
 
 
 def active_sync() -> list[dict]:
-    """给 _system() 用的同步读取, 读不到返回空(表没建/库被占用不该让 agent 起不来)。"""
-    try:
-        import sqlite3
-        con = sqlite3.connect(_db_path(), timeout=1.0)
-        try:
-            rows = con.execute("SELECT id, fact FROM user_memory WHERE status = 'active' "
-                               "ORDER BY id").fetchall()
-        finally:
-            con.close()
-        return [{"id": i, "fact": f} for i, f in rows]
-    except Exception:
-        return []
+    """给 _system() 用的同步读取: 读内存缓存(由 refresh_active_cache() 维护)。"""
+    return _ACTIVE_CACHE.get(_uid(), [])
 
 
 def render(items: list[dict]) -> str:
@@ -84,17 +101,17 @@ def _clean(fact: str) -> str:
 
 
 async def remember(args: dict, session_id: int | None = None) -> dict:
-    import aiosqlite
     fact = _clean(args.get("fact") or "")
     rid = args.get("replace_id")
     if not fact and not rid:
         return {"error": "fact 为空"}
     if _readonly():
         return {"ok": True, "note": "评测模式, 未落库"}
-    async with aiosqlite.connect(_db_path()) as db:
+    db = await _conn()
+    try:
         if rid and not untrusted_seen.get():     # 待确认的新条目不能先把旧的作废
             cur = await db.execute("UPDATE user_memory SET status = 'replaced' "
-                                   "WHERE id = ? AND status = 'active'", (int(rid),))
+                                   "WHERE user_id = ? AND id = ? AND status = 'active'", (_uid(), int(rid)))
             if cur.rowcount == 0:
                 return {"error": f"没有生效中的 #{rid}"}
         if not fact and untrusted_seen.get():
@@ -102,48 +119,60 @@ async def remember(args: dict, session_id: int | None = None) -> dict:
         if not fact:
             await db.commit()
             return {"ok": True, "deleted": int(rid)}
-        cur = await db.execute("SELECT COUNT(*) FROM user_memory WHERE status = 'active'")
+        cur = await db.execute("SELECT COUNT(*) FROM user_memory WHERE user_id = ? AND status = 'active'", (_uid(),))
         if (await cur.fetchone())[0] >= MAX_ACTIVE:
             await db.rollback()
             return {"error": f"画像已满 {MAX_ACTIVE} 条, 先用 replace_id 合并或删除旧条目"}
         status = "pending" if untrusted_seen.get() else "active"
-        cur = await db.execute("INSERT INTO user_memory (fact, status, session_id, replaces) "
-                               "VALUES (?, ?, ?, ?)", (fact, status, session_id, int(rid) if rid else None))
+        cur = await db.execute("INSERT INTO user_memory (user_id, fact, status, session_id, replaces) "
+                               "VALUES (?, ?, ?, ?, ?) RETURNING id",
+                               (_uid(), fact, status, session_id, int(rid) if rid else None))
         await db.commit()
+        new_id = cur.lastrowid
+        await refresh_active_cache()
         if status == "pending":
-            return {"ok": True, "id": cur.lastrowid, "status": "pending",
+            return {"ok": True, "id": new_id, "status": "pending",
                     "note": "本轮读过外部文本, 这条已存为待确认, 用户在设置页批准后生效"}
-        return {"ok": True, "id": cur.lastrowid}
+        return {"ok": True, "id": new_id}
+    finally:
+        await db.close()
 
 
 async def list_all() -> list[dict]:
-    import aiosqlite
-    async with aiosqlite.connect(_db_path()) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM user_memory ORDER BY id DESC")
+    db = await _conn()
+    try:
+        cur = await db.execute("SELECT * FROM user_memory WHERE user_id = ? ORDER BY id DESC", (_uid(),))
         return [dict(r) for r in await cur.fetchall()]
+    finally:
+        await db.close()
 
 
 async def delete(mid: int) -> bool:
-    import aiosqlite
-    async with aiosqlite.connect(_db_path()) as db:
+    db = await _conn()
+    try:
         cur = await db.execute("UPDATE user_memory SET status = 'deleted' "
-                               "WHERE id = ? AND status IN ('active', 'pending')", (mid,))
+                               "WHERE user_id = ? AND id = ? AND status IN ('active', 'pending')", (_uid(), mid))
         await db.commit()
+        await refresh_active_cache()
         return cur.rowcount > 0
+    finally:
+        await db.close()
 
 
 async def approve(mid: int) -> bool:
     """批准一条待确认的记录; 它若是覆盖某条的, 同时把那条作废。"""
-    import aiosqlite
-    async with aiosqlite.connect(_db_path()) as db:
-        cur = await db.execute("SELECT replaces FROM user_memory WHERE id = ? AND status = 'pending'", (mid,))
+    db = await _conn()
+    try:
+        cur = await db.execute("SELECT replaces FROM user_memory WHERE user_id = ? AND id = ? AND status = 'pending'", (_uid(), mid))
         row = await cur.fetchone()
         if not row:
             return False
         if row[0]:
-            await db.execute("UPDATE user_memory SET status = 'replaced' WHERE id = ? AND status = 'active'",
-                             (row[0],))
-        await db.execute("UPDATE user_memory SET status = 'active' WHERE id = ?", (mid,))
+            await db.execute("UPDATE user_memory SET status = 'replaced' WHERE user_id = ? AND id = ? AND status = 'active'",
+                             (_uid(), row[0]))
+        await db.execute("UPDATE user_memory SET status = 'active' WHERE user_id = ? AND id = ?", (_uid(), mid))
         await db.commit()
+        await refresh_active_cache()
         return True
+    finally:
+        await db.close()

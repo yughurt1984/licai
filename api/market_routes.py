@@ -31,6 +31,17 @@ async def tdx_status():
     return {"enabled": _tdx.is_enabled()}
 
 
+@router.get("/db-status")
+async def market_db_status():
+    """行情库(market schema)覆盖度/新鲜度观测。
+
+    read-through 模式下平时读的都是 PG —— 这里能看到各 asset_type 的标的数、
+    最后落库时间、过期(>3 天没更新)标的清单和历史汇率的覆盖范围。
+    """
+    from services import market_store
+    return await market_store.db_status()
+
+
 @router.get("/eod-review")
 async def eod_review():
     """每日收盘 · 大盘全景复盘(情绪广度+主线+领涨吸金+机构龙虎榜)。客观呈现,非买卖信号。"""

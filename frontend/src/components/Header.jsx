@@ -1,4 +1,4 @@
-export default function Header({ marketOpen, lastUpdate, onRefresh, onSettings }) {
+export default function Header({ marketOpen, lastUpdate, onRefresh, onSettings, user, onLogout }) {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-surface/80 backdrop-blur-xl">
       <div className="max-w-[1440px] mx-auto px-3 md:px-4 h-12 flex items-center justify-between">
@@ -31,6 +31,15 @@ export default function Header({ marketOpen, lastUpdate, onRefresh, onSettings }
             className="px-3 py-1 rounded-md border border-border text-text-dim hover:text-text hover:border-text-muted transition-colors cursor-pointer">
             设置
           </button>
+          {user && (
+            <span className="hidden md:inline-flex items-center gap-2 pl-2 border-l border-border">
+              <span className="text-text font-medium">{user.display_name || user.username}</span>
+              <button onClick={onLogout}
+                className="px-2 py-1 rounded-md text-text-dim hover:text-bear transition-colors cursor-pointer">
+                登出
+              </button>
+            </span>
+          )}
         </div>
       </div>
     </header>

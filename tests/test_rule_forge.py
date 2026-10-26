@@ -120,9 +120,16 @@ def test_system_prompt_unaffected_when_nothing_active(monkeypatch):
 
 
 def test_active_rules_sync_survives_missing_table(monkeypatch):
-    """表还没建/库被占用时返回空, 不能让整个 agent 起不来。"""
+    """库连不上/表还没建时, 刷新失败要被吞掉、缓存为空, 不能让整个 agent 起不来。
+
+    PG 时代 active_rules_sync 读内存缓存(_RULES_CACHE), 降级路径是 refresh_rules_cache()
+    失败时不清空旧缓存、静默返回。"""
     import config
-    monkeypatch.setattr(config.config, "db_path", "/nonexistent/nope.db")
+    from tests.conftest import _teardown_pool
+    asyncio.run(_teardown_pool())  # 换 DSN 前先关池(残池走 terminate, 不挂死)
+    monkeypatch.setattr(config.config, "pg_dsn", "postgresql://postgres:@127.0.0.1:1/nope")
+    asyncio.run(rf.refresh_rules_cache())       # 降级路径: 不抛异常
+    monkeypatch.setattr(rf, "_RULES_CACHE", [])  # 缓存为空
     assert rf.active_rules_sync() == []
 
 
@@ -157,34 +164,18 @@ def test_draft_system_includes_existing_titles():
 # ── 每周自动挖掘(后台循环用) ─────────────────────────────
 
 import asyncio
-import os
-import tempfile
 
 import pytest
 
+from tests.conftest import insert_rows
 
-@pytest.fixture
-def wf_db(monkeypatch):
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    monkeypatch.setattr("config.config.db_path", path)   # 单例, 不是 Config 类
-    from database import init_db
-    asyncio.run(init_db())
-    yield path
-    os.unlink(path)
+# wf_db 由 tests/conftest.py 提供(与 temp_db 等价, 指向每次清空重建的 PG 测试库)
 
 
-def _seed_messages(path, rows):
-    import sqlite3
-    con = sqlite3.connect(path)
-    try:
-        con.execute("INSERT OR IGNORE INTO ask_session (id, title) VALUES (1, 't')")
-        for role, content in rows:
-            con.execute("INSERT INTO ask_message (session_id, role, content) VALUES (1,?,?)",
-                        (role, content))
-        con.commit()
-    finally:
-        con.close()
+def _seed_messages(rows):
+    asyncio.run(insert_rows("ask_session", [{"id": 1, "title": "t"}]))
+    asyncio.run(insert_rows("ask_message", [
+        {"session_id": 1, "role": role, "content": content} for role, content in rows]))
 
 
 _TALK = [("user", "迈威尔为什么涨"), ("assistant", "现在是大跌 7.82%"),
@@ -192,7 +183,7 @@ _TALK = [("user", "迈威尔为什么涨"), ("assistant", "现在是大跌 7.82%
 
 
 def test_mine_new_adds_candidate(wf_db, monkeypatch):
-    _seed_messages(wf_db, _TALK)
+    _seed_messages(_TALK)
     draft = ('{"verdict":"rule","title":"美股报价按时段表述",'
              '"body":"带盘前盘后时分开写两个时点。","why":"会复发"}')
     import services.llm_client as llm
@@ -206,7 +197,7 @@ def test_mine_new_adds_candidate(wf_db, monkeypatch):
 
 def test_mine_new_skips_already_drafted(wf_db, monkeypatch):
     """第二周再跑不能把同一句纠正再起草一遍 —— 一条起草要调一次模型。"""
-    _seed_messages(wf_db, _TALK)
+    _seed_messages(_TALK)
     calls = []
     import services.llm_client as llm
     monkeypatch.setattr(llm, "call_claude", lambda *a, **k: (
@@ -221,7 +212,7 @@ def test_rejected_never_comes_back(wf_db, monkeypatch):
 
     两层都要拦住: 连模型都不该再调(按 evidence 跳过), 万一调了也不该插进去(标题已存在)。
     """
-    _seed_messages(wf_db, _TALK)
+    _seed_messages(_TALK)
     calls = []
     import services.llm_client as llm
     monkeypatch.setattr(llm, "call_claude", lambda *a, **k: (
@@ -237,7 +228,7 @@ def test_rejected_never_comes_back(wf_db, monkeypatch):
 
 def test_non_rule_verdict_is_remembered(wf_db, monkeypatch):
     """判为"不是规则问题"也要留痕, 否则下周再挖到它、再花一次额度得同一个结论。"""
-    _seed_messages(wf_db, _TALK)
+    _seed_messages(_TALK)
     calls = []
     import services.llm_client as llm
     monkeypatch.setattr(llm, "call_claude", lambda *a, **k: (
@@ -255,7 +246,7 @@ def test_mine_new_caps_drafts(wf_db, monkeypatch):
     rows = []
     for i in range(5):
         rows += [("user", f"问题{i}"), ("assistant", f"答{i}"), ("user", f"不对，这里错了{i}")]
-    _seed_messages(wf_db, rows)
+    _seed_messages(rows)
     calls = []
     import services.llm_client as llm
     monkeypatch.setattr(llm, "call_claude", lambda *a, **k: (

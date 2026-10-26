@@ -4,7 +4,7 @@
     ./venv/bin/python evals/run.py                 # 全跑
     ./venv/bin/python evals/run.py --list          # 只列用例
     ./venv/bin/python evals/run.py -c us_premarket # 跑单条(前缀匹配)
-    ./venv/bin/python evals/run.py --db portfolio.db   # 换账本(默认 demo)
+    ./venv/bin/python evals/run.py --db demo           # 换账本(默认 demo 库)
     ./venv/bin/python evals/run.py -n 3            # 每条跑 3 次, 报 pass^3(3 次全过才算过)
     ./venv/bin/python evals/run.py --no-context    # 去掉用例带的会话状态和画像, 量它们的作用
 
@@ -15,7 +15,8 @@
 为什么走真实链路而不是 mock: 这一整天的翻车里 3/4 出在取数(字段没读、源没覆盖),
 mock 掉工具就正好把要防的那部分屏蔽了。代价是每跑一次要花模型额度, 所以支持单条跑。
 
-默认账本用 portfolio.demo.db —— 评测会把持仓写进 prompt, 别让真实持仓进日志。
+默认账本用 <库名>_demo 演示库(先跑一次 scripts/seed_demo.py --create)——
+评测会把持仓写进 prompt, 别让真实持仓进日志。
 """
 from __future__ import annotations
 import argparse
@@ -112,7 +113,8 @@ async def main():
     ap.add_argument("-c", "--case", default="", help="只跑名字以此开头的用例")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true", help="打印完整问答")
-    ap.add_argument("--db", default="portfolio.demo.db")
+    ap.add_argument("--db", default="demo",
+                    help="账本: 'demo'=<库名>_demo 演示库(先跑 scripts/seed_demo.py --create), 或 PG 连接串")
     ap.add_argument("-n", "--repeat", type=int, default=1, help="每条跑几次, 报 pass^n")
     ap.add_argument("--no-context", action="store_true", help="去掉用例带的会话状态和画像(对照组)")
     args = ap.parse_args()
@@ -120,12 +122,17 @@ async def main():
     # 评测不写画像记忆: 否则每跑一次演示账本里多几条, 下一次评测的 prompt 就变了
     os.environ["AGENT_MEMORY_READONLY"] = "1"
     import config
-    if os.path.exists(args.db):
-        # 必须改单例 config, 不是 Config 类属性 —— 类属性只是 dataclass 的默认值,
-        # 单例早已实例化, 改它才生效。改错了会静默跑在真实账本上(真实持仓进 prompt)。
-        config.config.db_path = args.db
+    # 必须改单例 config, 不是 Config 类属性 —— 类属性只是 dataclass 的默认值,
+    # 单例早已实例化, 改它才生效。改错了会静默跑在真实账本上(真实持仓进 prompt)。
+    if args.db == "demo":
+        from urllib.parse import urlsplit, urlunsplit
+        parts = urlsplit(config.config.pg_dsn)
+        dbname = (parts.path.lstrip("/") or "postgres") + "_demo"
+        config.config.pg_dsn = urlunsplit((parts.scheme, parts.netloc, f"/{dbname}", parts.query, parts.fragment))
+    elif args.db.startswith(("postgres://", "postgresql://")):
+        config.config.pg_dsn = args.db
     else:
-        print(f"! 找不到 {args.db}, 用默认账本(真实持仓会进 prompt)")
+        print(f"! --db 要传 'demo' 或 PostgreSQL 连接串(旧 SQLite 文件路径不再支持), 收到 {args.db!r}; 用默认账本")
 
     # 和服务启动走同一份配置(模型、代理、TDX、扩展数据源): 不然评测测的是线上不存在的降级路径
     from services.startup_config import apply_saved_config
@@ -150,7 +157,7 @@ async def main():
         print(f"没有匹配 {args.case!r} 的用例")
         return 2
 
-    print(f"账本={config.config.db_path}  用例={len(picked)}  每条 {args.repeat} 次"
+    print(f"账本={config.config.pg_dsn}  用例={len(picked)}  每条 {args.repeat} 次"
           + ("  [对照: 无状态/画像]" if args.no_context else "") + "\n")
     rows, per_case = [], {}
     for c in picked:
