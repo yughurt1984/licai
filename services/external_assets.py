@@ -208,6 +208,11 @@ async def get_fund_quote(code: str) -> dict | None:
     cached = _fund_cache.get(code)
     if cached and time.time() - cached[1] < _FUND_TTL:
         return cached[0]
+    # 纯 PG 模式(quote_auto_fetch=False): 不联网, 只读 quote_latest 的最后快照
+    # (手动刷新 POST /api/market/refresh 或日批量任务写入)
+    from services.market_data import quote_auto_fetch
+    if not quote_auto_fetch():
+        return await _fund_from_store(code)
     # 场内 ETF/LOF 优先用实时行情；拉不到则回退到天天基金 NAV
     if _is_onchain_etf(code):
         try:
@@ -321,6 +326,9 @@ def _fetch_usdcny_sync() -> float:
     """Fetch USD/CNY rate via a public source. Cached 1 hour."""
     if time.time() - _USDCNY_TS[0] < 3600 and _USDCNY_CACHE:
         return _USDCNY_CACHE.get("rate", 7.2)
+    from services.market_data import quote_auto_fetch
+    if not quote_auto_fetch():
+        return _USDCNY_CACHE.get("rate", 7.2)   # 纯 PG 模式: 不联网, 用缓存/近似值
     try:
         r = _requests.get("https://hq.sinajs.cn/list=USDCNY",
                           headers={"Referer": "https://finance.sina.com.cn"}, timeout=5)
@@ -340,6 +348,10 @@ async def get_crypto_quote(symbol: str) -> dict | None:
     cached = _crypto_cache.get(symbol)
     if cached and time.time() - cached[1] < _CRYPTO_TTL:
         return cached[0]
+    # 纯 PG 模式: 不打 OKX, 只读 quote_latest 最后快照
+    from services.market_data import quote_auto_fetch
+    if not quote_auto_fetch():
+        return await _crypto_from_store(symbol)
     data = await asyncio.to_thread(_fetch_okx_sync, symbol)
     if data:
         # Enrich with CNY value
@@ -362,6 +374,11 @@ async def get_crypto_quote(symbol: str) -> dict | None:
             print(f"[crypto] quote 落库失败(不影响报价): {e}")
         return data
     # 远端没取到 → PG 最后快照兜底
+    return await _crypto_from_store(symbol)
+
+
+async def _crypto_from_store(symbol: str) -> dict | None:
+    """PG 最后快照兜底(纯 PG 模式的主路径)。"""
     try:
         from services import market_store
         rows = await market_store.get_stored_quotes([symbol])

@@ -10,7 +10,7 @@ const US_DATE_HINT = '盈立成交记录上的日期; 北京时间凌晨成交�
 
 export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers = [] }) {
   const [form, setForm] = useState({
-    code: '', name: '', shares: '', cost: '',
+    code: '', name: '', shares: '', cost: '', fee: '',
     tradeDate: defaultDate(initialMarket),
     tradeTime: '',
   })
@@ -18,18 +18,29 @@ export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers =
   const [submitting, setSubmitting] = useState(false)
   const [nameLooking, setNameLooking] = useState(false)
   const [broker, setBroker] = useState('')
+  const [feeTouched, setFeeTouched] = useState(false)   // 用户手改过税费就不再自动覆盖
+  const feeTouchedRef = useRef(false)
+  useEffect(() => { feeTouchedRef.current = feeTouched }, [feeTouched])
 
   // 名称查询: 防抖 + 只认最后一次请求的结果(美股每敲一个字母都会触发, 旧请求晚回来会覆盖新名字)
   const lookupSeq = useRef(0)
   const lookupTimer = useRef(null)
   useEffect(() => () => clearTimeout(lookupTimer.current), [])
+  // 名称查询: **PG 搜股底表(symbol_dict)优先** —— A股/场内基金秒回且离线; 底表没有
+  // (港美股/次新)再走实时行情接口兜底。防抖 + 只认最后一次请求的结果。
   const lookup = useCallback((nextCode, nextMarket = market) => {
     clearTimeout(lookupTimer.current)
     const seq = ++lookupSeq.current
     if (!nextCode) { setNameLooking(false); return }
     const fullCode = stockCodeForMarket(nextMarket, nextCode)
+    const bare = fullCode.startsWith(('HK.')) || fullCode.startsWith(('US.'))
+      ? fullCode.split('.')[1] : fullCode
     lookupTimer.current = setTimeout(async () => {
       setNameLooking(true)
+      try {
+        const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(bare)}`)
+        if (seq === lookupSeq.current && name) { setForm(f => ({ ...f, name })); return }
+      } catch { /* 底表查不到, 走联网兜底 */ }
       try {
         const q = await fetchJSON(`/api/market/quote/${encodeURIComponent(fullCode)}`)
         if (seq === lookupSeq.current && q?.stock_name) setForm(f => ({ ...f, name: q.stock_name }))
@@ -37,6 +48,26 @@ export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers =
       if (seq === lookupSeq.current) setNameLooking(false)
     }, 350)
   }, [market])
+
+  // 税费默认值: 按 config 费率与券商收费方案由后端实时估算(数量/成本/券商/市场任一变化就重算);
+  // 用户手改过(feeTouched)则以手填为准, 换代码/市场时重置为自动。
+  useEffect(() => {
+    setFeeTouched(false)
+  }, [market, form.code])
+  useEffect(() => {
+    const stockCode = stockCodeForMarket(market, form.code)
+    const price = parseFloat(form.cost), sh = parseFloat(form.shares)
+    if (!stockCode || !(price > 0) || !(sh > 0)) return
+    const t = setTimeout(async () => {
+      try {
+        const q = await fetchJSON(`/api/portfolio/fee-estimate?stock_code=${encodeURIComponent(stockCode)}` +
+          `&price=${price}&shares=${sh}&broker=${encodeURIComponent(broker || '')}&action=BUY` +
+          `&trade_date=${encodeURIComponent(form.tradeDate || '')}`)
+        if (q?.fee != null && !feeTouchedRef.current) setForm(f => ({ ...f, fee: String(q.fee) }))
+      } catch { /* 估算失败就留空(后端按费率自动算兜底) */ }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [market, form.code, form.cost, form.shares, broker, form.tradeDate])
 
   const submit = async () => {
     const meta = STOCK_MARKETS[market]
@@ -52,6 +83,7 @@ export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers =
       const res = await api.addHolding({
         stock_code: stockCode, stock_name: form.name,
         shares: parseFloat(form.shares), cost_price: parseFloat(form.cost),
+        fee: form.fee !== '' && !isNaN(parseFloat(form.fee)) ? parseFloat(form.fee) : undefined,
         trade_date: form.tradeDate || undefined,
         // 成交时刻后端统一存北京时间: 美股按美东录入, 这里换算(港股与北京同时区)
         trade_time: form.tradeTime
@@ -75,7 +107,7 @@ export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers =
             const nextMarket = e.target.value
             setMarket(nextMarket)
             lookup('')   // 作废进行中的名称查询
-            setForm({ code: '', name: '', shares: '', cost: '', tradeDate: defaultDate(nextMarket), tradeTime: '' })
+            setForm({ code: '', name: '', shares: '', cost: '', fee: '', tradeDate: defaultDate(nextMarket), tradeTime: '' })
           }}>
           {Object.entries(STOCK_MARKETS).map(([k, v]) => (
             <option key={k} value={k}>{v.label}</option>
@@ -113,6 +145,13 @@ export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers =
         <input type="number" className={`${inp} w-24 font-mono`}
           placeholder={market === 'US' ? '10' : '300'} min={STOCK_MARKETS[market].minShares} step={STOCK_MARKETS[market].step} value={form.shares}
           onChange={e => setForm({ ...form, shares: e.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-text-dim">税费 <span className="text-text-muted text-[10px]">自动算·可改</span></label>
+        <input type="number" className={`${inp} w-24 font-mono`}
+          placeholder="0" step={0.01} min={0} value={form.fee}
+          title="手续费(人民币): 默认按费率配置自动估算, 可手动覆盖; 留空由后端按费率自动算"
+          onChange={e => { setFeeTouched(true); setForm({ ...form, fee: e.target.value }) }} />
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-[11px] text-text-dim" title={market === 'US' ? US_DATE_HINT : undefined}>

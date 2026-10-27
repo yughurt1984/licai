@@ -13,6 +13,7 @@ import StockAsk from './components/StockAsk'
 import { GlobalStockModal } from './components/ask/stockOpener'
 import TradePlans, { PlanToast, PLAN_EVENT } from './components/TradePlans'
 import Settings from './components/Settings'
+import ProfilePage from './components/ProfilePage'
 import EditModal from './components/EditModal'
 import TransactionHistory from './components/TransactionHistory'
 // 市场·开盘情绪
@@ -147,6 +148,22 @@ export default function App() {
     try { setHoldings(await api.getPortfolio()) } catch {}
   }, [])
   useEffect(() => { loadPortfolio() }, [loadPortfolio])
+
+  // 手动刷新(顶栏「刷新」按钮): 后端联网抓最新行情 → 落 PG(market.quote_latest),
+  // 然后重拉持仓展示库里的新价。纯 PG 模式(quote_auto_fetch=false)下这是行情更新的唯一入口。
+  const [refreshing, setRefreshing] = useState(false)
+  const handleManualRefresh = useCallback(async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      await fetchJSON('/api/market/refresh', { method: 'POST', body: JSON.stringify({}) })
+      try { window.dispatchEvent(new CustomEvent('licai:data-mutated', { detail: '/api/market/refresh' })) } catch {}
+    } catch {}
+    await loadPortfolio()
+    setDataVersion(v => v + 1)
+    setRefreshing(false)
+  }, [refreshing, loadPortfolio])
+
   // 登录成功的下一拍: 挂载时的首轮拉取都被 401 挡了, 这里重拉 + 全局版本号+1
   useEffect(() => {
     if (user) { loadPortfolio(); setDataVersion(v => v + 1) }
@@ -321,6 +338,12 @@ export default function App() {
         <Settings onClose={() => setView('portfolio')} />
       </div>
     ),
+
+    profile: () => (
+      <div className={`${PAD} max-w-[980px]`}>
+        <ProfilePage />
+      </div>
+    ),
   }
 
   // ---- 多用户 auth gate: 会话探测中给个空屏, 未登录整屏登录/注册页(主界面不挂载,
@@ -337,7 +360,8 @@ export default function App() {
       <Header
         marketOpen={marketOpen}
         lastUpdate={lastUpdate}
-        onRefresh={loadPortfolio}
+        onRefresh={handleManualRefresh}
+        refreshing={refreshing}
         onSettings={() => setView('settings')}
         user={user}
         onLogout={handleLogout}

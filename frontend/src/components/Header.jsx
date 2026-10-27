@@ -1,4 +1,4 @@
-export default function Header({ marketOpen, lastUpdate, onRefresh, onSettings, user, onLogout }) {
+export default function Header({ marketOpen, lastUpdate, onRefresh, refreshing, onSettings, user, onLogout }) {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-surface/80 backdrop-blur-xl">
       <div className="max-w-[1440px] mx-auto px-3 md:px-4 h-12 flex items-center justify-between">
@@ -23,9 +23,10 @@ export default function Header({ marketOpen, lastUpdate, onRefresh, onSettings, 
               {lastUpdate.toLocaleTimeString('zh-CN')}
             </span>
           )}
-          <button onClick={onRefresh}
-            className="px-3 py-1 rounded-md border border-border text-text-dim hover:text-text hover:border-text-muted transition-colors cursor-pointer">
-            刷新
+          <button onClick={onRefresh} disabled={refreshing}
+            title="抓取最新行情写入数据库, 首页展示库里的快照"
+            className="px-3 py-1 rounded-md border border-border text-text-dim hover:text-text hover:border-text-muted transition-colors cursor-pointer disabled:opacity-50">
+            {refreshing ? '刷新中…' : '刷新'}
           </button>
           <button onClick={onSettings}
             className="px-3 py-1 rounded-md border border-border text-text-dim hover:text-text hover:border-text-muted transition-colors cursor-pointer">

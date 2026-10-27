@@ -72,6 +72,11 @@ def _key_of(h: dict) -> str:
 
 
 async def _fund_underlyings(code: str) -> list[dict]:
+    # 纯 PG 模式(quote_auto_fetch=False): 不联网拉季报前十大, 返回空(覆盖度里如实标 uncovered,
+    # 前端退回关键词同源判断); 季报数据等日批量任务入库后再放开。
+    from services.market_data import quote_auto_fetch
+    if not quote_auto_fetch():
+        return []
     from services.fund_holdings import get_fund_top10
     try:
         return await get_fund_top10(code) or []

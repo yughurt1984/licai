@@ -24,6 +24,7 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
   const [note, setNote] = useState('')
   const [tradeTime, setTradeTime] = useState('')     // 成交时刻 HH:MM (场内 ETF/加密, 可选)
   const [feeRatePct, setFeeRatePct] = useState('')   // FUND 申购费率 %, C 类填 0
+  const [multiplier, setMultiplier] = useState('')   // FUT/OPT 每手乘数(沪铜 5 / 期权合约单位 10000)
   const [lookingUp, setLookingUp] = useState(false)
   const [hint, setHint] = useState('')
   // OKX integration (only for BOT)
@@ -83,7 +84,8 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
   }
 
   const lookupCode = async () => {
-    if (!code || assetType === 'BOT' || assetType === 'WEALTH' || assetType === 'CASH') return
+    if (!code || assetType === 'BOT' || assetType === 'WEALTH' || assetType === 'CASH'
+        || assetType === 'FUT' || assetType === 'OPT') return   // FUT 自动计价无需查询, OPT 无行情
     setLookingUp(true)
     setHint('')
     try {
@@ -139,6 +141,8 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
         trade_time: ((assetType === 'FUND' && isOnchainEtf(code)) || assetType === 'CRYPTO') && tradeTime ? tradeTime : null,
         purchase_fee_rate: assetType === 'FUND' && !isOnchainEtf(code) && feeRatePct !== '' ? parseFloat(feeRatePct) / 100 : null,
         broker: assetType === 'FUND' && isOnchainEtf(code) && selectedBroker ? selectedBroker : null,
+        contract_multiplier: (assetType === 'FUT' || assetType === 'OPT') && parseFloat(multiplier) > 0
+          ? parseFloat(multiplier) : null,
         // 手续费单独透传 (cost 已含它), 后端单存到初始流水的 fee 字段, 避免在流水里"消失"
         fee: (assetType === 'FUND' || assetType === 'CRYPTO') && parseFloat(fee) > 0 ? parseFloat(fee) : null,
         dca: dcaPayload,
@@ -181,7 +185,9 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
           <label className="text-[11px] text-text-dim">
             {assetType === 'FUND' ? '基金代码' : assetType === 'CRYPTO' ? '币对' :
              assetType === 'WEALTH' ? '产品代码' :
-             assetType === 'CASH' ? '账户标识' : '标识'}
+             assetType === 'CASH' ? '账户标识' :
+             assetType === 'FUT' ? '合约 (新浪符号)' :
+             assetType === 'OPT' ? '合约标识' : '标识'}
           </label>
           <div className="flex gap-1.5">
             <input value={code} onChange={e => setCode(e.target.value)}
@@ -189,7 +195,9 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
               className={`${inp} w-36 font-mono`}
               placeholder={assetType === 'FUND' ? '161226' : assetType === 'CRYPTO' ? 'BTC-USDT' :
                 assetType === 'WEALTH' ? 'YC040204 / 周周宝' :
-                assetType === 'CASH' ? 'yuebao / zlt / cczb' : '自定义ID'} />
+                assetType === 'CASH' ? 'yuebao / zlt / cczb' :
+                assetType === 'FUT' ? 'CU0 / SC0 / GC' :
+                assetType === 'OPT' ? '10005738 / 自定义' : '自定义ID'} />
             {assetType === 'FUND' || assetType === 'CRYPTO' ? (
               <button onClick={lookupCode} disabled={lookingUp}
                 className="px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 text-[11px] cursor-pointer">
@@ -205,6 +213,8 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
               assetType === 'BOT' ? 'OKX BTC 现货马丁' :
               assetType === 'WEALTH' ? '招商月添利 / 周周宝' :
               assetType === 'CASH' ? '货币基金 / 银行活期' :
+              assetType === 'FUT' ? '沪铜主力 / COMEX 黄金' :
+              assetType === 'OPT' ? '沪深300购12月4000' :
               '查询后自动填充'
             } />
         </div>
@@ -223,6 +233,28 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
         <div className="text-[10.5px] font-mono text-accent">
           💡 没填{assetType === 'FUND' ? '份额' : '数量'} → 当作 T+1 待确认，¥{parseFloat(cost).toFixed(2)} 先记到 pending。
           {assetType === 'FUND' ? '基金' : '币'} 到账后回来编辑补份额自动结算。
+        </div>
+      )}
+
+      {/* FUT/OPT: 每手乘数 + 期货报价提示 */}
+      {(assetType === 'FUT' || assetType === 'OPT') && (
+        <div className="flex flex-wrap items-end gap-2 rounded border border-border-subtle bg-surface-3/40 px-2.5 py-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10.5px] text-text-muted">每手乘数</label>
+            <input type="number" className={`${inp} w-24 font-mono`} placeholder={assetType === 'FUT' ? '5' : '10000'}
+              step="any" value={multiplier}
+              onChange={e => setMultiplier(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10.5px] text-text-muted">手数</label>
+            <input type="number" className={`${inp} w-20 font-mono`} placeholder="1" min="0" step="any" value={shares}
+              onChange={e => setShares(e.target.value)} />
+          </div>
+          <div className="text-[10.5px] text-text-muted pb-1.5">
+            {assetType === 'FUT'
+              ? <>市值 = 最新价 × 乘数 × 手数, 自动报价(国内 nf_ / 外盘 hf_); 报价不可达时用手填市值兜底</>
+              : <>期权无免费行情: 填「手动市值」记录, 乘数/手数可选(供折算与记录)</>}
+          </div>
         </div>
       )}
 

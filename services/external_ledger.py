@@ -12,7 +12,7 @@ from datetime import date, datetime
 from typing import Iterable
 
 
-SHARE_BASED = ("FUND", "CRYPTO")
+SHARE_BASED = ("FUND", "CRYPTO", "FUT")   # FUT: 手数 × 每手名义价值(unit_price=价×乘数), 与加密同口径
 PRINCIPAL_BASED = ("WEALTH", "CASH")
 
 ACQUIRE_TYPES = {"BUY", "ADD", "DEPOSIT"}

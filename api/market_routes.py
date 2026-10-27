@@ -31,6 +31,26 @@ async def tdx_status():
     return {"enabled": _tdx.is_enabled()}
 
 
+@router.get("/symbol-name")
+async def symbol_name(code: str):
+    """按代码查名称, **只查 PG 的搜股底表(symbol_dict)**, 不发外网请求。
+
+    添加持仓页输入代码自动带名称用: 底表是 A股+场内基金(7290 条), 命中即秒回;
+    港美股/底表没有的返回空 name, 前端再走 /quote 兜底(联网)。
+    """
+    from database import get_db
+    c = (code or "").strip().upper()
+    bare = c.split(".", 1)[-1] if c.startswith(("HK.", "US.")) else c
+    db = await get_db()
+    try:
+        cur = await db.execute("SELECT name, COALESCE(asset_type,'a_stock') FROM symbol_dict WHERE code = ?", (bare,))
+        row = await cur.fetchone()
+        return {"name": row["name"] if row else "",
+                "asset_type": row["asset_type"] if row else None}
+    finally:
+        await db.close()
+
+
 @router.get("/db-status")
 async def market_db_status():
     """行情库(market schema)覆盖度/新鲜度观测。
@@ -40,6 +60,41 @@ async def market_db_status():
     """
     from services import market_store
     return await market_store.db_status()
+
+
+class MarketRefreshReq(BaseModel):
+    codes: list[str] = []        # 空 = 当前用户全部股票/ETF 持仓
+
+
+@router.post("/refresh")
+async def market_refresh(body: MarketRefreshReq):
+    """手动刷新行情: 联网抓取 → write-through 落 PG(market.quote_latest)。
+
+    纯 PG 模式(quote_auto_fetch=False)下这是首页行情的唯一入库入口(日批量任务后续再上)。
+    返回最新快照, 前端拿到后直接覆盖界面, 不必等下一轮轮询。
+    """
+    from services.market_data import quote_auto_fetch, get_stock_sector
+    codes = [normalize_stock_code(c) for c in (body.codes or []) if str(c or "").strip()]
+    if not codes:
+        from database import get_all_holdings
+        codes = [h["stock_code"] for h in await get_all_holdings()]
+    codes = sorted(set(codes))
+    if not codes:
+        return {"ok": True, "auto_fetch": quote_auto_fetch(),
+                "updated": 0, "missing": [], "quotes": {}, "sectors": {}}
+    quotes = await get_realtime_quotes(codes, force=True)
+    # 行业标签(内存缓存 24h): 只补缓存里没有的, A 股才需要联网
+    sectors = {}
+    sec_results = await asyncio.gather(
+        *(get_stock_sector(c, allow_network=True) for c in codes), return_exceptions=True,
+    )
+    for code, sec in zip(codes, sec_results):
+        if isinstance(sec, str) and sec:
+            sectors[code] = sec
+    missing = [c for c in codes if c not in quotes]
+    return {"ok": True, "auto_fetch": quote_auto_fetch(),
+            "updated": len(quotes), "missing": missing,
+            "quotes": quotes, "sectors": sectors}
 
 
 @router.get("/eod-review")

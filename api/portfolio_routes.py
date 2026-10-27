@@ -1558,6 +1558,51 @@ def _check_shares(stock_code: str, shares) -> None:
         raise HTTPException(400, "A 股和港股的股数必须是整数, 只有美股支持碎股")
 
 
+@router.get("/fee-estimate")
+async def fee_estimate(stock_code: str, price: float, shares: float,
+                       broker: str = "", action: str = "BUY", trade_date: str = "", kind: str = ""):
+    """按费率配置预估一笔交易的手续费(CNY)。添加持仓页实时算默认税费, 个人中心试算也用它。
+
+    A股/ETF: 佣金按**所选券商**(个人中心配的费率档案; 未选→默认券商→再兜底 config 常量)
+    + 过户费 + 经手费/证管费; 印花税只在卖出侧。kind=etf 用 ETF 费率档。
+    港美股: 按券商收费方案(默认盈立)算。前端拿到后填进可编辑的税费框, 用户可覆盖。
+    """
+    from services.position_ledger import estimate_trade_fee
+    from services.market_data import normalize_stock_code
+    from database import get_config, list_brokers, get_default_broker
+    fee_overrides = await get_config("fee_schedules")
+    full = str(stock_code or "").upper()
+    c_rate = c_min = None
+    if not full.startswith(("HK.", "US.")):
+        # A股/ETF: 按券商档案取费率; ETF 用 etf_ 档。
+        # estimate_trade_fee 的 is_a_share 只认裸 6 位码, 必须剥掉 sh/sz 前缀, 否则恒返 0。
+        bare = normalize_stock_code(full).lstrip("SHSZ").lower()
+        if not (len(bare) == 6 and bare.isdigit()):
+            bare = full.split(".")[-1]
+        use_etf = (kind or "").lower() == "etf" or stockCodeIsEtf(full)
+        brokers = await list_brokers()
+        b = next((x for x in brokers if x["name"] == broker), None) if broker else await get_default_broker()
+        if b:
+            c_rate = b["etf_rate"] if use_etf else b["stock_rate"]
+            c_min = b["etf_min"] if use_etf else b["stock_min"]
+        stock_code = bare
+    try:
+        fee = estimate_trade_fee(
+            action.upper(), price, shares, stock_code=stock_code,
+            commission_rate=c_rate, commission_min=c_min,
+            broker=broker or None, trade_date=trade_date or None,
+            fee_overrides=fee_overrides)
+        return {"fee": round(float(fee or 0), 4)}
+    except Exception as e:
+        return {"fee": None, "error": str(e)}
+
+
+def stockCodeIsEtf(code: str) -> bool:
+    """场内基金粗判: 沪深 5/1 开头的 6 位码(5xxxxx ETF / 1xxxxx LOF/ETF)。"""
+    c = (code or "").split(".")[-1]
+    return bool(len(c) == 6 and c.isdigit() and c[0] in ("5", "1"))
+
+
 @router.post("")
 async def create_holding(data: HoldingCreate):
     stock_code = normalize_stock_code(data.stock_code)
@@ -1588,6 +1633,7 @@ async def create_holding(data: HoldingCreate):
         trade_time=(data.trade_time or None),
         broker=(data.broker or None),
         fx_rate=await _trade_fx(stock_code, data.trade_date, data.fx_rate),
+        fee=data.fee,
     )
     await _recompute_holding(stock_code)
     return {"message": "添加成功", "stock_code": stock_code, "stock_name": name}

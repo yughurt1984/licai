@@ -26,6 +26,12 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   const [assets, setAssets] = useState([])
   const [brokers, setBrokers] = useState([])
   useEffect(() => { loadBrokers().then(setBrokers) }, [])
+  // 个人中心改了券商费率 → 立即重拉(顺带清 helpers 的模块缓存)
+  useEffect(() => {
+    const onChange = () => { loadBrokers().then(setBrokers).catch(() => {}) }
+    window.addEventListener('licai:brokers-changed', onChange)
+    return () => window.removeEventListener('licai:brokers-changed', onChange)
+  }, [])
   const [assetsLoaded, setAssetsLoaded] = useState(false)
   const [tradingDay, setTradingDay] = useState(null)
   const [collapsed, setCollapsed] = useState({})
@@ -471,9 +477,12 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
             className="px-2.5 py-[3px] rounded-md text-[11px] border border-border-med bg-transparent text-text-dim hover:text-text transition-colors cursor-pointer">
             排序 · {sortKey === 'mv' ? '市值' : '盈亏'}
           </button>
-          <button onClick={() => show('add', 'menu')}
+          {/* 已选中具体类型(F/W/M/C/R/T/O)时直接打开对应添加表单, 不再重复问"添加到哪一类";
+              ALL 和 A(股票, 还需区分子市场) 保留类型菜单 */}
+          <button onClick={() => show('add', ['ALL', 'A'].includes(filter) ? 'menu' : filter)}
+            title={filter !== 'ALL' ? `添加${TYPE_META[filter].label}` : undefined}
             className="px-2.5 py-[3px] rounded-md text-[11px] border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer">
-            + 添加
+            {filter !== 'ALL' && filter !== 'A' ? `+ 添加${TYPE_META[filter].label}` : '+ 添加'}
           </button>
         </div>
       </div>
@@ -552,8 +561,51 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                   actions={rowActions} />
               )
 
-              // For FUND / A股 with >1 items: render category subgroups.
-              if ((type === 'F' || type === 'A') && items.length > 1) {
+              // FUND(基金)按行业子类分组; 股票桶(A)按**市场**分两层: A股 / 港股 / 美股
+              // (以前 A 股按行业分组 —— 行业来自外网公司概况接口, 现改为整体三层)。
+              if (type === 'A' && items.length > 1) {
+                const MK_LABEL = { A: 'A股', HK: '港股', US: '美股' }
+                const MK_ORDER = ['A', 'HK', 'US']
+                const clusters = {}
+                for (const it of items) {
+                  const mk = it.extra?.market || 'A'
+                  if (!clusters[mk]) clusters[mk] = { id: `mk-${mk}`, label: MK_LABEL[mk] || mk, items: [], mv: 0, cost: 0, pnl: 0 }
+                  clusters[mk].items.push(it)
+                  clusters[mk].mv += it.mv || 0
+                  clusters[mk].cost += it.cost || 0
+                  clusters[mk].pnl += it.pnl || 0
+                }
+                const ordered = MK_ORDER.filter(mk => clusters[mk]).map(mk => clusters[mk])
+                if (ordered.length > 1) {
+                  return ordered.map((cl, ci) => {
+                    const isLastCluster = ci === ordered.length - 1
+                    return (
+                      <React.Fragment key={cl.id}>
+                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[10.5px] text-text-dim border-b border-border-subtle"
+                          style={{ background: 'var(--color-surface)' }}>
+                          <div className="flex items-center gap-1.5 pl-4">
+                            <span className="inline-block w-1 h-1 rounded-full" style={{ background: TYPE_COLOR[type] }} />
+                            <span className="font-medium text-text">{cl.label}</span>
+                            <span className="opacity-70">{cl.items.length} 项</span>
+                          </div>
+                          <div className="text-right font-mono">¥{fmtMoney(cl.mv)}</div>
+                          <div className="licai-md-only" />
+                          <div className={`text-right font-mono ${priceColor(cl.pnl)}`}>
+                            {cl.pnl >= 0 ? '+' : ''}{fmtMoney(cl.pnl)}
+                          </div>
+                          <div />
+                          <div className="licai-md-only" />
+                          <div />
+                        </div>
+                        {cl.items.map((row, ri) =>
+                          renderRow(row, isLastCluster && ri === cl.items.length - 1))}
+                      </React.Fragment>
+                    )
+                  })
+                }
+              }
+              // 基金: 行业/主题子类分组(>1 项才分组)
+              if (type === 'F' && items.length > 1) {
                 const clusters = {}
                 for (const it of items) {
                   const cid = it.category?.id || 'other'

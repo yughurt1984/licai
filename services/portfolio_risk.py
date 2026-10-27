@@ -53,6 +53,11 @@ def _ewma_cov(R: np.ndarray, lam: float = LAMBDA) -> np.ndarray:
 
 
 async def build(force: bool = False) -> dict:
+    # 纯 PG 模式: 风险计算要 320 根日K(联网), 而日K历史还没入库(日批量任务后续再上) —— 停用,
+    # 前端拿 available=false 自动隐藏横幅, 不发外网请求。
+    from services.market_data import quote_auto_fetch
+    if not quote_auto_fetch():
+        return {"available": False, "note": "纯 PG 模式: 日K历史未入库, 组合风险停用(待日批量数据)"}
     c = _cache.get("r")
     if c and not force and time.time() - c[1] < _TTL:
         return c[0]

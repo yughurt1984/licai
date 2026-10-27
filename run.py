@@ -7,28 +7,6 @@ import asyncio
 import os
 import warnings
 from contextlib import asynccontextmanager
-
-# macOS 系统 Python 3.9 用 LibreSSL 2.8.3, urllib3 v2 会嗷嗷叫。无害, 屏蔽
-warnings.filterwarnings("ignore", message=".*OpenSSL.*", module="urllib3")
-
-# 清掉所有代理 env, 避免 akshare / requests 走系统代理被 EM/Sina 拒
-for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"):
-    os.environ.pop(_k, None)
-
-# 极简 .env 加载(不引第三方依赖): 只认 KEY=VALUE 行, 已在 os.environ 里的不覆盖。
-# 用于扩展数据源凭证等 secrets —— .env 被 .gitignore 挡着, 不进库。
-_envf = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-if os.path.exists(_envf):
-    with open(_envf, encoding="utf-8") as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if not _line or _line.startswith("#") or "=" not in _line:
-                continue
-            _key, _val = _line.split("=", 1)
-            _key, _val = _key.strip(), _val.strip().strip('"').strip("'")
-            if _key and _key not in os.environ:
-                os.environ[_key] = _val
-
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -57,6 +35,27 @@ from api.auth_routes import router as auth_router
 from api.ws import (router as ws_router, price_monitor_loop, backup_loop, briefing_loop,
                     dca_loop, eod_summary_loop, rule_mine_loop)
 from services import feishu_notify
+
+# macOS 系统 Python 3.9 用 LibreSSL 2.8.3, urllib3 v2 会嗷嗷叫。无害, 屏蔽
+warnings.filterwarnings("ignore", message=".*OpenSSL.*", module="urllib3")
+
+# 清掉所有代理 env, 避免 akshare / requests 走系统代理被 EM/Sina 拒
+for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"):
+    os.environ.pop(_k, None)
+
+# 极简 .env 加载(不引第三方依赖): 只认 KEY=VALUE 行, 已在 os.environ 里的不覆盖。
+# 用于扩展数据源凭证等 secrets —— .env 被 .gitignore 挡着, 不进库。
+_envf = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_envf):
+    with open(_envf, encoding="utf-8") as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _key, _val = _line.split("=", 1)
+            _key, _val = _key.strip(), _val.strip().strip('"').strip("'")
+            if _key and _key not in os.environ:
+                os.environ[_key] = _val
 
 
 async def _symbol_dict_prewarm():
@@ -146,32 +145,34 @@ async def lifespan(app: FastAPI):
 
     # 飞书 webhook 是个人配置(PER_USER_KEYS): 不在启动时恢复, 由各后台循环在
     # run_as_user(uid) 里 feishu_notify.refresh_config() 按用户加载。
-    task1 = asyncio.create_task(price_monitor_loop())
-    task2 = asyncio.create_task(backup_loop())
-    task3 = asyncio.create_task(briefing_loop())
-    task4 = asyncio.create_task(dca_loop())
-    task5 = asyncio.create_task(news_prewarm_loop())
-    task6 = asyncio.create_task(sector_matrix_prewarm_loop())
-    task7 = asyncio.create_task(coiled_prewarm_loop())
-    task8 = asyncio.create_task(curve_prewarm_loop())
-    task9 = asyncio.create_task(eod_summary_loop())
-    task10 = asyncio.create_task(_symbol_dict_prewarm())
-    task11 = asyncio.create_task(rule_mine_loop())
-    task12 = asyncio.create_task(plan_monitor_loop())
+    # 后台任务分两类: 本地/PG 任务恒跑; 联网类(行情采集/预热/定时推送)只在
+    # quote_auto_fetch=True(自动联网模式)时启动 —— 纯 PG 模式下数据由「手动刷新」
+    # (POST /api/market/refresh)或日批量任务写入, 启动零外网、首页毫秒级。
+    from services.market_data import quote_auto_fetch
+    _tasks = [
+        asyncio.create_task(price_monitor_loop()),
+        asyncio.create_task(backup_loop()),
+        asyncio.create_task(dca_loop()),
+        asyncio.create_task(_symbol_dict_prewarm()),
+        asyncio.create_task(plan_monitor_loop()),
+        asyncio.create_task(rule_mine_loop()),
+    ]
+    if quote_auto_fetch():
+        _tasks += [
+            asyncio.create_task(briefing_loop()),
+            asyncio.create_task(news_prewarm_loop()),
+            asyncio.create_task(sector_matrix_prewarm_loop()),
+            asyncio.create_task(coiled_prewarm_loop()),
+            asyncio.create_task(curve_prewarm_loop()),
+            asyncio.create_task(eod_summary_loop()),
+        ]
+    else:
+        print("[startup] 纯 PG 模式(quote_auto_fetch=false): 跳过联网后台任务"
+              "(新闻预热/板块矩阵/蓄势扫描/盈亏曲线/早报/收盘小结)")
     print(f"全资产看板已启动: http://localhost:{config.port}")
     yield
-    task1.cancel()
-    task2.cancel()
-    task3.cancel()
-    task4.cancel()
-    task5.cancel()
-    task7.cancel()
-    task6.cancel()
-    task8.cancel()
-    task9.cancel()
-    task10.cancel()
-    task11.cancel()
-    task12.cancel()
+    for _t in _tasks:
+        _t.cancel()
     try:
         from services import market_store
         await market_store.close_pool()

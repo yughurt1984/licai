@@ -5,6 +5,8 @@ export const TYPE_META = {
   M: { label: '现金',   short: '现', tintVar: '--color-text-dim',   desc: 'T+0 货币基金 / 银行活期' },
   C: { label: '加密',   short: '加', tintVar: '--color-warn',       desc: 'BTC / ETH / …' },
   R: { label: '机器人', short: '量', tintVar: '--color-text-dim',   desc: '量化 / 跟投' },
+  T: { label: '期货',   short: '期', tintVar: '--color-bear',       desc: '国内商品/金融 · 外盘' },
+  O: { label: '期权',   short: '权', tintVar: '--color-text-dim',   desc: '手填市值' },
 }
 
 // Fallback color hex for donut strokes (Tailwind arbitrary values can't use var() easily)
@@ -15,13 +17,15 @@ export const TYPE_COLOR = {
   M: '#7a9b8e', // sage teal (现金/T+0 流动性)
   C: '#d4a05c', // warn (amber)
   R: '#8a8378', // text-dim grey
+  T: '#cf5c5c', // bear red (期货杠杆/风险)
+  O: '#6b8eb3', // steel blue (期权)
 }
 
-export const TYPE_ORDER = ['A', 'F', 'W', 'M', 'C', 'R']
+export const TYPE_ORDER = ['A', 'F', 'W', 'M', 'C', 'R', 'T', 'O']
 
-export const ASSET_TYPE_TO_KEY = { FUND: 'F', CRYPTO: 'C', BOT: 'R', WEALTH: 'W', CASH: 'M' }
+export const ASSET_TYPE_TO_KEY = { FUND: 'F', CRYPTO: 'C', BOT: 'R', WEALTH: 'W', CASH: 'M', FUT: 'T', OPT: 'O' }
 
-export const KEY_TO_ASSET_TYPE = { F: 'FUND', C: 'CRYPTO', R: 'BOT', W: 'WEALTH', M: 'CASH' }
+export const KEY_TO_ASSET_TYPE = { F: 'FUND', C: 'CRYPTO', R: 'BOT', W: 'WEALTH', M: 'CASH', T: 'FUT', O: 'OPT' }
 
 // 券商佣金率（默认万 2.5; 在 config.py 改为你自己的费率）。影响"按股买"模式的手续费自动估算.
 export const BROKER_COMMISSION_RATE = 0.00025

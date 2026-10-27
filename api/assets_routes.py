@@ -39,7 +39,7 @@ class DcaInlineCreate(BaseModel):
 
 
 class AssetCreate(BaseModel):
-    asset_type: str            # FUND / CRYPTO / BOT / WEALTH
+    asset_type: str            # FUND / CRYPTO / BOT / WEALTH / CASH / FUT / OPT
     code: str
     name: str
     platform: Optional[str] = ""
@@ -57,6 +57,7 @@ class AssetCreate(BaseModel):
     purchase_fee_rate: Optional[float] = None   # FUND 申购费率 (小数, 0.0015=0.15%); C 类填 0
     fee: Optional[float] = None                 # 建仓手续费 ¥ (含在 cost_amount 内, 单存便于流水展示)
     broker: Optional[str] = None               # 托管券商/平台, e.g. "招商证券"
+    contract_multiplier: Optional[float] = None  # FUT/OPT 每手乘数(沪铜 5; 期权合约单位 10000)
     dca: Optional[DcaInlineCreate] = None       # FUND/CRYPTO 同时建定投计划 (可选)
 
 
@@ -75,6 +76,7 @@ class AssetUpdate(BaseModel):
     bot_budget_override_usdt: Optional[float] = None
     purchase_fee_rate: Optional[float] = None
     broker: Optional[str] = None
+    contract_multiplier: Optional[float] = None   # FUT/OPT 每手乘数
 
 
 class OkxCredentials(BaseModel):
@@ -101,6 +103,11 @@ class LotAdd(BaseModel):
     lot_start_date: Optional[str] = None    # WEALTH 加投起投日 (default: today)
     lot_yield_rate: Optional[float] = None  # WEALTH 加投年化 (default: keep existing)
     trade_time: Optional[str] = None        # 成交时刻 HH:MM (可选, 供分时图打点)
+
+
+def _today_iso() -> str:
+    from datetime import date
+    return date.today().isoformat()
 
 
 _split_checked: dict[str, str] = {}   # code -> 已探测日期(每天每只最多探测一次)
@@ -344,6 +351,55 @@ async def _enrich(asset: dict) -> dict:
             "auto_yield": True,
             "released_total": round(total_released, 2),
         }
+    elif t == "FUT":
+        # 期货: 新浪期货报价自动计价(先国内 nf_ 后外盘 hf_), 市值 = 价 × 每手乘数 × 手数。
+        # quote.nav = 每手名义价值 → today_pnl 的通用路径(FUND 同款)直接复用。
+        sym = (asset.get("code") or "").strip()
+        base = sym[3:] if sym[:3].lower() in ("nf_", "hf_") else sym
+        q = None
+        try:
+            from services.market_data import _fetch_futures_quote, _fetch_overseas_quote
+            q = await asyncio.to_thread(_fetch_futures_quote, base) if not sym[:3].lower() == "hf_" else None
+            if not q or not q.get("price"):
+                q = await asyncio.to_thread(_fetch_overseas_quote, base)
+        except Exception as e:
+            print(f"[assets] FUT quote {sym} failed: {e}")
+        mult = float(asset.get("contract_multiplier") or 1)
+        lots = float(asset.get("shares") or 0)
+        if q and q.get("price"):
+            px = float(q["price"])
+            ccy = "USD" if sym[:3].lower() == "hf_" else "CNY"
+            if ccy == "USD":
+                from services.market_data import get_fx_info
+                fx = await asyncio.to_thread(get_fx_info, "USD")
+                px_cny = px * float((fx or {}).get("rate") or 7.2)
+            else:
+                px_cny = px
+            per_lot = px_cny * mult                        # 每手名义价值(CNY)
+            current_value = per_lot * lots
+            quote = {"nav": round(per_lot, 4), "price": px, "currency": ccy,
+                     "change_pct": q.get("change_pct"),
+                     "today_change_pct": q.get("change_pct"),
+                     "nav_date": _today_iso(), "source": "sina_futures"}
+            # write-through 期货快照(顺带自动登记底稿)
+            try:
+                from services import market_store
+                await market_store.save_quotes([{
+                    "symbol": sym, "asset_type": "fut", "name": q.get("name") or asset.get("name") or sym,
+                    "price": px, "change_pct": q.get("change_pct"),
+                    "currency": ccy, "source": "sina_futures",
+                }])
+            except Exception:
+                pass
+        else:
+            # 报价拿不到 → 手填市值兜底(nav 给 manual, today 不计)
+            current_value = asset.get("manual_value")
+            quote = {"nav": None, "today_change_pct": None, "nav_date": None,
+                     "sync_error": "期货报价不可达, 用手填市值"}
+    elif t == "OPT":
+        # 期权: 无免费可靠行情源 → 手填市值(manual_value); 乘数/手数仅供记录。
+        current_value = asset.get("manual_value")
+        quote = {"nav": None, "today_change_pct": None, "nav_date": None}
     elif t == "BOT" and asset.get("okx_algo_id") and await okx_client.has_credentials():
         # Auto-sync from OKX
         algo_id = asset["okx_algo_id"]
@@ -529,8 +585,8 @@ async def close_asset(asset_id: int):
 
 @router.post("")
 async def create_asset(data: AssetCreate):
-    if data.asset_type not in {"FUND", "CRYPTO", "BOT", "WEALTH", "CASH"}:
-        raise HTTPException(400, "asset_type must be FUND / CRYPTO / BOT / WEALTH / CASH")
+    if data.asset_type not in {"FUND", "CRYPTO", "BOT", "WEALTH", "CASH", "FUT", "OPT"}:
+        raise HTTPException(400, "asset_type must be FUND / CRYPTO / BOT / WEALTH / CASH / FUT / OPT")
 
     # FUND/CRYPTO 且只填了金额没填份额 → 走 pending 模式 (T+1 未确认).
     # cost_amount 暂记 0, 实际金额放 pending_amount; seed action 写 status=pending.
@@ -576,10 +632,11 @@ async def create_asset(data: AssetCreate):
             pending_amount=effective_pending,
             purchase_fee_rate=data.purchase_fee_rate,
             broker=data.broker,
+            contract_multiplier=data.contract_multiplier,
         )
     # 写购买 action 进 ledger (BOT 不入账, 走 OKX 同步); 合并时标 add-lot, 新建标 initial
     if data.asset_type != "BOT" and data.cost_amount and data.cost_amount > 0:
-        seed_type = "BUY" if data.asset_type in ("FUND", "CRYPTO") else "DEPOSIT"
+        seed_type = "BUY" if data.asset_type in ("FUND", "CRYPTO", "FUT") else "DEPOSIT"
         seed_fee = float(data.fee or 0)
         # cost_amount 已含 fee; 单价按净额 (cost - fee) / 份额, 保证 份额×单价+fee == amount,
         # 这样流水里手续费单独可见, 编辑也不会把它算丢。

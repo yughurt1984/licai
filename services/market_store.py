@@ -52,10 +52,54 @@ QUOTE_COLS = ("symbol", "asset_type", "name", "price", "open", "high", "low", "p
               "quote_time", "source", "fetched_at")
 
 
+def _dict_code_of(symbol: str, asset_type: str) -> str | None:
+    """quote symbol → 底稿裸码。fx/index 不入底稿(非证券); 其余剥前缀取裸码。"""
+    s = (symbol or "").strip()
+    if not s or asset_type in ("fx", "index"):
+        return None
+    if asset_type == "fund" and s.startswith("fund_"):
+        return s[5:]
+    if s.startswith("HK."):
+        return s[3:]
+    if s.startswith("US."):
+        return s[3:]
+    return s          # a_stock/etf 裸 6 位; crypto(BTC-USDT); fut(CU0); opt 直接用
+
+
+async def _register_symbols(rows: list[dict]) -> None:
+    """自动登记底稿: 报价落库的证券顺带 upsert 进 symbol_dict(裸码+名称+资产类型)。
+
+    零联网 —— 名称来自报价本身, 底稿随实际使用的标的自动长全。
+    """
+    out = []
+    seen = set()
+    for r in rows:
+        at = r.get("asset_type") or ""
+        code = _dict_code_of(r.get("symbol") or "", at)
+        name = (r.get("name") or "").strip()
+        if not code or not name or code in seen:
+            continue
+        seen.add(code)
+        out.append((code, name, at))
+    if not out:
+        return
+    try:
+        pool = await get_pool()
+        await pool.executemany(
+            "INSERT INTO ledger.symbol_dict (code, name, asset_type, updated_at) "
+            "VALUES ($1, $2, $3, to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS')) "
+            "ON CONFLICT (code) DO UPDATE SET name = excluded.name, "
+            "asset_type = excluded.asset_type, updated_at = excluded.updated_at",
+            out)
+    except Exception as e:
+        print(f"[market_store] 底稿登记失败(不影响行情): {e}")
+
+
 async def save_quotes(rows: list[dict]) -> int:
     """write-through 最新快照。rows: store 形状 dict(见 quote_to_store_row)。缺的列存 NULL。
 
-    best-effort: 行情落库失败不该影响取价本身。
+    fetched_at 一律写当前 UTC(快照新鲜度的判据, 调用方不许自己带); 同时把证券自动
+    登记进底稿 symbol_dict。best-effort: 行情落库失败不该影响取价本身。
     """
     rows = [r for r in rows or [] if r.get("symbol")]
     if not rows:
@@ -63,14 +107,19 @@ async def save_quotes(rows: list[dict]) -> int:
     try:
         pool = await get_pool()
         now = _utc_now_text()
+        for r in rows:
+            r["fetched_at"] = now
+            if not r.get("quote_time"):
+                r["quote_time"] = now       # 源没给时点的(A股批量)用落库时刻兜底, 新鲜度判据更准
         cols = QUOTE_COLS
         ph = ",".join(f"${i+1}" for i in range(len(cols)))
-        updates = ",".join(f"{c} = excluded.{c}" for c in cols[1:-1])   # symbol 是冲突目标
+        updates = ",".join(f"{c} = excluded.{c}" for c in cols[1:])   # symbol 是冲突目标, 其余(含fetched_at/quote_time)全刷
         sql = (f"INSERT INTO quote_latest ({','.join(cols)}) VALUES ({ph}) "
-               f"ON CONFLICT (symbol) DO UPDATE SET {updates}, fetched_at = excluded.fetched_at")
+               f"ON CONFLICT (symbol) DO UPDATE SET {updates}")
         data = [tuple(r.get(c) for c in cols) for r in rows]
         for i in range(0, len(data), 500):
             await pool.executemany(sql, data[i:i + 500])
+        await _register_symbols(rows)
         return len(rows)
     except Exception as e:
         print(f"[market_store] save_quotes 失败(不影响行情): {e}")

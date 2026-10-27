@@ -12,6 +12,7 @@ class HoldingCreate(BaseModel):
     trade_time: Optional[str] = None  # 成交时刻 HH:MM (可选, 供分时图打点)
     broker: Optional[str] = None
     fx_rate: Optional[float] = None   # 港美股成交日汇率(每 1 原币折人民币), 按结单填; 不填按成交日自动取
+    fee: Optional[float] = None       # 手续费(CNY); 不填由 estimate_trade_fee 按费率自动算
 
 
 class HoldingUpdate(BaseModel):

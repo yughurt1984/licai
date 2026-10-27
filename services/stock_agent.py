@@ -50,10 +50,18 @@ async def _code_name_maps():
         from database import load_symbol_dict
         rows, _ts = await load_symbol_dict()
         n2c, c2n = {}, {}
-        for cd, nm, is_etf in rows:
+        for cd, nm, asset_type in rows:
+            # 港美/期货码补市场前缀: 搜股解析出的是**可直达行情**的完整代码,
+            # 否则港股名解析出裸 00700 会被当 A 股码查不到行情。
+            if asset_type == "hk_stock" and not cd.startswith("HK."):
+                cd = f"HK.{cd}"
+            elif asset_type == "us_stock" and not cd.startswith("US."):
+                cd = f"US.{cd}"
+            elif asset_type == "fut" and cd[:3].lower() not in ("nf_", "hf_"):
+                pass          # 期货保持裸合约号(与资产页 FUT code 同口径)
             c2n[cd] = nm
             n2c.setdefault(nm, cd)
-            if is_etf:
+            if asset_type in ("etf", "fund"):     # 搜股排序 ETF/基金沉底(个股优先)
                 _etf_codes.add(cd)
         _code_name_cache = (n2c, c2n, _time.time())
         return n2c, c2n

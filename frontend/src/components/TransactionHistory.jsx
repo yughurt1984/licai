@@ -133,6 +133,12 @@ export default function TransactionHistory({ stockCode, stockName, onClose, onCh
   const [adding, setAdding] = useState(false)
   const [brokers, setBrokers] = useState([])
   useEffect(() => { loadBrokers().then(setBrokers) }, [])
+  // 个人中心改了券商费率 → 立即重拉(顺带清 helpers 的模块缓存)
+  useEffect(() => {
+    const onChange = () => { loadBrokers().then(setBrokers).catch(() => {}) }
+    window.addEventListener('licai:brokers-changed', onChange)
+    return () => window.removeEventListener('licai:brokers-changed', onChange)
+  }, [])
   const [newAction, setNewAction] = useState({
     action_type: 'BUY',
     broker: '',

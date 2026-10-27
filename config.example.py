@@ -19,6 +19,10 @@ class Config:
     db_path: str = "portfolio.db"
 
     # --- 行情刷新 ---
+    # 数据源模式: False = 首页/持仓接口只读 PG(market.quote_latest), 零外网毫秒级返回;
+    #            行情由「手动刷新」(POST /api/market/refresh)或未来的日批量任务写入。
+    #            True  = 保留自动联网(读穿三段策略 + WS 5s 推流直连远端)。
+    quote_auto_fetch: bool = False
     quote_cache_ttl: int = 5         # 实时报价缓存秒数
     history_cache_ttl: int = 300     # K 线缓存秒数
     refresh_interval: int = 5        # 盘内推送间隔

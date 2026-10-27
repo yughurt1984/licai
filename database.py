@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS external_assets (
     bot_budget_override_usdt DOUBLE PRECISION,  -- OKX 马丁实际总预算(USDT), 用户手填覆盖
     purchase_fee_rate DOUBLE PRECISION,  -- 基金申购费率(小数, 0.0015 = 0.15%)
     redeem_fee_tiers TEXT,               -- 基金赎回费阶梯 JSON [[天数, 费率], ...]
+    contract_multiplier DOUBLE PRECISION DEFAULT 1,  -- FUT/OPT: 每手乘数(沪铜 5吨/手; 期权合约单位), 市值=价×乘数×手数
     broker TEXT,
     closed SMALLINT DEFAULT 0,           -- 平仓归档: 1 = 退出在持
     closed_realized DOUBLE PRECISION,    -- 平仓时已实现盈亏(CNY)
@@ -237,9 +238,9 @@ CREATE TABLE IF NOT EXISTS watchlist_group (
 -- 现拉一次要 20s+(stock_info_a_code_name 17 个分页 + ETF 表), 每次重启都重付, 首次
 -- 搜索被阻塞几十秒。落盘后重启即时可用, 过期只在后台刷。
 CREATE TABLE IF NOT EXISTS symbol_dict (
-    code TEXT PRIMARY KEY,
+    code TEXT PRIMARY KEY,               -- 裸码: A/ETF/基金 6位, HK 5位, US ticker, 期货合约号
     name TEXT NOT NULL,
-    is_etf INTEGER DEFAULT 0,
+    asset_type TEXT NOT NULL DEFAULT 'a_stock',  -- a_stock|etf|hk_stock|us_stock|fut|opt|fund|crypto
     updated_at TEXT DEFAULT utc_now_text()
 );
 
@@ -606,6 +607,18 @@ async def init_db():
                   # 下面三张的 UNIQUE 约束要重建成含 user_id, 列也必须先补上
                   "morning_briefings", "thesis_revision"):
             await db.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0")
+        # 期货/期权: 每手乘数(老库补列, 新库 SCHEMA 已带)
+        await db.execute("ALTER TABLE external_assets ADD COLUMN IF NOT EXISTS contract_multiplier DOUBLE PRECISION DEFAULT 1")
+        # 底稿表 is_etf → asset_type(全资产类型: a_stock/etf/hk_stock/us_stock/fut/opt/fund/crypto)。
+        # 回填后删老列: 留着就是第二本账, 谁读到的都是搬迁那一刻的快照。
+        await db.execute("ALTER TABLE symbol_dict ADD COLUMN IF NOT EXISTS asset_type TEXT")
+        cur = await db.execute("SELECT COUNT(*) FROM information_schema.columns "
+                               "WHERE table_schema='ledger' AND table_name='symbol_dict' AND column_name='is_etf'")
+        if (await cur.fetchone())[0]:
+            await db.execute("UPDATE symbol_dict SET asset_type = CASE WHEN COALESCE(is_etf,0)=1 THEN 'etf' ELSE 'a_stock' END "
+                             "WHERE asset_type IS NULL")
+            await db.execute("ALTER TABLE symbol_dict DROP COLUMN is_etf")
+        await db.execute("UPDATE symbol_dict SET asset_type = 'a_stock' WHERE asset_type IS NULL")
         _PK_NEW = {
             "app_config": ("user_id", "key"),
             "watchlist": ("user_id", "stock_code"),
@@ -1419,17 +1432,20 @@ async def add_external_asset(asset_type: str, code: str, name: str, platform: st
                               start_date: str | None = None,
                               pending_amount: float | None = None,
                               purchase_fee_rate: float | None = None,
-                              broker: str | None = None) -> int:
+                              broker: str | None = None,
+                              contract_multiplier: float | None = None) -> int:
     db = await get_db()
     try:
         cursor = await db.execute(
             """INSERT INTO external_assets
                (user_id, asset_type, code, name, platform, cost_amount, shares, manual_value, note,
-                okx_algo_id, okx_bot_type, annual_yield_rate, start_date, pending_amount, purchase_fee_rate, broker)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                okx_algo_id, okx_bot_type, annual_yield_rate, start_date, pending_amount, purchase_fee_rate, broker,
+                contract_multiplier)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id""",
             (_uid(), asset_type, code, name, platform, cost_amount, shares, manual_value, note,
-             okx_algo_id, okx_bot_type, annual_yield_rate, start_date, pending_amount or 0, purchase_fee_rate, broker),
+             okx_algo_id, okx_bot_type, annual_yield_rate, start_date, pending_amount or 0, purchase_fee_rate, broker,
+             contract_multiplier),
         )
         await db.commit()
         return cursor.lastrowid
@@ -2158,16 +2174,16 @@ async def reorder_watchlist(codes: list[str], scope: str = "global", group: str 
 # ---- 全市场代码↔名称字典(搜股底表, 落盘避免每次重启重拉 20s+) ----
 
 async def save_symbol_dict(rows: list[tuple]) -> int:
-    """rows: [(code, name, is_etf)]。整表覆盖式 upsert, 不删旧码(退市票留着仍可搜历史)。"""
+    """rows: [(code, name, asset_type)]。upsert 不删旧码(退市票留着仍可搜历史)。"""
     if not rows:
         return 0
     db = await get_db()
     try:
         await db.executemany(
-            "INSERT INTO symbol_dict (code, name, is_etf, updated_at) VALUES (?,?,?,utc_now_text()) "
-            "ON CONFLICT(code) DO UPDATE SET name=excluded.name, is_etf=excluded.is_etf, "
+            "INSERT INTO symbol_dict (code, name, asset_type, updated_at) VALUES (?,?,?,utc_now_text()) "
+            "ON CONFLICT(code) DO UPDATE SET name=excluded.name, asset_type=excluded.asset_type, "
             "updated_at=utc_now_text()",
-            [(str(c), str(n), int(e)) for c, n, e in rows])
+            [(str(c), str(n), str(a)) for c, n, a in rows])
         await db.commit()
         return len(rows)
     finally:
@@ -2175,11 +2191,11 @@ async def save_symbol_dict(rows: list[tuple]) -> int:
 
 
 async def load_symbol_dict() -> tuple[list[tuple], str | None]:
-    """→ ([(code, name, is_etf)], 最新更新时间)。空表返回 ([], None)。"""
+    """→ ([(code, name, asset_type)], 最新更新时间)。空表返回 ([], None)。"""
     db = await get_db()
     try:
-        cur = await db.execute("SELECT code, name, COALESCE(is_etf,0) FROM symbol_dict")
-        rows = [(r[0], r[1], int(r[2])) for r in await cur.fetchall()]
+        cur = await db.execute("SELECT code, name, COALESCE(asset_type,'a_stock') FROM symbol_dict")
+        rows = [(r[0], r[1], r[2]) for r in await cur.fetchall()]
         cur = await db.execute("SELECT MAX(updated_at) FROM symbol_dict")
         ts = (await cur.fetchone())[0]
         return rows, ts

@@ -47,7 +47,7 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {(addTarget === 'F' || addTarget === 'C' || addTarget === 'R' || addTarget === 'W' || addTarget === 'M') && (
+      {['F', 'C', 'R', 'W', 'M', 'T', 'O'].includes(addTarget) && (
         <AddAssetForm typeKey={addTarget}
           brokers={brokers}
           onDone={() => { hide('add'); onAssetsChanged() }}

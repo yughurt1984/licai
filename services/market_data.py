@@ -49,6 +49,17 @@ def _cache_set(key: str, data):
     _cache[key] = (data, time.time())
 
 
+def quote_auto_fetch() -> bool:
+    """行情是否允许自动联网。
+
+    False(默认, 纯 PG 模式): 持仓/宏观接口只读 market.quote_latest, 零外网毫秒级返回;
+    行情入库只靠「手动刷新」(POST /api/market/refresh)和未来的日批量任务。
+    True: 恢复自动联网(读穿三段策略 + WS 推流直连远端)。
+    用 getattr 兜底: 旧的 config.py 还没加这个字段时也不炸, 行为同纯 PG 模式。
+    """
+    return bool(getattr(config, "quote_auto_fetch", False))
+
+
 # ---- 行情库 read-through: 成功即落 PG, 失败回退最后快照(见 services/market_store.py) ----
 from services import market_store  # noqa: E402  (只依赖 config, 无循环导入)
 
@@ -82,27 +93,101 @@ def _quote_to_store_rows(result: dict) -> list[dict]:
     return rows
 
 
-def _store_rows_to_quotes(rows: dict[str, dict]) -> dict[str, dict]:
-    """quote_latest 快照 → get_realtime_quotes 形状的 quote(远端全挂时的兜底)。"""
+def _store_rows_to_quotes(rows: dict[str, dict], fx_map: dict[str, float] | None = None) -> dict[str, dict]:
+    """quote_latest 快照 → get_realtime_quotes 形状的 quote。
+
+    fx_map: {USD: rate, HKD: rate} —— 调用方从 PG 的 fx 行预取好传入, 避免
+    get_fx_info 首次 miss 时 5s 同步 HTTP 卡事件循环(冷启动首屏)。
+    """
     out = {}
     for sym, r in (rows or {}).items():
         cur = r.get("currency") or "CNY"
+        if cur == "CNY":
+            fx_rate, fx_src, fx_time = 1.0, "CNY", ""
+        elif fx_map and cur in fx_map and fx_map[cur]:
+            fx_rate, fx_src, fx_time = fx_map[cur], "db", ""
+        else:
+            info = get_fx_info(cur)
+            fx_rate, fx_src, fx_time = info["rate"], info.get("source", ""), info.get("time", "")
         out[sym] = {
             "stock_code": sym,
             "stock_name": r.get("name") or "",
             "market": _MARKET_BY_ATYPE.get(r.get("asset_type") or "", ""),
             "currency": cur,
-            "fx_rate": get_fx_info(cur)["rate"],
+            "fx_rate": fx_rate,
+            "fx_time": fx_time,
+            "fx_source": fx_src,
             "price": r.get("price"), "open": r.get("open"), "high": r.get("high"),
             "low": r.get("low"), "prev_close": r.get("prev_close"),
             "volume": r.get("volume"), "amount": r.get("amount"),
             "change_pct": r.get("change_pct"), "turnover_rate": r.get("turnover_rate") or 0,
             "quote_time": r.get("quote_time") or "",
             "source": "db",
-            "stale": True,                     # 标注: PG 最后快照, 非实时
+            "stale": not _stored_fresh(r),     # 标注: PG 快照是否已过期(非实时)
             "fetched_at": r.get("fetched_at"),
         }
     return out
+
+
+async def _fx_map_from_store() -> dict[str, float]:
+    """PG 的 fx 快照 → {USD: rate, HKD: rate}。没有则空 dict(调用方回退 get_fx_info)。"""
+    try:
+        rows = await market_store.get_stored_quotes(["USDCNY", "HKDCNY"])
+        out = {}
+        for sym, r in rows.items():
+            px = r.get("price")
+            if px:
+                out[sym.replace("CNY", "")] = float(px)
+        return out
+    except Exception:
+        return {}
+
+
+def _stored_fresh(row: dict) -> bool:
+    """PG 快照是否算新鲜: 盘中 ≤60s; 非交易时段 ≤6h(昨收即新)。解析不了 fetched_at 按旧。"""
+    from datetime import datetime as _dt
+    try:
+        ts = _dt.strptime(str(row.get("fetched_at") or ""), "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return False
+    age = (_dt.utcnow() - ts).total_seconds()
+    if age < 0:
+        return True
+    return age <= (60 if market_open("A") else 6 * 3600)
+
+
+async def _refresh_quotes_bg(codes: list[str], cache_key: str):
+    """后台刷新过期快照: 抓远端 → write-through + 内存缓存(下次调用走①纯 PG)。"""
+    try:
+        a_codes = [c for c in codes if split_stock_code(c)[0] == "A"]
+        result = {}
+        if a_codes:
+            result.update(await asyncio.to_thread(_fetch_sina_quotes, a_codes))
+        async def fetch_one(code: str):
+            market, symbol = split_stock_code(code)
+            if market == "HK":
+                q = await asyncio.to_thread(_fetch_hk_stock_quote, symbol)
+            elif market == "US":
+                q = await asyncio.to_thread(_fetch_us_stock_quote, symbol)
+            else:
+                q = None
+            if not q:
+                return None
+            fx = get_fx_info(q.get("currency", "CNY"), allow_network=True)
+            return code, {"stock_code": code, "fx_rate": fx["rate"], "fx_time": fx.get("time", ""),
+                          "fx_source": fx.get("source", ""), **q}
+        oversea = await asyncio.gather(*(fetch_one(c) for c in codes if split_stock_code(c)[0] != "A"),
+                                       return_exceptions=True)
+        for item in oversea:
+            if isinstance(item, Exception) or not item:
+                continue
+            code, quote = item
+            result[code] = quote
+        if result:
+            _cache_set(cache_key, result)
+            market_store.spawn(market_store.save_quotes(_quote_to_store_rows(result)))
+    except Exception as e:
+        print(f"[market_data] 后台刷新报价失败(下次再试): {e}")
 
 
 def _macro_groups_to_store_rows(groups: dict) -> list[dict]:
@@ -149,11 +234,13 @@ async def _macro_from_store() -> dict:
     return groups
 
 
-def get_fx_info(currency: str) -> dict:
+def get_fx_info(currency: str, allow_network: bool | None = None) -> dict:
     """Fetch CNY conversion info for a quote currency.
 
     Sina exposes bid/ask style fields; portfolio valuation uses their midpoint
     to avoid leaning on one side of the spread.
+    allow_network=None 按全局 quote_auto_fetch 决定; 纯 PG 模式下不联网,
+    依次回退: 内存缓存 → 上次成功价(落盘) → 写死近似值(source 标注非实时)。
     """
     currency = (currency or "CNY").upper()
     if currency == "CNY":
@@ -166,6 +253,13 @@ def get_fx_info(currency: str) -> dict:
     cached = _cache_get(cache_key, 300)
     if cached is not None:
         return cached
+    if allow_network is None:
+        allow_network = quote_auto_fetch()
+    if not allow_network:
+        last = _fx_recall(currency)
+        if last:
+            return {"rate": last["rate"], "source": "last_known", "time": last.get("at", "")}
+        return {"rate": fallback, "source": "fallback", "time": ""}
     try:
         resp = _requests.get(
             f"https://hq.sinajs.cn/list={symbol}",
@@ -323,6 +417,10 @@ def _fx_history_all() -> dict:
     if from_db and max(max(v) for v in from_db.values()) >= yday:
         return from_db
     cached = _fx_history_disk()
+    if not quote_auto_fetch():
+        # 纯 PG 模式: 不回源中行牌价(联网), PG/磁盘里有就用那份(缺的日子按最近已知折算),
+        # 新数据等日批量任务写入 fx_daily。
+        return cached or from_db
     if not cached or max(cached.get("USD") or {"": 0}) < yday:   # 盘上那份旧了(只用到昨天为止)才重拉
         cached = _fx_history_fetch()
     if cached:
@@ -552,8 +650,14 @@ def _fetch_sina_quotes(stock_codes: list[str]) -> dict:
     return result
 
 
-async def get_realtime_quotes(stock_codes: list[str]) -> dict:
-    """Get real-time quotes for A/HK/US stock holdings via Sina Finance."""
+async def get_realtime_quotes(stock_codes: list[str], force: bool = False) -> dict:
+    """Get real-time quotes for A/HK/US stock holdings.
+
+    三段策略(提速资产页): ① PG quote_latest 有**新鲜**快照 → 纯 PG 返回, 零外网毫秒级;
+    ② 有**旧**快照 → 立即返回 PG + 后台刷远端(stale-while-revalidate, 页面先出最近价,
+    WS 推送随后覆盖); ③ 无快照 → 现有远端路径(冷启动首日), 远端全挂回退 PG。
+    force=True 跳过①②(price_monitor_loop 用 —— 它自己就是刷新器)。
+    """
     if not stock_codes:
         return {}
 
@@ -562,6 +666,39 @@ async def get_realtime_quotes(stock_codes: list[str]) -> dict:
     cached = _cache_get(cache_key, config.quote_cache_ttl)
     if cached is not None:
         return cached
+
+    # ── ⓪ 纯 PG 模式(quote_auto_fetch=False): 只读库, 永不联网 ──
+    # 快照旧/缺码都直接返回库里最新那份(过期标 stale), 新鲜度由手动刷新
+    # (POST /api/market/refresh)或日批量任务保证 —— 首页持仓因此零外网等待。
+    if not force and not quote_auto_fetch():
+        try:
+            stored = await market_store.get_stored_quotes(codes)
+            out = _store_rows_to_quotes(stored, await _fx_map_from_store())
+            if out:
+                _cache_set(cache_key, out)
+            return out
+        except Exception as e:
+            print(f"[market_data] 纯 PG 模式读库失败: {e}")
+            return {}
+
+    # ── ①②: PG 快路径(非 force) ──
+    if not force:
+        try:
+            stored = await market_store.get_stored_quotes(codes)
+            missing = [c for c in codes if c not in stored]
+            if stored and not missing:
+                fresh = {s: r for s, r in stored.items() if _stored_fresh(r)}
+                if len(fresh) == len(codes):          # 全部新鲜 → 纯 PG, 零外网
+                    out = _store_rows_to_quotes(fresh, await _fx_map_from_store())
+                    _cache_set(cache_key, out)
+                    return out
+                # 有旧快照 → 先回 PG(页面立即出最近价) + 后台刷远端(下次即新; WS 5s 推流实时覆盖)
+                market_store.spawn(_refresh_quotes_bg(codes, cache_key))
+                out = _store_rows_to_quotes(stored, await _fx_map_from_store())
+                return out
+            # 有缺码(首次见到这只票) → 同步走远端拿全量(下方现有路径), 落库后下次进快路径
+        except Exception as e:
+            print(f"[market_data] PG 快路径失败(走远端): {e}")
 
     try:
         a_codes = [c for c in codes if split_stock_code(c)[0] == "A"]
@@ -582,7 +719,7 @@ async def get_realtime_quotes(stock_codes: list[str]) -> dict:
                 q = None
             if not q:
                 return None
-            fx = get_fx_info(q.get("currency", "CNY"))
+            fx = get_fx_info(q.get("currency", "CNY"), allow_network=True)
             return code, {
                 "stock_code": code,
                 "fx_rate": fx["rate"],
@@ -607,12 +744,12 @@ async def get_realtime_quotes(stock_codes: list[str]) -> dict:
             return result
         # 远端一个都没取到 → PG 最后快照兜底(带 stale 标注)
         stored = await market_store.get_stored_quotes(codes)
-        return _store_rows_to_quotes(stored)
+        return _store_rows_to_quotes(stored, await _fx_map_from_store())
     except Exception as e:
         print(f"[market_data] Error fetching Sina quotes: {e}")
         try:
             stored = await market_store.get_stored_quotes(codes)
-            return _store_rows_to_quotes(stored)
+            return _store_rows_to_quotes(stored, await _fx_map_from_store())
         except Exception:
             return {}
 
@@ -1198,9 +1335,11 @@ _sector_cache: dict[str, tuple[str, float]] = {}  # code -> (sector, ts)
 _SECTOR_TTL = 86400  # 1 day
 
 
-async def get_stock_sector(stock_code: str) -> str:
+async def get_stock_sector(stock_code: str, allow_network: bool | None = None) -> str:
     """Return top-level sector name like '有色金属' / '医药生物' / '银行'.
-    Caches for 1 day since sectors rarely change."""
+    Caches for 1 day since sectors rarely change.
+    allow_network=None 按全局 quote_auto_fetch 决定; 纯 PG 模式下缓存未命中直接返回空,
+    不发外网请求(手动刷新端点会传 allow_network=True 补齐)。"""
     import time
     import asyncio as _asyncio
     stock_code = normalize_stock_code(stock_code)
@@ -1212,6 +1351,10 @@ async def get_stock_sector(stock_code: str) -> str:
     cached = _sector_cache.get(stock_code)
     if cached and time.time() - cached[1] < _SECTOR_TTL:
         return cached[0]
+    if allow_network is None:
+        allow_network = quote_auto_fetch()
+    if not allow_network:
+        return ""
     try:
         industry = await _asyncio.to_thread(_lookup_industry, stock_code)
         sector = (industry or "").split("-")[0].strip() if industry else ""
@@ -1221,9 +1364,10 @@ async def get_stock_sector(stock_code: str) -> str:
     return sector
 
 
-async def get_stock_sector_detail(stock_code: str) -> str:
+async def get_stock_sector_detail(stock_code: str, allow_network: bool | None = None) -> str:
     """有色金属细分到二级(小金属/基本金属/贵金属/能源金属), 其它返回一级。
-    钨钼锑稀土等 EM 归在 '有色金属-稀有金属', 这里映射成 '小金属' 跟用户口径一致。"""
+    钨钼锑稀土等 EM 归在 '有色金属-稀有金属', 这里映射成 '小金属' 跟用户口径一致。
+    allow_network 语义同 get_stock_sector。"""
     import time
     import asyncio as _asyncio
     sc = normalize_stock_code(stock_code)
@@ -1236,6 +1380,10 @@ async def get_stock_sector_detail(stock_code: str) -> str:
     cached = _sector_cache.get(ck)
     if cached and time.time() - cached[1] < _SECTOR_TTL:
         return cached[0]
+    if allow_network is None:
+        allow_network = quote_auto_fetch()
+    if not allow_network:
+        return ""
     try:
         industry = await _asyncio.to_thread(_lookup_industry, sc)
     except Exception:
@@ -1946,6 +2094,9 @@ async def get_macro_quotes() -> dict:
     cached = _cache_get(cache_key, 30)
     if cached is not None:
         return cached
+    # 纯 PG 模式: 宏观仪表盘只读 quote_latest 里的最后快照, 不联网
+    if not quote_auto_fetch():
+        return await _macro_from_store()
     try:
         result = await asyncio.to_thread(_fetch_macro_sina)
         if result:

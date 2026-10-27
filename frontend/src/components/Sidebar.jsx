@@ -14,6 +14,8 @@ const ICONS = {
   allocation: <><circle cx="12" cy="12" r="8" /><path d="M12 4v8l7 3" /></>,
   open: <><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /><path d="M12 2v2M22 12h-2" /></>,
   capital: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>,
+  // 个人中心: 头像框 + 肩线
+  profile: <><circle cx="12" cy="8.5" r="3.5" /><path d="M5 20c1.2-3.4 3.8-5 7-5s5.8 1.6 7 5" /></>,
 }
 
 // 顶层按「我的钱 / 看市场」分组 —— 边界是"跟我的钱有关 vs 无关",
@@ -30,6 +32,7 @@ export const NAV = [
     { key: 'performance', label: '绩效·基准' },
     { key: 'allocation',  label: '配置建议' },
     { key: 'review',      label: '复盘' },
+    { key: 'profile',     label: '个人中心' },
   ] },
   { group: '市场', items: [
     { key: 'open',     label: '开盘·情绪' },

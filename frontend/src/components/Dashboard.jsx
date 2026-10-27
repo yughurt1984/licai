@@ -158,18 +158,26 @@ export default function Dashboard({ holdings }) {
   // 与持仓总览 SummaryStrip 同源, 两处"今日浮动"一致; change_pct 混着 T-1 官方净值会低/高估当天。
   const fundTodayPnl = isTradingDay
     ? (external?.assets || []).reduce((s, a) => {
+        // 期货有夜盘, 不跟 A 股日历: 交易日判断外单独累进(见下方 futTodayPnl)
         if (a.asset_type !== 'FUND') return s
         const pct = a.quote?.today_change_pct
         if (pct == null || a.current_value == null) return s
         return s + (a.current_value * pct / 100) / (1 + pct / 100)
       }, 0)
     : 0
+  // 期货(24/7 组, 有夜盘): quote.today_change_pct 由后端新浪期货报价给出
+  const futTodayPnl = (external?.assets || []).reduce((s, a) => {
+    if (a.asset_type !== 'FUT') return s
+    const pct = a.quote?.today_change_pct
+    if (pct == null || a.current_value == null) return s
+    return s + (a.current_value * pct / 100) / (1 + pct / 100)
+  }, 0)
   // 当日盈亏优先用后端券商口径(含今日清仓的已实现 + 今日新建仓按买入价为基准), 与持仓
   // 总览 SummaryStrip 同源, 两处必须一致 —— 否则顶栏和总览会给出两个数。
   // 后端只算有"份额×单价"口径的品种, 加密/OKX机器人(24/7, 走 floatProfit)仍在前端补。
   // 后端已覆盖 A股/基金/ETF/加密/机器人, 前端不再补算, 避免重复计数。
   const srvOk = srvToday && typeof srvToday.total === 'number'
-  const todayPnl = srvOk ? srvToday.total : aTodayPnl + fundTodayPnl + cryptoTodayPnl
+  const todayPnl = srvOk ? srvToday.total + futTodayPnl : aTodayPnl + fundTodayPnl + cryptoTodayPnl + futTodayPnl
 
   // --- Combined ---
   const totalValue = aValue + eValue
