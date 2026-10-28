@@ -321,7 +321,6 @@ def quote_today_valid(market: str, q: dict | None) -> bool | None:
     港股: 今天(北京日期)是港交所交易日; 美股: 行情所属那场的收盘(price_as_of, 美东时间)距现在不超过 20 小时
     —— 北京时间晚上到次日上午都显示前一晚那场, 到周日就不再算。"""
     if market == "HK":
-        from services.dca import _is_market_trading_day
         today = _cst_now().date()
         if not _is_market_trading_day(today, "HK"):
             return False
@@ -509,8 +508,23 @@ def code_fx_on(stock_code: str, day: str | None) -> float | None:
     return None if cur == "CNY" else fx_rate_on(cur, day)
 
 
+def _a_share_market_suffix(symbol: str) -> str:
+    """6 位 A股/ETF/北交码 → 数据源 API 标准市场后缀。非 6 位数字返回空。"""
+    if len(symbol) != 6 or not symbol.isdigit():
+        return ""
+    if symbol[:3] == "920" or symbol[0] in ("4", "8"):
+        return ".BJ"
+    if symbol[0] in ("5", "6", "9"):
+        return ".SH"     # 6 股票 / 5 ETF-LOF / 9 沪B(920 北交已在上面分流)
+    return ".SZ"         # 0 主板 / 1 ETF-LOF / 2 深B / 3 创业
+
+
 def normalize_stock_code(stock_code: str) -> str:
-    """Return the canonical holding code used across DB/API/UI."""
+    """Return the canonical holding code used across DB/API/UI.
+
+    A股/ETF/北交: 数据源 API 标准格式「代码+市场」(如 600406.SH / 000001.SZ / 920001.BJ),
+    入库(holdings/position_actions/market.quote_latest)统一此格式; 港美股维持 HK.x / US.x。
+    """
     raw = (stock_code or "").strip().upper()
     if raw.startswith("HK."):
         return f"HK.{raw[3:].zfill(5)}"
@@ -525,16 +539,23 @@ def normalize_stock_code(stock_code: str) -> str:
     # 裸美股 ticker(纯字母 1-5 位, 如 AAPL/NVDA) → US. 前缀; A股/港股代码都是数字, 不冲突
     if re.fullmatch(r"[A-Za-z]{1,5}", raw) and raw != "USD":
         return f"US.{raw}"
+    # A股/ETF/北交 6 位裸码 → 补市场后缀; 已带 .SH/.SZ/.BJ 后缀的原样透传
+    if re.fullmatch(r"\d{6}", raw):
+        return raw + _a_share_market_suffix(raw)
     return raw
 
 
 def split_stock_code(stock_code: str) -> tuple[str, str]:
-    """Return (market, symbol). market is A/HK/US."""
+    """Return (market, symbol). market is A/HK/US; symbol 为裸码(600406 / 00700 / AAPL)。"""
     code = normalize_stock_code(stock_code)
     if code.startswith("HK."):
         return "HK", code[3:]
     if code.startswith("US."):
         return "US", code[3:]
+    if "." in code:
+        sym = code.split(".", 1)[0]
+        if re.fullmatch(r"\d{6}", sym):
+            return "A", sym
     return "A", code
 
 
@@ -580,6 +601,9 @@ def _fetch_sina_quotes(stock_codes: list[str]) -> dict:
     if not stock_codes:
         return {}
     symbols = [_sina_symbol(c) for c in stock_codes]
+    # 响应里的 sh/sz 前缀码 → 标准代码(600111.SH)。key 必须与调用方(holdings/流水)的
+    # 代码格式一致 —— 曾经直接用裸码做 key, 快照落库/调用方查表全部错位。
+    by_sina = dict(zip(symbols, stock_codes))
     url = f"https://hq.sinajs.cn/list={','.join(symbols)}"
     headers = {"Referer": "https://finance.sina.com.cn"}
 
@@ -606,8 +630,8 @@ def _fetch_sina_quotes(stock_codes: list[str]) -> dict:
         if len(fields) < 32:
             continue
 
-        # Extract the 6-digit code from symbol
-        code = symbol[2:]  # Remove sh/sz prefix
+        # 标准代码(600111.SH); 映射不到(理应不会)退回裸码兜底
+        code = by_sina.get(symbol) or symbol[2:]
 
         try:
             name = fields[0]
@@ -650,6 +674,47 @@ def _fetch_sina_quotes(stock_codes: list[str]) -> dict:
     return result
 
 
+async def _fetch_remote_quotes(codes: list[str]) -> dict:
+    """远端抓一批股票报价(A股批量新浪, 港美股逐只), 附汇率。全挂返回 {}; 不缓存不落库。"""
+    a_codes = [c for c in codes if split_stock_code(c)[0] == "A"]
+    hk_codes = [c for c in codes if split_stock_code(c)[0] == "HK"]
+    us_codes = [c for c in codes if split_stock_code(c)[0] == "US"]
+
+    result = {}
+    if a_codes:
+        result.update(await asyncio.to_thread(_fetch_sina_quotes, a_codes))
+
+    async def fetch_one(code: str):
+        market, symbol = split_stock_code(code)
+        if market == "HK":
+            q = await asyncio.to_thread(_fetch_hk_stock_quote, symbol)
+        elif market == "US":
+            q = await asyncio.to_thread(_fetch_us_stock_quote, symbol)
+        else:
+            q = None
+        if not q:
+            return None
+        fx = get_fx_info(q.get("currency", "CNY"), allow_network=True)
+        return code, {
+            "stock_code": code,
+            "fx_rate": fx["rate"],
+            "fx_time": fx.get("time", ""),
+            "fx_source": fx.get("source", ""),
+            **q,
+        }
+
+    overseas = await asyncio.gather(
+        *(fetch_one(c) for c in [*hk_codes, *us_codes]),
+        return_exceptions=True,
+    )
+    for item in overseas:
+        if isinstance(item, Exception) or not item:
+            continue
+        code, quote = item
+        result[code] = quote
+    return result
+
+
 async def get_realtime_quotes(stock_codes: list[str], force: bool = False) -> dict:
     """Get real-time quotes for A/HK/US stock holdings.
 
@@ -667,13 +732,19 @@ async def get_realtime_quotes(stock_codes: list[str], force: bool = False) -> di
     if cached is not None:
         return cached
 
-    # ── ⓪ 纯 PG 模式(quote_auto_fetch=False): 只读库, 永不联网 ──
-    # 快照旧/缺码都直接返回库里最新那份(过期标 stale), 新鲜度由手动刷新
-    # (POST /api/market/refresh)或日批量任务保证 —— 首页持仓因此零外网等待。
+    # ── ⓪ 纯 PG 模式(quote_auto_fetch=False): 平时只读库, 永不联网 ──
+    # 例外: 快照表里**从未见过**的票(纯 PG 期间新加的持仓)联网 bootstrap 一次 —— 不补的话
+    # 它市值恒 0、浮动整个从总盈亏/总资产里消失, 行内还显示成 -成本。拿到即落库, 下次起仍纯 PG。
     if not force and not quote_auto_fetch():
         try:
             stored = await market_store.get_stored_quotes(codes)
             out = _store_rows_to_quotes(stored, await _fx_map_from_store())
+            missing = [c for c in codes if c not in stored]
+            if missing:
+                fetched = await _fetch_remote_quotes(missing)
+                if fetched:
+                    market_store.spawn(market_store.save_quotes(_quote_to_store_rows(fetched)))
+                    out.update(fetched)
             if out:
                 _cache_set(cache_key, out)
             return out
@@ -701,42 +772,7 @@ async def get_realtime_quotes(stock_codes: list[str], force: bool = False) -> di
             print(f"[market_data] PG 快路径失败(走远端): {e}")
 
     try:
-        a_codes = [c for c in codes if split_stock_code(c)[0] == "A"]
-        hk_codes = [c for c in codes if split_stock_code(c)[0] == "HK"]
-        us_codes = [c for c in codes if split_stock_code(c)[0] == "US"]
-
-        result = {}
-        if a_codes:
-            result.update(await asyncio.to_thread(_fetch_sina_quotes, a_codes))
-
-        async def fetch_one(code: str):
-            market, symbol = split_stock_code(code)
-            if market == "HK":
-                q = await asyncio.to_thread(_fetch_hk_stock_quote, symbol)
-            elif market == "US":
-                q = await asyncio.to_thread(_fetch_us_stock_quote, symbol)
-            else:
-                q = None
-            if not q:
-                return None
-            fx = get_fx_info(q.get("currency", "CNY"), allow_network=True)
-            return code, {
-                "stock_code": code,
-                "fx_rate": fx["rate"],
-                "fx_time": fx.get("time", ""),
-                "fx_source": fx.get("source", ""),
-                **q,
-            }
-
-        overseas = await asyncio.gather(
-            *(fetch_one(c) for c in [*hk_codes, *us_codes]),
-            return_exceptions=True,
-        )
-        for item in overseas:
-            if isinstance(item, Exception) or not item:
-                continue
-            code, quote = item
-            result[code] = quote
+        result = await _fetch_remote_quotes(codes)
         if result:
             _cache_set(cache_key, result)
             # write-through: 成功的快照落 PG(远端再挂, 这就是下一次的兜底数据)
@@ -1404,8 +1440,9 @@ def _lookup_industry(stock_code: str) -> str:
     try:
         if not is_a_share(stock_code):
             return ""
-        prefix = "SH" if stock_code.startswith("6") else "SZ"
-        url = f"https://emweb.eastmoney.com/PC_HSF10/CompanySurvey/PageAjax?code={prefix}{stock_code}"
+        _, bare = split_stock_code(stock_code)
+        prefix = "SH" if bare[:1] in ("5", "6", "9") else "SZ"
+        url = f"https://emweb.eastmoney.com/PC_HSF10/CompanySurvey/PageAjax?code={prefix}{bare}"
         resp = _requests.get(url, timeout=10)
         data = resp.json()
         jbzl = data.get("jbzl", [])
@@ -2685,6 +2722,38 @@ def _is_a_share_trading_day(d) -> bool:
         return True
 
 
+_EC_CAL_BY_MARKET = {"US": "XNYS", "HK": "XHKG", "JP": "JPX"}
+_ec_cal_cache: dict[str, object] = {}
+
+
+def _get_ec_calendar(market: str):
+    if market in _ec_cal_cache:
+        return _ec_cal_cache[market]
+    try:
+        import exchange_calendars as ec
+        cal_id = _EC_CAL_BY_MARKET.get(market)
+        if not cal_id:
+            return None
+        cal = ec.get_calendar(cal_id)
+        _ec_cal_cache[market] = cal
+        return cal
+    except Exception as e:
+        print(f"[market_data] exchange_calendars unavailable for {market}: {e}")
+        return None
+
+
+def _is_market_trading_day(d, market: str) -> bool:
+    if market == "CN":
+        return _is_a_share_trading_day(d)
+    cal = _get_ec_calendar(market)
+    if cal is None:
+        return _is_a_share_trading_day(d)
+    try:
+        return bool(cal.is_session(d.isoformat()))
+    except Exception:
+        return _is_a_share_trading_day(d)
+
+
 def is_market_hours() -> bool:
     """Strict: during active trading sessions (9:30-11:30, 13:00-15:00).
     Used for price refresh frequency control."""
@@ -2722,7 +2791,6 @@ def market_open(market: str, now: datetime | None = None) -> bool:
     t = local.hour * 60 + local.minute
     if not any(a <= t < b for a, b in spec[1]):
         return False
-    from services.dca import _is_market_trading_day
     return _is_market_trading_day(local.date(), market)
 
 

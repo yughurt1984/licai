@@ -318,11 +318,11 @@ async def theme_scan(theme: str, top: int = 5) -> dict:
 async def my_etf_scan() -> dict:
     """我的在持场内 ETF 逐只透视。"""
     from database import list_external_assets
-    from services.external_assets import _is_onchain_etf
+    from services.external_assets import fund_kind_of
     held = []
     for x in await list_external_assets():
         code = str(x.get("code") or "")
-        if x.get("asset_type") == "FUND" and _is_onchain_etf(code) and float(x.get("shares") or 0) > 0:
+        if x.get("asset_type") == "FUND" and fund_kind_of(x) == "etf" and float(x.get("shares") or 0) > 0:
             held.append((code, x.get("name") or code))
     if not held:
         return {"rows": [], "note": "当前无在持场内 ETF"}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, fetchJSON } from '../../../hooks/useApi'
-import { etToBjTime, usTodayDate } from '../../../helpers'
+import { brokersOfType, etToBjTime, usTodayDate } from '../../../helpers'
 import { STOCK_MARKETS } from '../constants'
 import { stockCodeForMarket } from '../helpers'
 
@@ -21,6 +21,12 @@ export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers =
   const [feeTouched, setFeeTouched] = useState(false)   // 用户手改过税费就不再自动覆盖
   const feeTouchedRef = useRef(false)
   useEffect(() => { feeTouchedRef.current = feeTouched }, [feeTouched])
+  // 券商下拉与市场类别适配: A股只出 A股券商, 港股→港股, 美股→美股; 换市场后已选券商不在类别里则重置
+  const brokerOptions = brokersOfType(brokers, market)
+  useEffect(() => {
+    if (broker && !brokerOptions.some(b => b.name === broker)) setBroker('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [market])
 
   // 名称查询: 防抖 + 只认最后一次请求的结果(美股每敲一个字母都会触发, 旧请求晚回来会覆盖新名字)
   const lookupSeq = useRef(0)
@@ -175,7 +181,7 @@ export function AddAShareForm({ initialMarket = 'A', onDone, onCancel, brokers =
         <label className="text-[11px] text-text-dim">券商</label>
         <select className={`${inp} w-28`} value={broker} onChange={e => setBroker(e.target.value)}>
           <option value="">默认</option>
-          {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+          {brokerOptions.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
         </select>
       </div>
       <button onClick={submit} disabled={submitting}

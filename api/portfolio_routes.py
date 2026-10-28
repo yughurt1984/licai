@@ -322,27 +322,6 @@ async def realized_pnl():
     }
 
 
-@router.get("/entry-review")
-async def entry_review(force: int = 0):
-    """买点回看: 每笔主动买入按买入前一日的状态分组(价格位置 / 量价形态 / 暴跌风险档), 统计之后 5/20 日的实际结果。"""
-    from services.entry_review import build
-    return await build(force=bool(force))
-
-
-@router.get("/risk")
-async def portfolio_risk(force: int = 0):
-    """组合风险: 下一个交易日 / 5 个交易日 95% 最坏亏损(元) + 各持仓贡献 + 回测突破率。"""
-    from services.portfolio_risk import build
-    return await build(force=bool(force))
-
-
-@router.get("/entry-mirror/{stock_code}")
-async def entry_mirror(stock_code: str):
-    """买入前的镜子: 这只票现在的状态下, 你历史上同类买入之后的实际结果。"""
-    from services.entry_review import mirror
-    return await mirror(normalize_stock_code(stock_code).split(".")[-1])
-
-
 @router.get("/trade-review")
 async def trade_review():
     """A 股交易复盘报告 (纯客观, 不给建议): 用 position_actions 算每只的
@@ -555,15 +534,15 @@ async def trade_journal(limit: int = 80):
                 "time": (a.get("trade_time") or None),   # 合并分笔成交要用它判"是不是连着的"
             })
 
-    # ---- 基金/ETF 交易 (external_asset_actions): 场内ETF 当个股看, 场外基金当定投看 ----
+    # ---- 基金/ETF 交易 (external_asset_actions): 场内ETF 当个股看, 场外基金当申购看 ----
     from database import list_external_assets, list_external_actions
-    from services.external_assets import get_fund_quote, _is_onchain_etf
+    from services.external_assets import get_fund_quote, fund_kind_of
     for a in await list_external_assets():
         if a.get("asset_type") != "FUND":
             continue
         fcode = str(a.get("code") or "")
         fname = a.get("name") or fcode
-        cls = "etf" if _is_onchain_etf(fcode) else "fund"   # 场内ETF / 场外基金
+        cls = fund_kind_of(a)                                # 场内ETF(etf) / 场外基金(fund→open)
         try:
             fq = await get_fund_quote(fcode)
         except Exception:
@@ -608,7 +587,7 @@ async def trade_journal(limit: int = 80):
     from services.trade_fills import merge_fills
     trades = merge_fills(trades)
     trades.sort(key=lambda x: x["date"], reverse=True)
-    # 命中率统计保持 A 股口径 (基金定投不适用"买在低位"这套), 只统计个股
+    # 命中率统计保持 A 股口径 (基金申购不适用"买在低位"这套), 只统计个股
     stock_trades = [t for t in trades if t.get("asset_class") == "stock"]
     buys = [t for t in stock_trades if t["kind"] == "buy"]
     sells = [t for t in stock_trades if t["kind"] == "sell"]
@@ -691,7 +670,7 @@ async def trade_review_ai(period: str = "all", force: int = 0):
             return result
         nb = sum(1 for t in ptrades if t["kind"] == "buy")
         ns = sum(1 for t in ptrades if t["kind"] == "sell")
-        _cls_tag = {"stock": "个股", "etf": "场内ETF", "fund": "场外基金"}
+        _cls_tag = {"stock": "个股", "etf": "场内ETF", "open": "场外基金"}
         lines = [f"{label} 共 {len(ptrades)} 笔: {nb} 买 {ns} 卖", ""]
         for t in ptrades:
             kd = "买" if t["kind"] == "buy" else "卖"
@@ -748,25 +727,8 @@ async def trade_review_ai(period: str = "all", force: int = 0):
                                  "季报与行业表用的是现在这一份)")
             except Exception:
                 pass
-        # 当日复盘 + 复盘的就是今天的交易 → 注入今日市场画像, 对照"操作 vs 今天市场奖励的风格/主线"
-        market_ctx = ""
-        if period == "day" and anchor == today.isoformat():
-            try:
-                from services.market_review import scan_strong_stocks
-                mr = await asyncio.to_thread(scan_strong_stocks)
-                if "error" not in mr:
-                    inds = "、".join(f"{b['行业']}({b['上榜数']})" for b in mr.get("板块扎堆", [])[:5])
-                    cons = "、".join(b["概念"] for b in mr.get("概念扎堆", [])[:6])
-                    sty = mr.get("风格", {})
-                    small = sty.get("小盘(<50亿)占比%") or 0
-                    style_tag = "小盘高换手/题材投机" if small > 40 else "中大盘赛道/趋势"
-                    market_ctx = (f"\n\n【今日市场画像(对照你今天操作合不合市场风格, 客观非建议)】\n"
-                                  f"涨停{mr.get('涨停数')}家、大涨(≥5%){mr.get('大涨数(≥5%)')}家; "
-                                  f"板块扎堆: {inds}; 概念主线: {cons}; "
-                                  f"强势股均换手{sty.get('强势股均换手%')}%、小盘占比{small}%/大盘{sty.get('大盘(>500亿)占比%')}% → {style_tag}风格。")
-            except Exception:
-                pass
-        data_block = "\n".join(lines) + market_ctx
+        # 今日市场画像已随 market_review 删除而移除(复盘仍基于持仓流水)
+        data_block = "\n".join(lines)
         system_prompt = (
             f"你是交易复盘教练。这是用户【{label}】这个时间窗内实际发生的买卖动作, 复盘他这一段的交易节奏和纪律。\n"
             "每笔前面标了资产类型, 不同类型用不同标准评, 别一套尺子量到底:\n"
@@ -995,19 +957,6 @@ async def trade_review_ai(period: str = "all", force: int = 0):
             fund_lines.append(ln + dca)
     if fund_lines:
         lines += ["", "【基金/ETF 交易】(下面这些不是个股, 按各自逻辑评):"] + fund_lines
-
-    # 净值口径(TWR, 出入金已剥离): 全周期定性落在真实收益率上, 而不只凭流水统计
-    try:
-        from services.portfolio_curve import build_curve
-        cv = await build_curve(250)
-        cm = cv.get("metrics") or {}
-        if cm:
-            lines += ["", "【组合净值口径(TWR·时间加权, 出入金已剥离, 与基金净值同口径)】",
-                      f"  自{cm.get('起点')}以来: 区间收益 {cm.get('区间收益%')}%, 最大回撤 {cm.get('最大回撤%')}%, "
-                      f"同期沪深300 {cm.get('基准收益%')}%, 超额 {cm.get('超额%')}%。"
-                      "定性'整体做得怎么样/跑没跑赢大盘'以这组数为准(它剥离了出入金干扰)。"]
-    except Exception:
-        pass
 
     data_block = "\n".join(lines)
     _fund_rule = (
@@ -1575,16 +1524,25 @@ async def fee_estimate(stock_code: str, price: float, shares: float,
     c_rate = c_min = None
     if not full.startswith(("HK.", "US.")):
         # A股/ETF: 按券商档案取费率; ETF 用 etf_ 档。
-        # estimate_trade_fee 的 is_a_share 只认裸 6 位码, 必须剥掉 sh/sz 前缀, 否则恒返 0。
-        bare = normalize_stock_code(full).lstrip("SHSZ").lower()
-        if not (len(bare) == 6 and bare.isdigit()):
-            bare = full.split(".")[-1]
+        # estimate_trade_fee 只认裸 6 位码, 用 split_stock_code 解析(兼容 600406.SH 新格式)。
+        from services.market_data import split_stock_code
+        bare = split_stock_code(full)[1]
         use_etf = (kind or "").lower() == "etf" or stockCodeIsEtf(full)
         brokers = await list_brokers()
         b = next((x for x in brokers if x["name"] == broker), None) if broker else await get_default_broker()
         if b:
-            c_rate = b["etf_rate"] if use_etf else b["stock_rate"]
-            c_min = b["etf_min"] if use_etf else b["stock_min"]
+            if use_etf:
+                # 基金费率可空: 空 = 同股票费率
+                c_rate = b["etf_rate"] if b.get("etf_rate") is not None else b["stock_rate"]
+                c_min = b["etf_min"] if b.get("etf_min") is not None else b["stock_min"]
+                c_unit = b.get("etf_unit") or "%"
+            else:
+                c_rate = b["stock_rate"]
+                c_min = b["stock_min"]
+                c_unit = b.get("stock_unit") or "%"
+            # 单位为 % 时费率按百分数存(0.025 = 0.025%), 估算需折成小数
+            if c_unit == "%":
+                c_rate = c_rate / 100.0
         stock_code = bare
     try:
         fee = estimate_trade_fee(
@@ -1598,8 +1556,8 @@ async def fee_estimate(stock_code: str, price: float, shares: float,
 
 
 def stockCodeIsEtf(code: str) -> bool:
-    """场内基金粗判: 沪深 5/1 开头的 6 位码(5xxxxx ETF / 1xxxxx LOF/ETF)。"""
-    c = (code or "").split(".")[-1]
+    """场内基金粗判: 沪深 5/1 开头的 6 位码(5xxxxx ETF / 1xxxxx LOF/ETF)。兼容 510300.SH 新格式。"""
+    c = (code or "").upper().split(".")[0]
     return bool(len(c) == 6 and c.isdigit() and c[0] in ("5", "1"))
 
 
@@ -1860,20 +1818,6 @@ class ThesisIn(BaseModel):
     name: str = ""
 
 
-@router.get("/curve")
-async def portfolio_curve(days: int = 120):
-    """组合净值曲线: TWR(时间加权收益) + 沪深300 基准 + 区间收益/最大回撤。"""
-    from services.portfolio_curve import build_curve
-    return await build_curve(days)
-
-
-@router.get("/correlation")
-async def portfolio_correlation(days: int = 60):
-    """在持标的日收益相关性矩阵(价格口径): 量化同源风险。"""
-    from services.portfolio_curve import correlation_matrix
-    return await correlation_matrix(days)
-
-
 @router.get("/exposure")
 async def portfolio_exposure(min_pct: float = 0.5, as_of: str = ""):
     """穿透敞口: 把基金拆到季报前十大, 算同一标的/同一行业的真实合计敞口。
@@ -1886,16 +1830,6 @@ async def portfolio_exposure(min_pct: float = 0.5, as_of: str = ""):
     """
     from services.exposure import look_through
     return await look_through(min_pct=min_pct, as_of=(as_of or None))
-
-
-@router.get("/eod-summary")
-async def eod_summary(push: bool = False):
-    """收盘持仓小结(交易日15:10自动推飞书的那份)。push=1 手动补推一次。"""
-    if push:
-        from services.eod_summary import push_eod_summary
-        return await push_eod_summary()
-    from services.eod_summary import build_eod_summary
-    return await build_eod_summary()
 
 
 @router.get("/thesis")

@@ -92,8 +92,8 @@ async def _fundamentals(code: str) -> dict | None:
     from services.market_data import split_stock_code
     if split_stock_code(code)[0] != "A":
         return None
-    from services.stock_agent import _tool_fundamentals
     try:
+        from services.stock_agent import _tool_fundamentals
         return await _tool_fundamentals(code)
     except Exception:
         return {}

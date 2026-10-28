@@ -6,62 +6,9 @@ from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from database import get_config, set_config
-from services import feishu_notify, llm_client, tdx_client, proxy_config, zsxq_client
+from services import feishu_notify, llm_client, proxy_config, zsxq_client
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-
-def _assert_local_url(v: str) -> str:
-    """TDX 服务只该在本机/私网。限制 base_url 的 host 为 loopback 或 RFC1918 私网,
-    拒绝公网与 link-local(169.254, 含云元数据 169.254.169.254) —— 防 SSRF。"""
-    if not v:
-        return v
-    if not v.startswith(("http://", "https://")):
-        raise ValueError("base_url 必须以 http:// 或 https:// 开头")
-    from urllib.parse import urlparse
-    import ipaddress
-    host = (urlparse(v).hostname or "").strip()
-    if not host:
-        raise ValueError("base_url 缺少主机名")
-    if host in ("localhost", "localhost.localdomain"):
-        return v.rstrip("/")
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        raise ValueError("TDX base_url 只允许 localhost 或本机/私网 IP(防 SSRF), 不接受公网域名")
-    if ip.is_link_local or ip.is_reserved or ip.is_multicast:
-        raise ValueError("base_url 不允许 link-local/保留地址(如 169.254.169.254)")
-    if not (ip.is_loopback or ip.is_private):
-        raise ValueError("TDX base_url 只允许本机/私网地址(防 SSRF), 不接受公网 IP")
-    return v.rstrip("/")
-
-
-class TDXConfig(BaseModel):
-    base_url: str = ""
-
-    @field_validator("base_url")
-    @classmethod
-    def _v(cls, v: str) -> str:
-        return _assert_local_url(v)
-
-
-@router.get("/tdx")
-async def get_tdx_config():
-    """TDX 可插拔数据源配置 + 当前是否启用。"""
-    return {"base_url": tdx_client._BASE_URL, "enabled": tdx_client.is_enabled()}
-
-
-@router.post("/tdx")
-async def set_tdx_config(data: TDXConfig):
-    await set_config("tdx_base_url", data.base_url)
-    tdx_client.configure(data.base_url)
-    return {"message": "saved", "enabled": tdx_client.is_enabled()}
-
-
-@router.post("/tdx/test")
-async def test_tdx_config(data: TDXConfig):
-    """连通性自检: 不改保存值, 用传入(或当前)地址试拉一只票。"""
-    return await tdx_client.test_connection(data.base_url or tdx_client._BASE_URL)
 
 
 # ── 知识星球(可选, 只读观点面) ──────────────────────────────
@@ -447,37 +394,6 @@ async def test_llm_connection():
     return result
 
 
-# ── 沉淀规则的待审队列 ────────────────────────────────────
-# 为什么放在设置页: 这些规则会改 agent 的 system prompt, 是"改配置"而不是看行情。
-# 而且必须有个地方看得见 —— 之前只有 CLI, 待审队列在界面上完全不存在, 挖出来的候选
-# 就一直躺着没人批, 等于这套机制白做。
-
-@router.get("/rules")
-async def rules_list():
-    from services import rule_forge as rf
-    rules = await rf.list_rules()
-    return {
-        "rules": rules,
-        "n_pending": sum(1 for r in rules if r["status"] == "pending"),
-        "n_active": sum(1 for r in rules if r["status"] == "active"),
-    }
-
-
-@router.post("/rules/{rule_id}/{decision}")
-async def rules_decide(rule_id: int, decision: str):
-    """批准 → 进 system prompt(下一次问答立刻生效); 否决 → 永久留在队列里但不生效。
-
-    否决的不删: 留着才知道"这条提过、被否了", 下次挖掘不会原样再提一遍。
-    """
-    if decision not in ("approve", "reject"):
-        raise HTTPException(status_code=400, detail="decision 只能是 approve / reject")
-    from services import rule_forge as rf
-    ok = await rf.decide(rule_id, "active" if decision == "approve" else "rejected")
-    if not ok:
-        raise HTTPException(status_code=404, detail=f"没有 #{rule_id} 这条规则")
-    return {"ok": True, "id": rule_id, "status": "active" if decision == "approve" else "rejected"}
-
-
 # ── 用户画像记忆 ──────────────────────────────────────────
 # agent 用 remember 工具直接记(来源是用户原话), 所以这里必须能看、能删。
 
@@ -506,8 +422,4 @@ async def memory_delete(mid: int):
     return {"ok": True, "id": mid}
 
 
-@router.post("/rules/mine")
-async def rules_mine():
-    """立刻挖一次(平时是每周一早上自动跑)。每次最多起草 3 条, 要调模型。"""
-    from services import rule_forge as rf
-    return await rf.mine_new(max_drafts=3)
+

@@ -19,23 +19,13 @@ from services import okx_client
 router = APIRouter(prefix="/api/assets", tags=["external-assets"])
 
 
-from services.external_assets import _is_onchain_etf
+from services.external_assets import _is_onchain_etf, fund_kind_of
 
 
 def _is_etf_code(code: str) -> bool:
     """场内 ETF/LOF 判定 — 跟报价层 (_is_onchain_etf) 用同一套规则, 避免一处当场内
     报价、另一处当场外走 T+1 pending 的分裂。深市 1xxxxx / 沪市 5xxxxx 都算场内。"""
     return _is_onchain_etf(code)
-
-
-class DcaInlineCreate(BaseModel):
-    """随资产一并创建的定投计划 (可选). 字段语义对齐 DCACreate."""
-    mode: str = "amount"
-    value: float
-    frequency: str = "monthly"
-    day_of_month: Optional[int] = None
-    day_of_week: Optional[int] = None
-    note: Optional[str] = ""
 
 
 class AssetCreate(BaseModel):
@@ -58,7 +48,7 @@ class AssetCreate(BaseModel):
     fee: Optional[float] = None                 # 建仓手续费 ¥ (含在 cost_amount 内, 单存便于流水展示)
     broker: Optional[str] = None               # 托管券商/平台, e.g. "招商证券"
     contract_multiplier: Optional[float] = None  # FUT/OPT 每手乘数(沪铜 5; 期权合约单位 10000)
-    dca: Optional[DcaInlineCreate] = None       # FUND/CRYPTO 同时建定投计划 (可选)
+    fund_kind: Optional[str] = None            # FUND 细分: 'etf'(场内, 股票式) | 'open'(场外开放式, NAV T+1)
 
 
 class AssetUpdate(BaseModel):
@@ -77,6 +67,7 @@ class AssetUpdate(BaseModel):
     purchase_fee_rate: Optional[float] = None
     broker: Optional[str] = None
     contract_multiplier: Optional[float] = None   # FUT/OPT 每手乘数
+    fund_kind: Optional[str] = None               # FUND 细分: 'etf' | 'open'
 
 
 class OkxCredentials(BaseModel):
@@ -209,11 +200,12 @@ async def _enrich(asset: dict) -> dict:
     out["pending_actions_count"] = pending_count
 
     if t == "FUND":
+        kind = fund_kind_of(asset)
         # 场内 ETF 份额拆分自动同步: 券商份额已×F 而账本还是旧份额时市值会假性腰斩。
         # 探测走后台(数据源慢/被拦时不拖累列表), 补账结果下次加载生效——见 _schedule_etf_split_check。
-        if _is_etf_code(asset["code"]) and float(out.get("shares") or 0) > 0:
+        if kind == "etf" and float(out.get("shares") or 0) > 0:
             _schedule_etf_split_check(asset)
-        quote = await get_fund_quote(asset["code"])
+        quote = await get_fund_quote(asset["code"], kind)
         # current_value 含 pending (资产总额视角: 钱已经投进去了),
         # 但下面算 pnl 时会减去 pending (浮动只看已确认 lot vs 确认成本).
         pending = float(out.get("pending_amount") or 0)
@@ -231,7 +223,7 @@ async def _enrich(asset: dict) -> dict:
         # 附加代理标的行情 (用底层市场实时数据预判基金当日走势)。
         # 仅对场外基金 (NAV 是 T+1, 盘中看不到今日) 才需要代理推测;
         # 场内 ETF 本身有二级市场实时成交价 (quote.change_pct 即今日真实涨跌), 无需代理。
-        if quote is not None and not _is_onchain_etf(asset["code"]):
+        if quote is not None and kind == "open":
             try:
                 from services.fund_proxy import get_fund_proxy
                 proxy = await get_fund_proxy(asset["code"])
@@ -249,23 +241,7 @@ async def _enrich(asset: dict) -> dict:
                     quote["proxy_details"] = proxy["proxies"]
             except Exception as e:
                 print(f"[fund-proxy] {asset['code']} failed: {e}")
-            # 回归估算(每只基金按自己历史净值拟合, 离线评估误差约为 top10 加权的 1/2~1/8): 有模型就替换, 没有就后台拟合
-            try:
-                from services.fund_nav_model import ensure_fit, estimate
-                nm = asset.get("name") or ""
-                await ensure_fit(asset["code"], nm)
-                bond = ("债" in nm or "固收" in nm)
-                top = None
-                if quote.get("proxy_details") is not None:
-                    top = proxy.get("abs_weighted_change_pct") if bond else proxy.get("weighted_change_pct")
-                est = estimate(asset["code"], quote.get("nav_date") or "", top)
-                if est is not None:
-                    quote["proxy_change_pct"] = est["pct"]
-                    quote["proxy_label"] = (f"回归估算(按该基金近期净值拟合, 历史日均误差约 {est['mae']:.2f}%)"
-                                            + (f", 含 {est['days']} 个待公布日至 {est['through'][5:]}" if est["days"] > 1 else ""))
-                    quote["model_est"] = est
-            except Exception as e:
-                print(f"[fund-nav-model] {asset['code']} failed: {e}")
+            # 回归估算已随 fund_nav_model 删除而移除(基金前十大/净值历史不再入库)
         # 今日涨跌口径: 场外基金净值是 T+1, change_pct 常是 1-2 天前的旧净值,
         # 拿来当"今日"会把昨天的涨幅冒充成今天。折算规则:
         #   - nav_date 为空 (场内 ETF 实时市价) 或 == 今天 → change_pct 就是今天
@@ -590,9 +566,13 @@ async def create_asset(data: AssetCreate):
 
     # FUND/CRYPTO 且只填了金额没填份额 → 走 pending 模式 (T+1 未确认).
     # cost_amount 暂记 0, 实际金额放 pending_amount; seed action 写 status=pending.
+    # 场内 ETF 按市价即时成交, 没有份额就是没填 —— 不进 pending。
     has_shares = data.shares is not None and float(data.shares) > 0
+    fund_kind = (data.fund_kind or "").strip().lower() if data.asset_type == "FUND" else ""
+    if data.asset_type == "FUND" and fund_kind not in ("etf", "open"):
+        fund_kind = "etf" if _is_onchain_etf(data.code or "") else "open"
     is_pending_fund = (
-        data.asset_type in ("FUND", "CRYPTO")
+        (data.asset_type == "CRYPTO" or (data.asset_type == "FUND" and fund_kind == "open"))
         and data.cost_amount is not None and data.cost_amount > 0
         and not has_shares
     )
@@ -633,6 +613,7 @@ async def create_asset(data: AssetCreate):
             purchase_fee_rate=data.purchase_fee_rate,
             broker=data.broker,
             contract_multiplier=data.contract_multiplier,
+            fund_kind=fund_kind or None,
         )
     # 写购买 action 进 ledger (BOT 不入账, 走 OKX 同步); 合并时标 add-lot, 新建标 initial
     if data.asset_type != "BOT" and data.cost_amount and data.cost_amount > 0:
@@ -670,37 +651,15 @@ async def create_asset(data: AssetCreate):
         # 已有没设申购费率而这次填了 → 补上
         if merge_target.get("purchase_fee_rate") is None and data.purchase_fee_rate is not None:
             upd["purchase_fee_rate"] = data.purchase_fee_rate
+        # 老记录没记基金类型而这次选了 → 补上
+        if data.asset_type == "FUND" and not (merge_target.get("fund_kind") or "").strip() and fund_kind:
+            upd["fund_kind"] = fund_kind
         await update_external_asset(aid, **upd)
 
-    # 顺便创建定投计划 (FUND/CRYPTO only)
-    dca_created_id = None
-    if data.dca and data.asset_type in ("FUND", "CRYPTO"):
-        from services.dca import initial_next_due
-        from database import add_dca_schedule
-        d = data.dca
-        if d.mode not in ("amount", "shares"):
-            raise HTTPException(400, "dca.mode 必须是 amount 或 shares")
-        if d.frequency not in ("daily_trading", "weekly", "monthly"):
-            raise HTTPException(400, "dca.frequency 必须是 daily_trading / weekly / monthly")
-        if d.value <= 0:
-            raise HTTPException(400, "dca.value 必须 > 0")
-        if d.frequency == "monthly":
-            if d.day_of_month is None or not (1 <= int(d.day_of_month) <= 31):
-                raise HTTPException(400, "monthly 频率必须 day_of_month (1-31)")
-        elif d.frequency == "weekly":
-            if d.day_of_week is None or not (1 <= int(d.day_of_week) <= 7):
-                raise HTTPException(400, "weekly 频率必须 day_of_week (1-7)")
-        next_due = initial_next_due(d.frequency, d.day_of_month, d.day_of_week)
-        dca_created_id = await add_dca_schedule(
-            asset_id=aid, mode=d.mode, value=d.value, frequency=d.frequency,
-            day_of_month=d.day_of_month, day_of_week=d.day_of_week,
-            next_due=next_due, note=d.note or "",
-        )
     return {
         "message": "merged" if merge_target else "added", "id": aid,
         "merged": bool(merge_target),
         "pending": is_pending_fund,
-        "dca_id": dca_created_id,
     }
 
 
@@ -1036,14 +995,14 @@ async def confirm_action(asset_id: int, action_id: int, data: ConfirmAction):
     shares = data.shares if data.shares is not None else target.get("shares")
     unit_price = data.unit_price
     # 手续费: 显式传了就用显式值; 没传则对场外基金申购按申购费率外扣自动算,
-    # 跟「一键确认到期定投」(settle-pending) 口径一致 → 净额=金额/(1+费率)。
+    # 跟「一键确认」(settle-pending) 口径一致 → 净额=金额/(1+费率)。场内 ETF 走佣金, 不按费率。
     if data.fee is not None:
         fee = float(data.fee)
     else:
         rate = float(asset.get("purchase_fee_rate") or 0)
         is_buy = (target.get("action_type") or "").upper() in ("ADD", "BUY")
         fee = round(float(data.amount) - float(data.amount) / (1 + rate), 2) \
-            if (asset.get("asset_type") == "FUND" and rate > 0 and is_buy) else 0.0
+            if (asset.get("asset_type") == "FUND" and fund_kind_of(asset) == "open" and rate > 0 and is_buy) else 0.0
     # 净额 = amount - fee (实际买到份额对应的钱), 反推 unit_price 用净额
     net_for_shares = float(data.amount) - fee
     if shares and shares > 0 and (unit_price is None or unit_price <= 0):
@@ -1093,7 +1052,7 @@ async def settle_pending_dca():
         if asset.get("asset_type") != "FUND":
             continue
         code = asset.get("code")
-        if _is_onchain_etf(code):
+        if fund_kind_of(asset) == "etf":
             continue  # 场内 ETF 按市价成交, 不走 T+1 净值结算
         actions = await list_external_actions(asset["id"])
         pend = [a for a in actions
@@ -1141,12 +1100,12 @@ async def settle_pending_dca():
             # 申购费内扣: 净申购额 = 申购金额 / (1+费率), 申购费 = 金额 - 净额, 份额 = 净额/净值。
             # C 类/无申购费 → rate=0 → 净额=金额, fee=0 (跟原来一致)。
             rate = float(asset.get("purchase_fee_rate") or 0)
-            if amount > 0:                       # 金额定投
+            if amount > 0:                       # 金额申购
                 net = amount / (1 + rate) if rate > 0 else amount
                 fee = round(amount - net, 2)
                 shares = round(net / nav, 6) if nav > 0 else 0
                 final_amount = amount
-            elif known_shares > 0:               # 份额定投: 份额×净值=净额, 反加申购费
+            elif known_shares > 0:               # 份额已知: 份额×净值=净额, 反加申购费
                 shares = known_shares
                 net = shares * nav
                 fee = round(net * rate, 2)
@@ -1167,66 +1126,6 @@ async def settle_pending_dca():
             state = compute_external_state(acts2, asset["asset_type"])
             await update_external_asset(asset["id"], cost_amount=state["cost_amount"], shares=state["shares"])
     return {"settled": settled, "skipped": skipped, "details": details}
-
-
-@router.post("/recompute-dca")
-async def recompute_dca_fees():
-    """费率改了之后, 重算已确认的定投流水 (note 以 'DCA' 开头).
-    只动设置了 purchase_fee_rate 的基金 — 这些是用户刚补上申购费的, 之前可能按 fee=0 结算过。
-    按每条 trade_date 重新拉当日净值, 用当前费率内扣重算 shares + fee。
-    净值拉不到的跳过 (不动)。C 类 / 没设费率的基金完全不碰, 避免覆盖手动确认的值。
-    """
-    from services.external_assets import get_fund_nav_on_date, nav_date_for
-    from database import update_external_action
-
-    assets = await list_external_assets()
-    recomputed = 0
-    skipped = 0
-    details: list[dict] = []
-    for asset in assets:
-        if asset.get("asset_type") != "FUND":
-            continue
-        # rate=None (C 类/没设费率) 当 0 处理: DCA 份额仍按当日净值重算 (amount/nav)。
-        # 只动 note 以 'DCA' 开头的自动定投行, 手动 add-lot / initial 不碰, 不会误覆盖。
-        rate = float(asset.get("purchase_fee_rate") or 0)
-        code = asset.get("code")
-        if _is_onchain_etf(code):
-            continue  # 场内 ETF 走市价/佣金, 不按净值+申购费重算
-        actions = await list_external_actions(asset["id"])
-        dca_rows = [a for a in actions
-                    if (a.get("status") or "confirmed") == "confirmed"
-                    and (a.get("action_type") or "").upper() in ("ADD", "BUY")
-                    and str(a.get("note") or "").startswith("DCA")]
-        if not dca_rows:
-            continue
-        changed = False
-        for a in dca_rows:
-            td = (a.get("trade_date") or "")[:10]
-            amount = float(a.get("amount") or 0)
-            if not td or amount <= 0:
-                skipped += 1
-                continue
-            navinfo = await get_fund_nav_on_date(code, nav_date_for(td, a.get("trade_time")))
-            if not navinfo or not navinfo.get("nav"):
-                skipped += 1
-                continue
-            nav = float(navinfo["nav"])
-            net = amount / (1 + rate) if rate > 0 else amount
-            fee = round(amount - net, 2)
-            shares = round(net / nav, 6) if nav > 0 else 0
-            # 没变就不写 (幂等)
-            if abs(float(a.get("shares") or 0) - shares) < 1e-6 and abs(float(a.get("fee") or 0) - fee) < 0.005:
-                continue
-            await update_external_action(a["id"], shares=shares, unit_price=round(nav, 6), fee=fee)
-            recomputed += 1
-            changed = True
-            details.append({"asset": asset.get("name"), "date": td, "nav": round(nav, 4),
-                            "shares": shares, "fee": fee})
-        if changed:
-            acts2 = await list_external_actions(asset["id"])
-            state = compute_external_state(acts2, asset["asset_type"])
-            await update_external_asset(asset["id"], cost_amount=state["cost_amount"], shares=state["shares"])
-    return {"recomputed": recomputed, "skipped": skipped, "details": details}
 
 
 @router.post("/refresh-names")

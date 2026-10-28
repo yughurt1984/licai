@@ -29,7 +29,6 @@ import MarketPools from './components/MarketPools'
 import AnalyzerLists from './components/AnalyzerLists'
 // 市场·资金机构 / 宏观 / 资讯
 import ProviderInstTheme from './components/ProviderInstTheme'
-import MacroDashboard from './components/MacroDashboard'
 import PortfolioNews from './components/PortfolioNews'
 // 我的·资金现金流
 import Cashflow from './components/Cashflow'
@@ -312,12 +311,6 @@ export default function App() {
     capital: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
         <ProviderInstTheme standalone />
-      </div>
-    ),
-
-    macro: () => (
-      <div className={`${PAD} space-y-3 md:space-y-4`}>
-        <MacroDashboard />
       </div>
     ),
 

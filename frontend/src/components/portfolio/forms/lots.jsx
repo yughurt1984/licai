@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { estimateFee, fmtMoney, isOnchainEtf } from '../../../helpers'
+import { estimateFee, fmtMoney, fundKindOf } from '../../../helpers'
 import { fetchJSON } from '../../../hooks/useApi'
 import { isEtfCode } from '../helpers'
 
@@ -30,7 +30,7 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
   const isFund = t === 'FUND'
   const isCrypto = t === 'CRYPTO'
   const isWealth = t === 'WEALTH'
-  const isOtcFund = isFund && !isEtfCode(asset.code)
+  const isOtcFund = isFund && fundKindOf(asset) !== 'etf'
   const isShareBased = isFund || isCrypto
 
   // --- Live preview ---
@@ -47,8 +47,8 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
     if (!(isFund || isCrypto) || feeTouched) return
     if (sNum > 0 && uNum > 0) {
       const amount = sNum * uNum
-      const kind = isOnchainEtf(asset.code) ? 'etf' : 'stock'
-      const est = estimateFee(amount, brokers, asset.broker, kind)
+      const kind = fundKindOf(asset) === 'etf' ? 'etf' : 'stock'
+      const est = estimateFee(amount, brokers, asset.broker, kind, asset.asset_type)
       setFee(est.toFixed(2))
     }
     // sNum/uNum 是 shares/unitPrice 解析出来的派生值, 源头已经在依赖里了。
@@ -297,7 +297,7 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
 export function ReduceLotRow({ asset, onDone, onCancel }) {
   const t = asset.asset_type
   const isShareBased = t === 'FUND' || t === 'CRYPTO'
-  const isOtcFund = t === 'FUND' && !isEtfCode(asset.code)
+  const isOtcFund = t === 'FUND' && fundKindOf(asset) !== 'etf'
 
   const [amount, setAmount] = React.useState('')
   const [shares, setShares] = React.useState('')

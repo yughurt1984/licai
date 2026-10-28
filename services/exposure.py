@@ -72,16 +72,8 @@ def _key_of(h: dict) -> str:
 
 
 async def _fund_underlyings(code: str) -> list[dict]:
-    # 纯 PG 模式(quote_auto_fetch=False): 不联网拉季报前十大, 返回空(覆盖度里如实标 uncovered,
-    # 前端退回关键词同源判断); 季报数据等日批量任务入库后再放开。
-    from services.market_data import quote_auto_fetch
-    if not quote_auto_fetch():
-        return []
-    from services.fund_holdings import get_fund_top10
-    try:
-        return await get_fund_top10(code) or []
-    except Exception:
-        return []
+    # 基金季报前十大穿透已按需求移除(fund_holdings 已删), 不再拆基金底层
+    return []
 
 
 async def _positions_now() -> tuple[list, list, float, dict]:
@@ -286,12 +278,15 @@ async def look_through(min_pct: float = 0.5, as_of: str | None = None) -> dict:
     # 这一层才是原来那套关键词最致命的漏洞: 「中金黄金」能靠名字认出是黄金, 「山金国际」
     # 认不出, 于是两只加起来近四成的贵金属敞口一条都不报。这里按东财行业归并, 名字里有
     # 没有金属字样都不影响。港美股底层拿不到 A 股行业表, 单独归一档并说明, 不硬凑。
+    # 行业表(东财全市场分页, 1h缓存)联网抓取 —— 纯 PG 模式不拉, 行业归"未知行业"(警告自动跳过)
     imap = {}
-    try:
-        from services.etf_xray import industry_map
-        imap = await asyncio.to_thread(industry_map)
-    except Exception:
-        imap = {}
+    from services.market_data import quote_auto_fetch
+    if quote_auto_fetch():
+        try:
+            from services.etf_xray import industry_map
+            imap = await asyncio.to_thread(industry_map)
+        except Exception:
+            imap = {}
     industries = _by_industry(items, funds, imap, total, uncovered)
 
     # ── 5) 基金两两重叠度(十大以内): Σ min(w_i, w_j) ──

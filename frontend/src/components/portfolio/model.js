@@ -16,7 +16,9 @@ export function normalizeHolding(h) {
     broker: h.broker || null,
     mv,
     cost,
-    pnl: h.unrealized_pnl ?? (mv - cost),
+    // 后端无行情时 unrealized_pnl=null 且 mv=0 —— 不能退到 mv−cost(那会显示成 -成本),
+    // 置 null 让行内显示 -- 并被浮动合计排除, 等行情 bootstrap 补上后自然恢复
+    pnl: h.unrealized_pnl ?? (mv > 0 ? mv - cost : null),
     pnlPct: h.pnl_pct,
     today: h.price_change_pct,
     _raw: h,

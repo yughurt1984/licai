@@ -50,13 +50,6 @@ async def apply_saved_config() -> None:
         if pr.get("source") == "auto" and pr.get("ok"):
             await set_config("network_proxy", pr["proxy"])   # 探测到的回存, 下次直接用
 
-    # 可插拔数据源: 通达信 TDX REST 服务 (env TDX_BASE_URL > DB config > config.py)
-    from services import tdx_client
-    tdx_url = os.environ.get("TDX_BASE_URL") or (await get_config("tdx_base_url")) or getattr(config, "tdx_base_url", "") or ""
-    tdx_client.configure(tdx_url)
-    if tdx_url:
-        print(f"TDX 数据源已启用: {tdx_url}")
-
     # 可插拔扩展数据源: provider 插件 (env MARKET_PROVIDER > DB config > config.py)
     # registry 自己读 env 与 DB, 所以这里只在两者都空时把 config.py 那份塞进 env 兜底 ——
     # 直接无条件写 env 会让 config.py 反过来盖掉设置页存的值, 优先级就倒过来了。

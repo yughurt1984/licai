@@ -356,7 +356,7 @@ function ConfirmActionModal({ asset, action, onClose, onDone }) {
   // 三种 pending 形态:
   //  REDEEM (赎回): shares 已知, 待确认 amount + unit_price
   //  ADD/BUY · amount 模式: amount 已知, 待确认 shares + unit_price
-  //  ADD/BUY · shares 模式: shares 已知 (按份额定投), 只需补 unit_price, amount 自算
+  //  ADD/BUY · shares 模式: shares 已知 (按份额申购), 只需补 unit_price, amount 自算
   const isAdd = action.action_type === 'ADD' || action.action_type === 'BUY'
   const knownShares = action.shares ? parseFloat(action.shares) : 0
   const knownAmount = parseFloat(action.amount) || 0
@@ -424,7 +424,7 @@ function ConfirmActionModal({ asset, action, onClose, onDone }) {
         </div>
         <div className="text-[11px] text-text-dim">
           原申请: {isSharesMode
-            ? <>份额 <span className="font-mono text-text">{knownShares.toFixed(4)}</span> <span className="text-text-muted">(按份额定投, 只需补单价)</span></>
+            ? <>份额 <span className="font-mono text-text">{knownShares.toFixed(4)}</span> <span className="text-text-muted">(份额已知, 只需补单价)</span></>
             : isAdd
               ? <>金额 <span className="font-mono text-text">¥{fmtMoney(knownAmount)}</span></>
               : <>份额 <span className="font-mono text-text">{knownShares.toFixed(4)}</span></>

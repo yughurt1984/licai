@@ -71,17 +71,13 @@ async def register_user(username: str, password: str, display_name: str = "") ->
             "INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?) RETURNING id",
             (u, hash_password(password), (display_name or "").strip()[:32]))
         new_id = cur.lastrowid
-        # 新用户送默认券商费率档案(与 init_db 的全局种子同一套) —— 否则费率下拉是空的
-        await db.execute(
-            "INSERT INTO brokers (user_id, name, stock_rate, stock_min, etf_rate, etf_min, is_default) "
-            "VALUES (?, '招商证券', 0.00025, 5.0, 0.00025, 5.0, 1), "
-            "(?, '银河证券', 0.00012, 5.0, 0.0001, 0.1, 0), "
-            "(?, '盈立证券', 0.0008, 0.0, 0.0008, 0.0, 0)",
-            (new_id, new_id, new_id))
         await db.commit()
-        return {"user_id": new_id, "username": u}
     finally:
         await db.close()
+    # 新用户券商档案: 复制 user_id=0 的默认券商模板到自己名下(独立可改), 否则费率下拉是空的
+    from database import init_user_brokers
+    await init_user_brokers(new_id)
+    return {"user_id": new_id, "username": u}
 
 
 async def authenticate(username: str, password: str) -> dict | None:

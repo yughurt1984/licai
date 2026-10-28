@@ -185,6 +185,14 @@ export function isOnchainEtf(code = '') {
   return c.length === 6 && /^[15]/.test(c)
 }
 
+// 基金细分类型: 'etf'(场内, 股票式市价记账) | 'open'(场外开放式, NAV T+1)。
+// 用户显式选择存 asset.fund_kind; 老数据列里没值时按代码段位兜底(与 isOnchainEtf 同规则)。
+export function fundKindOf(asset = {}) {
+  const k = String(asset.fund_kind || '').trim().toLowerCase()
+  if (k === 'etf' || k === 'open') return k
+  return isOnchainEtf(asset.code) ? 'etf' : 'open'
+}
+
 // 券商费率: 拉一次缓存. resolveFee 按 (券商名, kind) 给 {rate, min}
 let _brokersCache = null
 export async function loadBrokers() {
@@ -197,17 +205,39 @@ export async function loadBrokers() {
 }
 export function clearBrokersCache() { _brokersCache = null }
 
-// kind: 'stock' | 'etf'. 找不到券商→默认券商→内置兜底(招商 万2.5/5)
-export function resolveFee(brokers, brokerName, kind) {
+// 资产类别 → 券商类型(个人中心券商档案的 type)。添加/编辑资产时券商下拉只出对应类别:
+// A股/场内 ETF 只能选 A股券商, 港股→港股, 美股→美股, 期货/期权→期货, 加密(含 BOT)→Crypto。
+export const ASSET_BROKER_TYPE = {
+  A: 'A股', HK: '港股', US: '美股',
+  a_stock: 'A股', etf: 'A股', hk_stock: '港股', us_stock: '美股',
+  FUND: 'A股', FUT: '期货', OPT: '期货', CRYPTO: 'Crypto', BOT: 'Crypto',
+}
+export function brokersOfType(brokers, t) {
+  const want = ASSET_BROKER_TYPE[t]
+  if (!want) return brokers || []
+  return (brokers || []).filter(b => (b.type || 'A股') === want)
+}
+
+// kind: 'stock' | 'etf'. typeHint: 资产类别(同名券商按类型区分时优先取对应类型那条).
+// 找不到券商→默认券商→内置兜底. 费率原值存储: 单位 % 按百分数(0.025 = 0.025%)折成小数,
+// 其余单位(笔/股/张)按金额口径原样返回.
+export function resolveFee(brokers, brokerName, kind, typeHint) {
   const list = brokers || []
-  let b = brokerName ? list.find(x => x.name === brokerName) : null
+  const wantType = ASSET_BROKER_TYPE[typeHint]
+  let matches = brokerName ? list.filter(x => x.name === brokerName) : []
+  if (matches.length > 1 && wantType) {
+    const hit = matches.find(x => (x.type || 'A股') === wantType)
+    if (hit) matches = [hit]
+  }
+  let b = matches[0] || null
   if (!b) b = list.find(x => x.is_default) || list[0]
   if (!b) return { rate: 0.00025, min: 5 }
+  const conv = (rate, unit) => (unit === '%' ? rate / 100 : rate)
   return kind === 'etf'
-    ? { rate: b.etf_rate, min: b.etf_min }
-    : { rate: b.stock_rate, min: b.stock_min }
+    ? { rate: conv(b.etf_rate ?? b.stock_rate, b.etf_rate != null ? b.etf_unit : b.stock_unit), min: b.etf_min ?? 0 }   // 基金费率空 = 同股票费率(含单位)
+    : { rate: conv(b.stock_rate, b.stock_unit), min: b.stock_min }
 }
-export function estimateFee(amount, brokers, brokerName, kind) {
-  const { rate, min } = resolveFee(brokers, brokerName, kind)
+export function estimateFee(amount, brokers, brokerName, kind, typeHint) {
+  const { rate, min } = resolveFee(brokers, brokerName, kind, typeHint)
   return Math.max((amount || 0) * rate, min)
 }

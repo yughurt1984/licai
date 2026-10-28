@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 @theme {
   /* === Terracotta (warm paper) — light/white === */
@@ -42,8 +41,15 @@
   --color-info: #4a7096;
   --color-warn: #b07a30;
 
-  --font-sans: 'Microsoft YaHei', '微软雅黑', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Menlo', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Microsoft YaHei", "微软雅黑", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Microsoft YaHei", "微软雅黑", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+/* 数字字体改为系统 sans 后, 全局启用等宽数字(tabular figures)保证列对齐:
+   数字等宽、小数点对齐, 中文回退雅黑不受影响 */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 
 /* 关闭横向 overscroll 导航: K线左右拖动/双指横扫不再触发浏览器前进后退 */

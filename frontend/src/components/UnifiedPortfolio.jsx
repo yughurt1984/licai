@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { fmtMoney, fmtPct, fundPassthroughType, loadBrokers, priceColor } from '../helpers'
+import { fmtMoney, fmtPct, loadBrokers, priceColor } from '../helpers'
 import { fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 import Tooltip from './Tooltip'
@@ -60,7 +60,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
     } catch {} finally { setAssetsLoaded(true) }
   }, [])
 
-  // 一键确认所有到期定投: 后端按每条 trade_date 拉当日净值自动结算份额。
+  // 一键确认所有到期申购: 后端按每条 trade_date 拉当日净值自动结算份额。
   const settlePending = useCallback(async () => {
     setSettling(true); setSettleMsg('')
     try {
@@ -68,18 +68,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       const parts = [`确认 ${d.settled || 0} 笔`]
       if (d.skipped > 0) parts.push(`${d.skipped} 笔净值未出, 留着下次`)
       setSettleMsg(parts.join(' · '))
-      await loadAssets()
-    } catch (e) {
-      setSettleMsg('失败: ' + e.message)
-    } finally { setSettling(false) }
-  }, [loadAssets])
-
-  // 费率改了之后重算已确认的定投 (只动设了申购费率的基金, 按当日净值内扣重算份额)
-  const recomputeDca = useCallback(async () => {
-    setSettling(true); setSettleMsg('')
-    try {
-      const d = await fetchJSON('/api/assets/recompute-dca', { method: 'POST' })
-      setSettleMsg(d.recomputed > 0 ? `重算 ${d.recomputed} 笔` : '没有需要重算的（份额已是最新）')
       await loadAssets()
     } catch (e) {
       setSettleMsg('失败: ' + e.message)
@@ -181,45 +169,15 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
     return () => { alive = false }
   }, [])
   const famIdx = useMemo(() => buildFamilyIndex(expo), [expo])
-  // 组合风险: 下一交易日 / 5 日 95% 最坏亏损(EWMA 协方差, 附回测突破率)
-  const [risk, setRisk] = useState(null)
-  useEffect(() => {
-    let alive = true
-    fetchJSON('/api/portfolio/risk').then(d => alive && setRisk(d?.available ? d : null)).catch(() => {})
-    return () => { alive = false }
-  }, [])
 
-  // Risk insights: concentration warnings + cross-type overlap families.
+  // Risk insights: cross-type overlap families.
   // Always computed from ALL rows (not filtered) so toggling filter doesn't change advice.
+  // 大类集中度提示已按需求移除。
   const insights = useMemo(() => {
     const allAgg = aggregate(rows, true)
     const total = allAgg.totalMv || 0
     const warnings = []
-    // 1. Major class concentration — 穿透后口径
-    //    FUND 按 fundPassthroughType 拆到 A/F/W/M/C 再算各桶占比.
-    //    避免"我买了海外/黄金 ETF 但被堆在基金桶, 然后说股票集中"的误判.
-    const passthroughBuckets = { A: 0, F: 0, W: 0, M: 0, C: 0, R: 0 }
-    for (const r of rows) {
-      const v = r.mv || 0
-      if (r.type === 'F') {
-        const target = fundPassthroughType(r.name || '')
-        passthroughBuckets[target] = (passthroughBuckets[target] || 0) + v
-      } else {
-        passthroughBuckets[r.type] = (passthroughBuckets[r.type] || 0) + v
-      }
-    }
-    for (const t of TYPE_ORDER) {
-      const mv = passthroughBuckets[t] || 0
-      if (mv === 0 || total === 0) continue
-      const pct = (mv / total) * 100
-      if (pct >= 50) {
-        warnings.push({
-          level: pct >= 70 ? 'high' : 'med',
-          text: `${TYPE_META[t].label} 占比 ${pct.toFixed(1)}%，集中度过高`,
-        })
-      }
-    }
-    // 2. Sub-category single-track within FUND / A股
+    // Sub-category single-track within FUND / A股
     for (const t of ['A', 'F']) {
       const g = allAgg.groups[t]
       // 股票桶里港股/美股的分类是「市场」不是行业板块, 不参与板块分散判断(只看 A 股行业)
@@ -365,11 +323,11 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex flex-col gap-3 w-full md:flex-1 md:w-auto min-w-0 md:min-w-[340px]">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-[14px] font-semibold text-text-bright tracking-wide m-0">持仓总览</h2>
-            <span className="text-[11px] text-text-dim">股票 · 基金 · 理财 · 现金 · 加密 · 机器人</span>
+            <h2 className="text-[15]px font-semibold text-text-bright tracking-wide m-0">持仓总览</h2>
+            <span className="text-[12]px text-text-dim">股票 · 基金 · 理财 · 现金 · 加密 · 机器人</span>
           </div>
           {isEmpty
-            ? <div className="text-text-dim text-[12px] py-2">还没有持仓,点击下方「+ 添加」开始</div>
+            ? <div className="text-text-dim text-[13]px py-2">还没有持仓,点击下方「+ 添加」开始</div>
             : <SummaryStrip agg={agg} aShareClosed={!aShareTradingDay} realized={realized} todayPnl={todayPnl} />
           }
         </div>
@@ -379,29 +337,21 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       {/* 港美股分红待确认: 识别出的现金分红, 一键记入或忽略 */}
       <PendingDividends dataVersion={dataVersion} />
 
-      {/* 定投待确认 banner: 一键按当日净值自动结算所有 pending 申购 */}
+      {/* 申购待确认 banner: 场外基金 T+1 净值出来后, 一键按当日净值自动结算所有 pending 申购 */}
       {(() => {
         const pendN = (assets || []).reduce((s, a) => s + (a.pending_actions_count || 0), 0)
-        const hasRateFund = (assets || []).some(a => a.asset_type === 'FUND' && a.purchase_fee_rate != null)
-        if (pendN === 0 && !hasRateFund && !settleMsg) return null
+        if (pendN === 0 && !settleMsg) return null
         return (
           <div className="px-3 md:px-6 py-2.5 border-b border-border bg-accent/5 flex items-center gap-3 flex-wrap">
-            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] shrink-0 bg-accent/15 text-accent border border-accent/50">⏳</span>
-            <span className="text-[11.5px] text-text">
-              {pendN > 0 ? `${pendN} 笔定投待确认份额` : '定投'}
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[11]px shrink-0 bg-accent/15 text-accent border border-accent/50">⏳</span>
+            <span className="text-[12.5px] text-text">
+              {pendN > 0 ? `${pendN} 笔申购待确认份额` : '申购'}
               {settleMsg && <span className="text-text-dim ml-2">· {settleMsg}</span>}
             </span>
             <div className="ml-auto flex items-center gap-2">
-              {hasRateFund && (
-                <button onClick={recomputeDca} disabled={settling}
-                  title="改了申购费率后, 按当日净值重算已确认的定投份额"
-                  className="px-3 py-1 rounded text-[11.5px] border border-border-med text-text-dim hover:text-text hover:border-accent transition-colors cursor-pointer disabled:opacity-50">
-                  {settling ? '处理中…' : '按费率重算'}
-                </button>
-              )}
               {pendN > 0 && (
                 <button onClick={settlePending} disabled={settling}
-                  className="px-3 py-1 rounded text-[11.5px] border border-accent/50 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50">
+                  className="px-3 py-1 rounded text-[12.5]px border border-accent/50 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50">
                   {settling ? '确认中…' : '一键按净值确认'}
                 </button>
               )}
@@ -411,38 +361,23 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       })()}
 
       {/* Risk insights strip */}
-      {!isEmpty && (risk || insights.warnings.length > 0 || (expo?.warnings || []).length > 0) && (
+      {!isEmpty && (insights.warnings.length > 0 || (expo?.warnings || []).length > 0) && (
         <div className="px-3 md:px-6 py-2.5 border-b border-border bg-surface-2/60 flex flex-col gap-1.5">
-          {risk && (
-            <div className="flex items-baseline gap-2 text-[11.5px] flex-wrap" title={risk.note + (risk.excluded?.length ? ` 未纳入: ${risk.excluded.map(e => `${e.name} ${Math.round(e.mv)}元`).join('、')}。` : '')}>
-              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold shrink-0"
-                style={{ background: '#85a0b41f', color: '#85a0b4', border: '1px solid #85a0b460' }}>σ</span>
-              <span className="text-text">
-                组合波动: 下一个交易日 95% 的情况下最多亏 <b className="font-mono text-bull">¥{Math.round(risk.var1).toLocaleString()}</b>
-                <span className="text-text-muted">(波动资产 ¥{Math.round(risk.risky_value / 1000)}k 的 {(risk.var1 / risk.risky_value * 100).toFixed(1)}%)</span>
-                {' '}· 5 个交易日 <b className="font-mono text-bull">¥{Math.round(risk.var5).toLocaleString()}</b>
-              </span>
-              <span className="text-text-dim">主要来自 {risk.contrib.slice(0, 3).map(c => `${c.name.replace(/\(.*$/, '').slice(0, 8)} ${Math.round(c.share * 100)}%`).join(' · ')}</span>
-              {risk.backtest?.rate != null && (
-                <span className="text-text-muted text-[10.5px]">回测 {risk.backtest.days} 天超出 {risk.backtest.breaches} 次({(risk.backtest.rate * 100).toFixed(1)}%, 应≈5%)</span>
-              )}
-            </div>
-          )}
           {/* low 级的不进这条提示带: 穿透会挖出一堆"某只票占 0.8%、来自 5 只基金"的细项,
               全铺出来会把真正该看的两三条(行业过半、两只基金同一注)压下去。细项在
               「问问市场」问一句就有(get_exposure 工具), 或直接看 /api/portfolio/exposure */}
           {[...insights.warnings, ...(expo?.warnings || []).filter(w => w.level !== 'low')].map((w, i) => {
             const color = w.level === 'high' ? '#e58a8a' : '#d4a05c'
             return (
-              <div key={i} className="flex items-center gap-2 text-[11.5px]">
-                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold shrink-0"
+              <div key={i} className="flex items-center gap-2 text-[12.5]px">
+                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[11]px font-bold shrink-0"
                   style={{ background: `${color}1f`, color, border: `1px solid ${color}60` }}>!</span>
                 <span className="text-text">{w.text}</span>
               </div>
             )
           })}
           {expo?.coverage && (
-            <div className="text-[10px] text-text-muted leading-snug pl-6">
+            <div className="text-[11]px text-text-muted leading-snug pl-6">
               穿透口径: 基金只拆到季报前十大(合计约占净值 25%~50%), 所以上面的敞口是<b>下限</b>；
               已穿透 {expo.coverage.penetrated_funds}/{expo.n_funds} 只基金
               {(expo.coverage.uncovered || []).length > 0 &&
@@ -461,7 +396,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
             const c = k === 'ALL' ? '#c8a876' : TYPE_COLOR[k]
             return (
               <button key={k} onClick={() => setFilter(k)}
-                className="px-2.5 py-[3px] rounded-md text-[11px] border transition-colors cursor-pointer"
+                className="px-2.5 py-[3px] rounded-md text-[12]px border transition-colors cursor-pointer"
                 style={{
                   borderColor: active ? c : 'var(--color-border-med)',
                   background: active ? `${c}1a` : 'transparent',
@@ -474,15 +409,15 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         </div>
         <div className="flex gap-1.5">
           <button onClick={() => setSortKey(sortKey === 'mv' ? 'pnl' : 'mv')}
-            className="px-2.5 py-[3px] rounded-md text-[11px] border border-border-med bg-transparent text-text-dim hover:text-text transition-colors cursor-pointer">
+            className="px-2.5 py-[3px] rounded-md text-[12]px border border-border-med bg-transparent text-text-dim hover:text-text transition-colors cursor-pointer">
             排序 · {sortKey === 'mv' ? '市值' : '盈亏'}
           </button>
-          {/* 已选中具体类型(F/W/M/C/R/T/O)时直接打开对应添加表单, 不再重复问"添加到哪一类";
-              ALL 和 A(股票, 还需区分子市场) 保留类型菜单 */}
-          <button onClick={() => show('add', ['ALL', 'A'].includes(filter) ? 'menu' : filter)}
+          {/* 已选中具体类型时直接打开对应添加表单, 不再重复问"添加到哪一类";
+              股票(A)直接进添加表单(表单内可切 A股/港股/美股市场), 只有 ALL 才出类型菜单 */}
+          <button onClick={() => show('add', filter === 'ALL' ? 'menu' : filter === 'A' ? 'A:A' : filter)}
             title={filter !== 'ALL' ? `添加${TYPE_META[filter].label}` : undefined}
-            className="px-2.5 py-[3px] rounded-md text-[11px] border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer">
-            {filter !== 'ALL' && filter !== 'A' ? `+ 添加${TYPE_META[filter].label}` : '+ 添加'}
+            className="px-2.5 py-[3px] rounded-md text-[12]px border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer">
+            {filter !== 'ALL' ? `+ 添加${TYPE_META[filter].label}` : '+ 添加'}
           </button>
         </div>
       </div>
@@ -497,7 +432,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
 
       {/* Column headers */}
       {!isEmpty && (
-        <div className="licai-row px-3 md:px-6 py-2 text-[10.5px] text-text-dim tracking-wider font-medium border-b border-border bg-surface">
+        <div className="licai-row px-3 md:px-6 py-2 text-[11.5]px text-text-dim tracking-wider font-medium border-b border-border bg-surface">
           <div className="text-left">名称 · 代码</div>
           <div className="text-right">市值</div>
           <div className="text-right licai-md-only">成本</div>
@@ -522,27 +457,27 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
           <div key={type}>
             {/* Group strip */}
             <div onClick={() => setCollapsed(c => ({ ...c, [type]: !c[type] }))}
-              className="licai-row px-3 md:px-6 py-2 border-b border-border cursor-pointer select-none items-center text-[11px] font-semibold text-text"
+              className="licai-row px-3 md:px-6 py-2 border-b border-border cursor-pointer select-none items-center text-[12]px font-semibold text-text"
               style={{ background: 'var(--color-surface-2)' }}>
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2 text-text-dim transition-transform"
                   style={{ transform: isCol ? 'rotate(-90deg)' : 'rotate(0)' }}>▾</span>
                 <div className="w-[3px] h-[13px] rounded-sm" style={{ background: TYPE_COLOR[type] }} />
                 <span>{TYPE_META[type].label}</span>
-                <span className="text-text-dim font-normal text-[10.5px]">{items.length} 项</span>
+                <span className="text-text-dim font-normal text-[11.5]px">{items.length} 项</span>
               </div>
               <div className="text-right flex flex-col items-end">
                 <span className="font-mono text-text">¥{fmtMoney(g.mv)}</span>
                 {groupFxExposure.length > 0 && (
-                  <span className="font-mono text-[9.5px] text-text-muted hidden md:inline">
+                  <span className="font-mono text-[10.5]px text-text-muted hidden md:inline">
                     {groupFxExposure.map(e => formatCurrencyMoney(e.currency, e.originalMarketValue)).join(' / ')}
                   </span>
                 )}
               </div>
-              <div className="text-right font-mono text-text-dim text-[10.5px] licai-md-only">¥{fmtMoney(g.cost)}</div>
+              <div className="text-right font-mono text-text-dim text-[11.5]px licai-md-only">¥{fmtMoney(g.cost)}</div>
               <div className={`text-right font-mono ${priceColor(g.pnl)}`}>
                 {g.pnl >= 0 ? '+' : ''}{fmtMoney(g.pnl)}
-                <span className="text-[10px] opacity-80 ml-1.5">({fmtPct(g.pnlPct)})</span>
+                <span className="text-[11]px opacity-80 ml-1.5">({fmtPct(g.pnlPct)})</span>
               </div>
               <div />
               <div className="text-right font-mono text-text licai-md-only">{(g.weight * 100).toFixed(1)}%</div>
@@ -581,7 +516,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                     const isLastCluster = ci === ordered.length - 1
                     return (
                       <React.Fragment key={cl.id}>
-                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[10.5px] text-text-dim border-b border-border-subtle"
+                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[11.5]px text-text-dim border-b border-border-subtle"
                           style={{ background: 'var(--color-surface)' }}>
                           <div className="flex items-center gap-1.5 pl-4">
                             <span className="inline-block w-1 h-1 rounded-full" style={{ background: TYPE_COLOR[type] }} />
@@ -621,7 +556,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                     const isLastCluster = ci === ordered.length - 1
                     return (
                       <React.Fragment key={cl.id}>
-                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[10.5px] text-text-dim border-b border-border-subtle"
+                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[11.5]px text-text-dim border-b border-border-subtle"
                           style={{ background: 'var(--color-surface)' }}>
                           <div className="flex items-center gap-1.5 pl-4">
                             <span className="inline-block w-1 h-1 rounded-full" style={{ background: TYPE_COLOR[type] }} />
@@ -651,7 +586,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       })}
 
       {filtered.length === 0 && !isEmpty && (
-        <div className="py-8 text-center text-text-dim text-[12px]">
+        <div className="py-8 text-center text-text-dim text-[13]px">
           当前筛选下没有持仓
         </div>
       )}

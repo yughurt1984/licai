@@ -18,23 +18,11 @@ from services import llm_client
 from api.portfolio_routes import router as portfolio_router
 from api.market_routes import router as market_router
 from api.settings_routes import router as settings_router
-from api.plan_routes import router as plan_router
 from api.assets_routes import router as assets_router
 from api.briefing_routes import router as briefing_router
-from api.sector_routes import router as sector_router
-from api.cashflow_routes import router as cashflow_router
-from api.export_routes import router as export_router
-from api.dca_routes import router as dca_router
-from api.news_routes import router as news_router, news_prewarm_loop
-from api.ask_routes import router as ask_router
-from services.sector_matrix import sector_matrix_prewarm_loop
-from services.coiled_scanner import coiled_prewarm_loop
-from services.portfolio_curve import curve_prewarm_loop
 from api.broker_routes import router as broker_router
 from api.auth_routes import router as auth_router
-from api.ws import (router as ws_router, price_monitor_loop, backup_loop, briefing_loop,
-                    dca_loop, eod_summary_loop, rule_mine_loop)
-from services import feishu_notify
+from api.ws import router as ws_router, price_monitor_loop, backup_loop, briefing_loop
 
 # macOS 系统 Python 3.9 用 LibreSSL 2.8.3, urllib3 v2 会嗷嗷叫。无害, 屏蔽
 warnings.filterwarnings("ignore", message=".*OpenSSL.*", module="urllib3")
@@ -56,68 +44,6 @@ if os.path.exists(_envf):
             _key, _val = _key.strip(), _val.strip().strip('"').strip("'")
             if _key and _key not in os.environ:
                 os.environ[_key] = _val
-
-
-async def _symbol_dict_prewarm():
-    """搜股底表(代码↔名称全表 + 拼音索引)后台预热 —— 只读 PG 的 symbol_dict 表, 不联网。
-
-    表数据来自旧 SQLite 迁移(scripts/migrate_sqlite_to_pg.py)。库为空时这只预热返回
-    0 条(搜索退化成按精确代码匹配), 不会现拉互联网。
-    """
-    try:
-        await asyncio.sleep(2)                     # 让端口先起来, 不拖慢启动
-        from services.stock_agent import _code_name_maps, _pinyin_rows
-        n2c, _c2n = await _code_name_maps()
-        rows = await _pinyin_rows()
-        if not n2c:
-            print("[startup] 搜股底表为空: 跑 python scripts/migrate_sqlite_to_pg.py 从旧库带入, 或手工补 symbol_dict 表")
-        print(f"[startup] 搜股底表就绪: {len(rows)} 条")
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        print(f"[startup] 搜股底表预热失败: {e}")
-
-
-async def plan_monitor_loop():
-    """交易计划盯价: A 股交易时段每 15 秒查一次, 触发/失效就推飞书 + 推页面。
-
-    不挂在 price_monitor_loop 上: 那条只在有浏览器连着时才跑, 盯计划要的是人不在屏幕前也能收到。
-    """
-    from api.ws import broadcast
-    from services import trade_plan as tp
-    from services.market_data import market_open
-
-    async def notify(text, ev):
-        try:
-            await feishu_notify.send_text(text)
-        except Exception as e:
-            print(f"[plan] 飞书推送失败: {e}")
-        # 盯价跑在 run_as_user(uid) 里, 推送只发给该用户的连接
-        from services.context import current_user_id
-        await broadcast(ev, user_id=current_user_id())
-
-    last_expire: dict[int, str] = {}     # {uid: 最后过期清理日}
-    from database import list_user_ids
-    from services.context import run_as_user
-    while True:
-        try:
-            if market_open("A"):
-                for uid in await list_user_ids():
-                    with run_as_user(uid):
-                        await feishu_notify.refresh_config()
-                        if last_expire.get(uid) != tp.today():
-                            await tp.expire_old()   # 每天一次: 过了生效日还没触发的计划标过期
-                            last_expire[uid] = tp.today()
-                        # notify 里 broadcast 按当前用户定向推送(run_as_user 上下文)
-                        await tp.monitor_once(notify)
-                await asyncio.sleep(15)
-            else:
-                await asyncio.sleep(60)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            print(f"[plan] 盯价出错: {e}")
-            await asyncio.sleep(30)
 
 
 @asynccontextmanager
@@ -152,23 +78,12 @@ async def lifespan(app: FastAPI):
     _tasks = [
         asyncio.create_task(price_monitor_loop()),
         asyncio.create_task(backup_loop()),
-        asyncio.create_task(dca_loop()),
-        asyncio.create_task(_symbol_dict_prewarm()),
-        asyncio.create_task(plan_monitor_loop()),
-        asyncio.create_task(rule_mine_loop()),
     ]
+    # 早报循环依赖 news/fundamental_score(暂留), 仍按 quote_auto_fetch 门控
     if quote_auto_fetch():
-        _tasks += [
-            asyncio.create_task(briefing_loop()),
-            asyncio.create_task(news_prewarm_loop()),
-            asyncio.create_task(sector_matrix_prewarm_loop()),
-            asyncio.create_task(coiled_prewarm_loop()),
-            asyncio.create_task(curve_prewarm_loop()),
-            asyncio.create_task(eod_summary_loop()),
-        ]
+        _tasks.append(asyncio.create_task(briefing_loop()))
     else:
-        print("[startup] 纯 PG 模式(quote_auto_fetch=false): 跳过联网后台任务"
-              "(新闻预热/板块矩阵/蓄势扫描/盈亏曲线/早报/收盘小结)")
+        print("[startup] 纯 PG 模式(quote_auto_fetch=false): 跳过联网后台任务(早报)")
     print(f"全资产看板已启动: http://localhost:{config.port}")
     yield
     for _t in _tasks:
@@ -241,15 +156,8 @@ app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 app.include_router(portfolio_router)
 app.include_router(market_router)
 app.include_router(settings_router)
-app.include_router(plan_router)
 app.include_router(assets_router)
 app.include_router(briefing_router)
-app.include_router(sector_router)
-app.include_router(cashflow_router)
-app.include_router(export_router)
-app.include_router(dca_router)
-app.include_router(news_router)
-app.include_router(ask_router)
 app.include_router(broker_router)
 app.include_router(auth_router)
 app.include_router(ws_router)

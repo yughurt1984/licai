@@ -85,7 +85,7 @@ def _fetch_fund_nav_on_date_sync(code: str, date_str: str) -> dict | None:
 
 def nav_date_for(trade_date: str, trade_time: str | None = None) -> str:
     """场外基金申购/赎回按哪一天的净值确认: 交易日 15:00 前提交 → 当日净值; 15:00 及以后、
-    或提交在非交易日(周末/节假日) → 顺延到下一个交易日的净值。没有提交时间的(定投/老记录)按当日。
+    或提交在非交易日(周末/节假日) → 顺延到下一个交易日的净值。没有提交时间的(老记录)按当日。
     交易日历与 A 股相同(QDII 也按国内交易日受理)。"""
     from datetime import date, timedelta
     from services.market_data import _is_a_share_trading_day
@@ -162,6 +162,19 @@ def _is_onchain_etf(code: str) -> bool:
     return code[0] in ("1", "5")
 
 
+def fund_kind_of(asset: dict | None) -> str:
+    """基金细分类型: 'etf'(场内, 股票式市价记账) | 'open'(场外开放式, NAV T+1)。
+
+    用户在添加/编辑时显式选择, 存 external_assets.fund_kind; 老数据列里没值时
+    按代码段位兜底(与 _is_onchain_etf 同规则)。非基金资产返回 'open'(无意义, 仅为类型统一)。
+    """
+    a = asset or {}
+    kind = str(a.get("fund_kind") or "").strip().lower()
+    if kind in ("etf", "open"):
+        return kind
+    return "etf" if _is_onchain_etf(str(a.get("code") or "")) else "open"
+
+
 # 基金全称缓存 (名字稳定, 长期缓存避免每次报价都打 pingzhongdata)
 _fund_name_cache: dict[str, str] = {}
 
@@ -204,7 +217,8 @@ async def _fetch_onchain_etf_quote(code: str) -> dict | None:
     }
 
 
-async def get_fund_quote(code: str) -> dict | None:
+async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
+    """kind: 'etf'|'open' 显式基金类型(None=按代码段位兜底)。场外开放式即便代码像场内也走净值。"""
     cached = _fund_cache.get(code)
     if cached and time.time() - cached[1] < _FUND_TTL:
         return cached[0]
@@ -214,7 +228,7 @@ async def get_fund_quote(code: str) -> dict | None:
     if not quote_auto_fetch():
         return await _fund_from_store(code)
     # 场内 ETF/LOF 优先用实时行情；拉不到则回退到天天基金 NAV
-    if _is_onchain_etf(code):
+    if (kind or ("etf" if _is_onchain_etf(code) else "open")) == "etf":
         try:
             data = await _fetch_onchain_etf_quote(code)
             if data:

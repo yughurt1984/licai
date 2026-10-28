@@ -40,7 +40,6 @@ export const NAV = [
     { key: 'rankings', label: '榜单' },
     { key: 'pools',    label: '大盘·股池' },
     { key: 'capital',  label: '资金·机构' },
-    { key: 'macro',    label: '宏观' },
     { key: 'news',     label: '资讯' },
   ] },
   { group: null, items: [

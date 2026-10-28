@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { fetchJSON, MUTATED_EVENT } from '../hooks/useApi'
-import { fmtMoney, priceColor, isOnchainEtf } from '../helpers'
+import { fmtMoney, priceColor, fundKindOf } from '../helpers'
 import Tooltip from './Tooltip'
-import IndexTicker from './IndexTicker'
 
 function currencySymbol(currency = 'CNY') {
   if (currency === 'USD') return 'US$'
@@ -128,7 +127,7 @@ export default function Dashboard({ holdings }) {
   // 场内 ETF(券商买的 5xxxxx/1xxxxx)跟支付宝/天天基金买的场外基金都存在 external_assets 里,
   // 但它们是场内按市价成交的, 统统标"场外"是错的 —— 按代码拆出来单独一格。
   const onchain = (external?.assets || []).reduce((s, a) => {
-    if (a.asset_type === 'FUND' && isOnchainEtf(a.code)) {
+    if (a.asset_type === 'FUND' && fundKindOf(a) === 'etf') {
       s.value += a.current_value || 0
       s.pnl += a.pnl || 0
     }
@@ -230,32 +229,47 @@ export default function Dashboard({ holdings }) {
         ))}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
-        {realizedTotal !== 0 ? (
-          <Tooltip content={
-            <div className="leading-relaxed">
-              <div className="text-text-bright font-semibold mb-1">总盈亏拆分</div>
-              <div className="font-mono text-[11px] space-y-0.5">
-                <div>浮动 <span className={priceColor(unrealizedPnl)}>{unrealizedPnl >= 0 ? '+' : ''}¥{fmtMoney(unrealizedPnl)}</span></div>
-                <div>已实现 <span className={priceColor(realizedTotal)}>{realizedTotal >= 0 ? '+' : ''}¥{fmtMoney(realizedTotal)}</span></div>
-                {realized.stock !== 0 && (
-                  <div className="text-text-dim pl-2">  · 股票 <span className={priceColor(realized.stock)}>{realized.stock >= 0 ? '+' : ''}¥{fmtMoney(realized.stock)}</span></div>
-                )}
-                {realized.asset !== 0 && (
-                  <div className="text-text-dim pl-2">  · 基金/理财/加密 <span className={priceColor(realized.asset)}>{realized.asset >= 0 ? '+' : ''}¥{fmtMoney(realized.asset)}</span></div>
-                )}
-              </div>
-            </div>
-          }>
-            <span className="text-[11px] text-text-muted cursor-help underline decoration-dotted decoration-text-muted/50 underline-offset-2">总盈亏</span>
-          </Tooltip>
-        ) : (
-          <span className="text-[11px] text-text-muted">总盈亏</span>
-        )}
+        <span className="text-[11px] text-text-muted">总盈亏</span>
         <span className={`text-[13px] font-mono font-medium ${priceColor(totalPnl)}`}>
           {totalPnl >= 0 ? '+' : ''}{fmtMoney(totalPnl)}
         </span>
         <span className={`text-[11px] font-mono ${priceColor(totalPnlPct)}`}>
           ({totalPnl >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%)
+        </span>
+      </div>
+      <div className="w-px h-4 bg-border shrink-0" />
+      <div className="flex items-center gap-1.5 shrink-0">
+        {realizedTotal !== 0 ? (
+          <Tooltip content={
+            <div className="leading-relaxed">
+              <div className="text-text-bright font-semibold mb-1">已实现盈亏拆分</div>
+              <div className="font-mono text-[11px] space-y-0.5">
+                {realized.stock !== 0 && (
+                  <div>· 股票(已平仓段+分红) <span className={priceColor(realized.stock)}>{realized.stock >= 0 ? '+' : ''}¥{fmtMoney(realized.stock)}</span></div>
+                )}
+                {realized.asset !== 0 && (
+                  <div>· 基金/理财/加密 <span className={priceColor(realized.asset)}>{realized.asset >= 0 ? '+' : ''}¥{fmtMoney(realized.asset)}</span></div>
+                )}
+              </div>
+              <div className="text-text-dim mt-1 text-[10.5px]">
+                现金利息已计入浮动(现金行 pnl), 不在这里重复。
+              </div>
+            </div>
+          }>
+            <span className="text-[11px] text-text-muted cursor-help underline decoration-dotted decoration-text-muted/50 underline-offset-2">已实现盈亏</span>
+          </Tooltip>
+        ) : (
+          <span className="text-[11px] text-text-muted">已实现盈亏</span>
+        )}
+        <span className={`text-[12px] font-mono ${priceColor(realizedTotal)}`}>
+          {realizedTotal >= 0 ? '+' : ''}{fmtMoney(realizedTotal)}
+        </span>
+      </div>
+      <div className="w-px h-4 bg-border shrink-0" />
+      <div className="flex items-center gap-1.5 shrink-0">
+        <span className="text-[11px] text-text-muted">浮动盈亏</span>
+        <span className={`text-[12px] font-mono ${priceColor(unrealizedPnl)}`}>
+          {unrealizedPnl >= 0 ? '+' : ''}{fmtMoney(unrealizedPnl)}
         </span>
       </div>
 
@@ -345,9 +359,6 @@ export default function Dashboard({ holdings }) {
         </>
       )}
 
-      {/* 大盘指数: 只留一个, 点开换/看 K线 (IndexTicker) */}
-      <div className="w-px h-4 bg-border shrink-0" />
-      <IndexTicker />
 
     </div>
   )

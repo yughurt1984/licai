@@ -473,15 +473,26 @@ def compute_position_state(
 # (曾经 realized / trade-review / today-pnl 都没走自动估费, 港美股的费用回退成默认券商方案)。
 
 async def broker_fee_resolver():
-    """一次性读券商表, 返回 (name)->(rate,min) 解析器(找不到→默认券商), 避免每笔查库。"""
+    """一次性读券商表, 返回 (name, market)->(rate,min) 解析器(找不到→默认券商), 避免每笔查库。
+
+    同名券商可按类型并存(富途同时作港股/美股), 解析时按流水代码的市场挑对应类型的那条;
+    市场对不上或同名只有一条时取第一条, 都没有再兜底默认券商。
+    """
     from database import list_brokers
     brokers = await list_brokers()
     default = next((x for x in brokers if x.get("is_default")), None) or (brokers[0] if brokers else None)
-    bymap = {x["name"]: (x["stock_rate"], x["stock_min"]) for x in brokers}
+    byname: dict = {}
+    for x in brokers:
+        byname.setdefault(x["name"], []).append(x)
+    _MKT_TYPE = {"A": "A股", "HK": "港股", "US": "美股"}
 
-    def resolve(name):
-        if name and name in bymap:
-            return bymap[name]
+    def resolve(name, market=None):
+        rows = byname.get(name) if name else None
+        if rows:
+            want = _MKT_TYPE.get(market)
+            hit = next((x for x in rows if x.get("type") == want), None) if want else None
+            pick = hit or rows[0]
+            return (pick["stock_rate"], pick["stock_min"])
         return (default["stock_rate"], default["stock_min"]) if default else (None, None)
     return resolve
 
@@ -506,7 +517,7 @@ async def attach_auto_fees(actions: list, stock_code: str, holding_broker, resol
     for a in actions:
         code = a.get("stock_code") or stock_code
         b = a.get("broker") or holding_broker
-        r, m = resolve(b)
+        r, m = resolve(b, _foreign_market(code))
         # 港美股按券商名分组(方案按名字取); A 股沿用按费率分组
         by_broker.setdefault((r, m, b if _foreign_market(code) else None), []).append(a)
     for (r, m, _b), group in by_broker.items():
@@ -537,7 +548,7 @@ async def ledger_state(code: str, actions: list | None = None, holding_broker=_U
     if fx_now is None and _foreign_market(code) and any(not a.get("fx_rate") for a in actions):
         from services.market_data import code_fx
         fx_now = await asyncio.to_thread(code_fx, code)
-    c_rate, c_min = resolve(holding_broker)
+    c_rate, c_min = resolve(holding_broker, _foreign_market(code))
     st = compute_position_state(actions, stock_code=code, commission_rate=c_rate, commission_min=c_min,
                                 fx_now=fx_now)
     if dilute:

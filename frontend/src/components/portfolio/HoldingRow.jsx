@@ -24,17 +24,17 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
     }}>
     <div className="flex flex-col gap-0.5 min-w-0">
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="text-[13px] font-semibold text-text-bright truncate">{row.name}</span>
+        <span className="text-[14]px font-semibold text-text-bright truncate">{row.name}</span>
         <TypeChip type={row.type} compact />
-        {row.type === 'A' && <MarketChip market={row.extra?.market} />}
+        {row.type === 'A' && <MarketChip market={row.extra?.market} code={row.code} />}
         {row.broker && (
-          <span className="text-[10px] px-1.5 py-[1px] rounded bg-info/15 text-info border border-info/40 shrink-0 whitespace-nowrap font-medium">
+          <span className="text-[10]px px-1 py-[1px] rounded bg-info/15 text-info border border-info/40 shrink-0 whitespace-nowrap font-medium">
             {row.broker}
           </span>
         )}
         {row.extra?.okxSynced && !row.extra?.okxStopped && (
           <Tooltip content="OKX 自动同步中">
-            <span className="text-bull cursor-help text-[12px] leading-none">🔗</span>
+            <span className="text-bull cursor-help text-[13]px leading-none">🔗</span>
           </Tooltip>
         )}
         {row.extra?.okxStopped && (
@@ -44,10 +44,10 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
                 策略已停止{row.extra?.okxState ? ` (${row.extra.okxState})` : ''} · 待归档
               </div>
               <div>OKX 拉到的是结束时的最终数字, 不再变动; 钱已回到现货账户。</div>
-              <div className="mt-1 text-text-dim text-[10.5px]">在这一行点「平仓归档」把盈亏定格转入已实现, 它就退出在持列表</div>
+              <div className="mt-1 text-text-dim text-[11.5]px">在这一行点「平仓归档」把盈亏定格转入已实现, 它就退出在持列表</div>
             </div>
           }>
-            <span className="text-warn cursor-help text-[11px] leading-none px-1 rounded bg-warn/15 border border-warn/40 shrink-0 whitespace-nowrap">已停止</span>
+            <span className="text-warn cursor-help text-[12]px leading-none px-1 rounded bg-warn/15 border border-warn/40 shrink-0 whitespace-nowrap">已停止</span>
           </Tooltip>
         )}
         {row.extra?.okxSynced === false && (
@@ -55,10 +55,10 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
             <div>
               <div className="text-text-bright font-semibold mb-1">同步断连 · 数字为旧快照</div>
               <div>{row.extra?.syncError || 'OKX 不可达或凭证失效'}</div>
-              <div className="mt-1 text-text-dim text-[10.5px]">盈亏非实时。常见原因: 代理软件没开 → 打开后到 设置→代理 点自动探测</div>
+              <div className="mt-1 text-text-dim text-[11.5]px">盈亏非实时。常见原因: 代理软件没开 → 打开后到 设置→代理 点自动探测</div>
             </div>
           }>
-            <span className="text-warn cursor-help text-[11px] leading-none px-1 rounded bg-warn/15 border border-warn/40 shrink-0">⚠ 同步断</span>
+            <span className="text-warn cursor-help text-[12]px leading-none px-1 rounded bg-warn/15 border border-warn/40 shrink-0">⚠ 同步断</span>
           </Tooltip>
         )}
         {insights.overlapRowIds.has(row.id) && (
@@ -78,25 +78,25 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
                   </div>
                 ))}
               </div>
-              <div className="text-text-dim mt-1.5 text-[10.5px] leading-snug">
+              <div className="text-text-dim mt-1.5 text-[11.5]px leading-snug">
                 这几行是同一块风险(按穿透后的行业归的，不看名字)：分开看像分散，合起来才是真实敞口
               </div>
             </div>
           }>
-            <span className="inline-flex items-center gap-0.5 text-[9.5px] font-semibold px-1 py-[1px] rounded shrink-0 cursor-help"
+            <span className="inline-flex items-center gap-0.5 text-[10.5]px font-semibold px-1 py-[1px] rounded shrink-0 cursor-help"
               style={{ color: '#e58a8a', background: '#e58a8a18', border: '1px solid #e58a8a40' }}>↔ 同源</span>
           </Tooltip>
         )}
       </div>
-      <span className="font-mono text-[10px] text-text-muted truncate">{row.code}</span>
+      <span className="font-mono text-[11]px text-text-muted truncate">{row.code}</span>
     </div>
     <div className="text-right flex flex-col items-end">
-      <span className="font-mono text-[12.5px] text-text-bright tabular-nums">
+      <span className="font-mono text-[13.5]px text-text-bright tabular-nums">
         ¥{fmtMoney(row.mv)}
       </span>
       {row.extra?.currency && row.extra.currency !== 'CNY' && row.extra?.originalMarketValue != null && (
         <FxHint extra={row.extra}>
-          <span className="font-mono text-[10px] text-text-muted tabular-nums cursor-help">
+          <span className="font-mono text-[11]px text-text-muted tabular-nums cursor-help">
             {formatCurrencyMoney(row.extra.currency, row.extra.originalMarketValue)}
           </span>
         </FxHint>
@@ -108,7 +108,7 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
               马丁策略预算 {row.extra.okxBudgetSource === 'manual' ? '(手填)' : '(算法估算)'}
             </div>
             <div>首单 {row.extra.okxInitOrderAmt}U · 安全单基础 {row.extra.okxSafetyOrderAmt}U × {row.extra.okxMaxSafetyOrders} 档 · 量倍数 {row.extra.okxVolMult}</div>
-            <div className="mt-1 text-[10.5px]">
+            <div className="mt-1 text-[11.5]px">
               已投 <span className="text-text font-mono">{row.extra.okxInvestmentUsdt}U</span>
               <span className="mx-1">/</span>
               预算 <span className="text-text font-mono">{row.extra.okxTotalBudgetUsdt}U</span>
@@ -116,7 +116,7 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
               待投 <span className="text-bull-bright font-mono">{row.extra.okxAvailableUsdt}U</span>
             </div>
             {row.extra.okxBudgetSource !== 'manual' && (
-              <div className="mt-1 text-[10px] text-warn">
+              <div className="mt-1 text-[11]px text-warn">
                 OKX raw 没"总预算"字段, 算法反推可能不准. 点击下面"改预算"用 OKX 客户端实际值覆盖.
               </div>
             )}
@@ -126,7 +126,7 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
               这一行只负责"点了" —— 否则这个展示组件要自己拿 fetchJSON 和 setAssets。 */}
           <span
             onClick={(e) => { e.stopPropagation(); actions.onEditBotBudget?.(row) }}
-            className="font-mono text-[10px] text-text-muted tabular-nums cursor-pointer hover:text-accent mt-0.5 whitespace-nowrap"
+            className="font-mono text-[11]px text-text-muted tabular-nums cursor-pointer hover:text-accent mt-0.5 whitespace-nowrap"
             title="点击改总预算">
             投 {row.extra.okxInvestmentUsdt}U / {row.extra.okxTotalBudgetUsdt}U <span className="text-bull-bright">余 {row.extra.okxAvailableUsdt}U</span>{row.extra.okxBudgetSource !== 'manual' && (
               <span className="text-warn ml-1" title="算法估算, 可能不准">~</span>
@@ -136,12 +136,12 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
       )}
     </div>
     <div className="text-right flex flex-col items-end licai-md-only">
-      <span className="font-mono text-[11px] text-text-dim tabular-nums">
+      <span className="font-mono text-[12]px text-text-dim tabular-nums">
         ¥{fmtMoney(row.cost)}
       </span>
       {row.extra?.currency && row.extra.currency !== 'CNY' && row.extra?.originalCostValue != null && (
         <FxHint extra={row.extra}>
-          <span className="font-mono text-[9.5px] text-text-muted tabular-nums cursor-help">
+          <span className="font-mono text-[10.5]px text-text-muted tabular-nums cursor-help">
             {formatCurrencyMoney(row.extra.currency, row.extra.originalCostValue)}
           </span>
         </FxHint>
@@ -153,34 +153,34 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
           <div className="leading-relaxed">
             <div className="text-text-bright font-semibold mb-1">月息流估算</div>
             <div>当前余额 ¥{fmtMoney(row.mv)} × 年化 {(row.extra.annualYield * 100).toFixed(2)}% / 12</div>
-            <div className="mt-1 text-[10.5px] text-text-dim">实际利率每天微变，估算 ±5% 误差</div>
-            <div className="mt-1 text-[10.5px] text-bull-bright">
+            <div className="mt-1 text-[11.5]px text-text-dim">实际利率每天微变，估算 ±5% 误差</div>
+            <div className="mt-1 text-[11.5]px text-bull-bright">
               日息 ≈ +¥{(row.extra.dailyInterestEst || 0).toFixed(2)} · 年息 ≈ +¥{fmtMoney(row.extra.yearlyInterestEst || 0)}
             </div>
           </div>
         }>
           <div className="flex flex-col items-end cursor-help">
-            <span className="font-mono text-[12.5px] font-semibold tabular-nums text-bull-bright">
+            <span className="font-mono text-[13.5]px font-semibold tabular-nums text-bull-bright">
               ≈ +¥{fmtMoney(row.extra.monthlyInterestEst)}/月
             </span>
-            <span className="font-mono text-[10px] text-text-dim">
+            <span className="font-mono text-[11]px text-text-dim">
               年化 {(row.extra.annualYield * 100).toFixed(2)}%
             </span>
           </div>
         </Tooltip>
       ) : (
         <>
-          <span className={`font-mono text-[12.5px] font-semibold tabular-nums ${priceColor(row.pnl)}`}>
+          <span className={`font-mono text-[13.5]px font-semibold tabular-nums ${priceColor(row.pnl)}`}>
             {row.pnl != null ? (row.pnl >= 0 ? '+' : '') + fmtMoney(row.pnl) : '--'}
           </span>
-          <span className={`font-mono text-[10px] opacity-85 ${priceColor(row.pnlPct)}`}>
+          <span className={`font-mono text-[11]px opacity-85 ${priceColor(row.pnlPct)}`}>
             {row.pnlPct != null ? fmtPct(row.pnlPct) : ''}
           </span>
           {row.type === 'A' && Math.abs(carry || 0) > 0.5 && (() => {
             const total = (row.pnl || 0) + carry
             return (
               <Tooltip content="全周期真实盈亏 = 当前持仓浮动 + 历史已实现(清仓段/部分卖出)。清仓后又买回的票, 行内浮动只算这手, 这里把历史亏赚补回来。">
-                <div className={`font-mono text-[9.5px] ${priceColor(total)} opacity-90 cursor-help`}>
+                <div className={`font-mono text-[10.5]px ${priceColor(total)} opacity-90 cursor-help`}>
                   真实 {total >= 0 ? '+' : ''}{fmtMoney(total)}
                 </div>
               </Tooltip>
@@ -190,7 +190,7 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
             const total = (row.pnl || 0) + (row._raw.realized_pnl || 0) - (row._raw.cycle_realized || 0)
             return (
               <Tooltip content="全周期真实盈亏 = 当前浮动 + 已实现(卖出/赎回的配对盈亏 + 利息分红)。卖掉部分的亏赚不在浮动里, 这里补齐——卖亏了再低位买回时, 浮动转正但真实口径仍记着那笔亏。">
-                <div className={`font-mono text-[9.5px] ${priceColor(total)} opacity-90 cursor-help`}>
+                <div className={`font-mono text-[10.5]px ${priceColor(total)} opacity-90 cursor-help`}>
                   真实 {total >= 0 ? '+' : ''}{fmtMoney(total)}
                 </div>
               </Tooltip>
@@ -205,21 +205,29 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
           <div>
             <div className="text-text-bright font-semibold mb-1">日息估算</div>
             <div>当前余额 × 年化 / 365</div>
-            <div className="mt-1 text-text-dim text-[10.5px]">货币基金每日结息</div>
+            <div className="mt-1 text-text-dim text-[11.5]px">货币基金每日结息</div>
           </div>
         }>
-          <span className="font-mono text-[11px] text-bull-bright cursor-help">
-            +¥{row.extra.dailyInterestEst.toFixed(2)}
-          </span>
+          <div className="inline-flex flex-col items-end cursor-help">
+            <span className="font-mono text-[13.5]px font-semibold tabular-nums text-bull-bright">
+              +¥{row.extra.dailyInterestEst.toFixed(2)}
+            </span>
+            {row.today != null && (
+              <span className="font-mono text-[11]px opacity-85 text-bull-bright">
+                {row.today === 0 ? '0.00%' : (row.today > 0 ? '+' : '') + row.today.toFixed(2) + '%'}
+              </span>
+            )}
+          </div>
         </Tooltip>
       ) : row.type === 'F' && row.extra?.proxyChangePct != null ? (
         <ProxyPulse
           change={row.extra.proxyChangePct}
           label={row.extra.proxyLabel}
           details={row.extra.proxyDetails}
-          fallbackToday={row.today} />
+          fallbackToday={row.today}
+          mv={row.mv} />
       ) : (
-        <TodayPulse change={row.today} stale={row.type === 'A' && row._raw?.today_valid === false} />
+        <TodayPulse change={row.today} mv={row.mv} stale={row.type === 'A' && row._raw?.today_valid === false} />
       )}
     </div>
     <div className="text-right licai-md-only">

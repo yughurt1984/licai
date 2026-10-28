@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { estimateFee, isOnchainEtf } from '../../../helpers'
+import { brokersOfType, estimateFee, isOnchainEtf } from '../../../helpers'
 import { fetchJSON } from '../../../hooks/useApi'
 import Tooltip from '../../Tooltip'
 import { BROKER_COMMISSION_MIN, BROKER_COMMISSION_RATE, KEY_TO_ASSET_TYPE } from '../constants'
@@ -34,12 +34,14 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
   // WEALTH (理财)
   const [annualYield, setAnnualYield] = useState('')
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10))
-  // DCA 定投 (FUND/CRYPTO only, 可选)
-  const [dcaEnabled, setDcaEnabled] = useState(false)
-  const [dcaValue, setDcaValue] = useState('')
-  const [dcaFrequency, setDcaFrequency] = useState('monthly')
-  const [dcaDayOfMonth, setDcaDayOfMonth] = useState(15)
-  const [dcaDayOfWeek, setDcaDayOfWeek] = useState(1)
+  // FUND 细分类型: etf(场内, 股票式市价记账) / open(场外开放式, NAV T+1)。默认按代码段位猜, 可手动改。
+  const [fundKind, setFundKind] = useState('open')
+  const [fundKindTouched, setFundKindTouched] = useState(false)
+
+  useEffect(() => {
+    if (assetType !== 'FUND' || fundKindTouched) return
+    setFundKind(isOnchainEtf(code) ? 'etf' : 'open')
+  }, [assetType, code, fundKindTouched])
 
   useEffect(() => {
     if (assetType !== 'BOT') return
@@ -55,11 +57,11 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
     const s = parseFloat(shares); const u = parseFloat(unitPrice)
     if (s > 0 && u > 0) {
       const amount = s * u
-      const kind = isOnchainEtf(code) ? 'etf' : 'stock'
-      const est = estimateFee(amount, brokers, selectedBroker, kind)
+      const kind = (assetType === 'FUND' && fundKind === 'etf') ? 'etf' : 'stock'
+      const est = estimateFee(amount, brokers, selectedBroker, kind, assetType)
       setFee(est.toFixed(2))
     }
-  }, [shares, unitPrice, feeTouched, assetType, code, brokers, selectedBroker])
+  }, [shares, unitPrice, feeTouched, assetType, fundKind, brokers, selectedBroker])
 
   // 按股买: 累计投入 = 单价 × 份额 + 手续费 (用户没手填本金时自动)
   useEffect(() => {
@@ -109,21 +111,6 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
     if (!code || !name) return alert('代码/名称必填')
     if (assetType === 'BOT' && !manualValue && !okxAlgoId) return alert('当前资产必填（或绑定 OKX 自动同步）')
 
-    // 内联 DCA 校验 (仅 FUND/CRYPTO)
-    let dcaPayload = null
-    if (dcaEnabled && (assetType === 'FUND' || assetType === 'CRYPTO')) {
-      const v = parseFloat(dcaValue)
-      if (!(v > 0)) return alert('定投金额必填且 > 0')
-      dcaPayload = {
-        mode: 'amount',
-        value: v,
-        frequency: dcaFrequency,
-        day_of_month: dcaFrequency === 'monthly' ? parseInt(dcaDayOfMonth, 10) : null,
-        day_of_week: dcaFrequency === 'weekly' ? parseInt(dcaDayOfWeek, 10) : null,
-        note: '',
-      }
-    }
-
     await fetchJSON('/api/assets', {
       method: 'POST',
       body: JSON.stringify({
@@ -138,14 +125,14 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
           ? parseFloat(annualYield) / 100  // user inputs %, store as decimal
           : null,
         start_date: isYieldType ? (startDate || null) : null,
-        trade_time: ((assetType === 'FUND' && isOnchainEtf(code)) || assetType === 'CRYPTO') && tradeTime ? tradeTime : null,
-        purchase_fee_rate: assetType === 'FUND' && !isOnchainEtf(code) && feeRatePct !== '' ? parseFloat(feeRatePct) / 100 : null,
-        broker: assetType === 'FUND' && isOnchainEtf(code) && selectedBroker ? selectedBroker : null,
+        trade_time: ((assetType === 'FUND' && fundKind === 'etf') || assetType === 'CRYPTO') && tradeTime ? tradeTime : null,
+        purchase_fee_rate: assetType === 'FUND' && fundKind === 'open' && feeRatePct !== '' ? parseFloat(feeRatePct) / 100 : null,
+        broker: selectedBroker || null,
         contract_multiplier: (assetType === 'FUT' || assetType === 'OPT') && parseFloat(multiplier) > 0
           ? parseFloat(multiplier) : null,
         // 手续费单独透传 (cost 已含它), 后端单存到初始流水的 fee 字段, 避免在流水里"消失"
         fee: (assetType === 'FUND' || assetType === 'CRYPTO') && parseFloat(fee) > 0 ? parseFloat(fee) : null,
-        dca: dcaPayload,
+        fund_kind: assetType === 'FUND' ? fundKind : null,
       }),
     })
     onDone?.()
@@ -181,6 +168,21 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
       )}
 
       <div className="flex flex-wrap gap-2 items-end">
+        {assetType === 'FUND' && (
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-text-dim">基金类型</label>
+            <div className="flex rounded border border-border overflow-hidden">
+              {[['etf', 'ETF基金'], ['open', '开放式基金']].map(([k, lbl]) => (
+                <button key={k} type="button"
+                  onClick={() => { setFundKind(k); setFundKindTouched(true) }}
+                  className={`px-2.5 py-1 text-[11.5px] cursor-pointer transition-colors ${
+                    fundKind === k ? 'bg-accent/15 text-accent font-semibold' : 'text-text-dim hover:text-text'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-col gap-1">
           <label className="text-[11px] text-text-dim">
             {assetType === 'FUND' ? '基金代码' : assetType === 'CRYPTO' ? '币对' :
@@ -229,7 +231,7 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
       {hint && <div className={`text-[10px] font-mono ${hint.startsWith('✓') ? 'text-bull' : 'text-bear'}`}>{hint}</div>}
 
       {/* Pending hint: 场外基金/CRYPTO 只填了金额没填份额 → T+1 待确认 (场内 ETF 按市价即时成交, 不适用) */}
-      {((assetType === 'FUND' && !isOnchainEtf(code)) || assetType === 'CRYPTO') && parseFloat(cost) > 0 && !shares && (
+      {((assetType === 'FUND' && fundKind === 'open') || assetType === 'CRYPTO') && parseFloat(cost) > 0 && !shares && (
         <div className="text-[10.5px] font-mono text-accent">
           💡 没填{assetType === 'FUND' ? '份额' : '数量'} → 当作 T+1 待确认，¥{parseFloat(cost).toFixed(2)} 先记到 pending。
           {assetType === 'FUND' ? '基金' : '币'} 到账后回来编辑补份额自动结算。
@@ -353,27 +355,28 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
               className={`${inp} w-24 font-mono`} placeholder="5.00" />
           </div>
         )}
-        {((assetType === 'FUND' && isOnchainEtf(code)) || assetType === 'CRYPTO') && (
+        {((assetType === 'FUND' && fundKind === 'etf') || assetType === 'CRYPTO') && (
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-text-dim">成交时刻 <span className="text-text-muted text-[10px]">可空</span></label>
             <input type="time" value={tradeTime} onChange={e => setTradeTime(e.target.value)}
               className={`${inp} w-28 font-mono text-text-dim`} title="今日建仓的成交时刻(可选), 留空用录入时间, 供分时图打点" />
           </div>
         )}
-        {assetType === 'FUND' && !isOnchainEtf(code) && (
+        {assetType === 'FUND' && fundKind === 'open' && (
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-text-dim">申购费率 %</label>
             <input type="number" step="0.01" value={feeRatePct} onChange={e => setFeeRatePct(e.target.value)}
               className={`${inp} w-24 font-mono`} placeholder="C类填0"
-              title="定投批量确认按此费率内扣算份额。A类填折后实际费率(如0.15), C类/无申购费填0或留空" />
+              title="申购确认按此费率内扣算份额。A类填折后实际费率(如0.15), C类/无申购费填0或留空" />
           </div>
         )}
-        {assetType === 'FUND' && isOnchainEtf(code) && (
+        {((assetType === 'FUND' && fundKind === 'etf') || assetType === 'FUT' || assetType === 'OPT'
+          || assetType === 'CRYPTO' || assetType === 'BOT') && (
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-text-dim">券商</label>
             <select className={`${inp} w-28 font-mono`} value={selectedBroker} onChange={e => setSelectedBroker(e.target.value)}>
               <option value="">默认</option>
-              {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              {brokersOfType(brokers, assetType).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
             </select>
           </div>
         )}
@@ -417,67 +420,13 @@ export function AddAssetForm({ typeKey, onDone, onCancel, brokers = [] }) {
         </div>
         <button onClick={submit}
           className="px-4 py-1.5 rounded bg-accent text-bg font-semibold text-[12px] hover:opacity-90 cursor-pointer">
-          保存{dcaEnabled && (assetType === 'FUND' || assetType === 'CRYPTO') ? ' + 建定投' : ''}
+          保存
         </button>
         <button onClick={onCancel}
           className="px-3 py-1.5 rounded border border-border text-text-dim text-[12px] hover:text-text cursor-pointer">
           取消
         </button>
       </div>
-
-      {/* 内联定投 — FUND/CRYPTO 可勾选, 资产创建后顺手建一条 DCA */}
-      {(assetType === 'FUND' || assetType === 'CRYPTO') && (
-        <div className="rounded border border-border-subtle bg-surface-3/30 px-2.5 py-2 space-y-2">
-          <label className="flex items-center gap-2 text-[11.5px] text-text cursor-pointer">
-            <input type="checkbox" checked={dcaEnabled}
-              onChange={e => setDcaEnabled(e.target.checked)} />
-            <span>同时建定投计划 ({assetType === 'FUND' ? '基金' : '币'} DCA)</span>
-          </label>
-          {dcaEnabled && (
-            <div className="flex flex-wrap gap-2 items-end pl-5">
-              <div className="flex flex-col gap-1">
-                <label className="text-[10.5px] text-text-dim">每期金额 ¥</label>
-                <input type="number" step="0.01" value={dcaValue}
-                  onChange={e => setDcaValue(e.target.value)}
-                  className={`${inp} w-28 font-mono`} placeholder="500" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10.5px] text-text-dim">频率</label>
-                <select value={dcaFrequency} onChange={e => setDcaFrequency(e.target.value)}
-                  className={`${inp} w-32`}>
-                  <option value="monthly">每月</option>
-                  <option value="weekly">每周</option>
-                  <option value="daily_trading">每个交易日</option>
-                </select>
-              </div>
-              {dcaFrequency === 'monthly' && (
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10.5px] text-text-dim">每月几号</label>
-                  <input type="number" min="1" max="31" value={dcaDayOfMonth}
-                    onChange={e => setDcaDayOfMonth(e.target.value)}
-                    className={`${inp} w-20 font-mono`} />
-                </div>
-              )}
-              {dcaFrequency === 'weekly' && (
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10.5px] text-text-dim">每周几</label>
-                  <select value={dcaDayOfWeek} onChange={e => setDcaDayOfWeek(e.target.value)}
-                    className={`${inp} w-24`}>
-                    <option value={1}>周一</option>
-                    <option value={2}>周二</option>
-                    <option value={3}>周三</option>
-                    <option value={4}>周四</option>
-                    <option value={5}>周五</option>
-                    <option value={6}>周六</option>
-                    <option value={7}>周日</option>
-                  </select>
-                </div>
-              )}
-              <div className="text-[10.5px] text-text-muted">触发后写一条 pending ADD，等你回来补份额结算。</div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 按股买预览 (FUND/CRYPTO 同时填了份额 + 单价) */}
       {(assetType === 'FUND' || assetType === 'CRYPTO') && parseFloat(shares) > 0 && parseFloat(unitPrice) > 0 && (() => {

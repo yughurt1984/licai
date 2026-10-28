@@ -20,6 +20,9 @@ def _today_cst() -> _dt.date:
 
 def _fetch_dividends_sync(bare: str) -> list[dict]:
     """东财分红送配明细 → [{ex_date(date), per_share(每股现金,含税), progress}]。只留已实施的现金分红。"""
+    from services.market_data import quote_auto_fetch
+    if not quote_auto_fetch():
+        return []                    # 纯 PG 模式: 不拉东财, 摊薄退回未摊薄成本
     import akshare as ak
     c = _cache.get(bare)
     if c and _t.time() - c[1] < _TTL:
@@ -54,7 +57,8 @@ async def cumulative_dividend_per_share(code: str, since_date: str | None) -> fl
         return 0.0
     if str(code or "").upper().startswith(("HK.", "US.")):
         return 0.0               # 这是 A 股分红数据源; 港美股分红走 DIVIDEND 流水(含预扣税), 识别见下方 scan_pending
-    bare = (code or "").split(".")[-1].lstrip("shz").strip()
+    from services.market_data import split_stock_code
+    _, bare = split_stock_code(code)
     if not bare.isdigit():
         return 0.0
     try:
@@ -391,6 +395,10 @@ async def dismiss(code: str, ex_date: str) -> None:
 async def scan_pending(only_code: str | None = None) -> dict:
     """全部港美股持仓(含已清仓, 持有期内漏记的也算)的待确认分红。拉数据失败的票列进 errors。"""
     from database import get_all_holdings, get_position_actions
+    from services.market_data import quote_auto_fetch
+    if not quote_auto_fetch():
+        return {"items": [], "errors": [],
+                "note": "纯PG模式: 不拉港美股分红数据源, 分红请按券商结单手动记 DIVIDEND 流水"}
     dismissed = await dismissed_set()
     codes = [h for h in await get_all_holdings()
              if str(h.get("stock_code") or "").upper().startswith(("HK.", "US."))]

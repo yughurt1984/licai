@@ -15,7 +15,7 @@
 展开即 (现价−昨收)×昨日份额 + (现价−今日买均价)×今日买入 + (今日卖均价−昨收)×今日卖出。
 流水金额本身含手续费, 所以结果是真实到手口径。
 
-只统计 confirmed 且带份额的流水: 定投当天只有金额、份额 T+1 才确认(pending),
+只统计 confirmed 且带份额的流水: 场外申购当天只有金额、份额 T+1 才确认(pending),
 那笔钱还没变成份额, 不该当成"今日买入份额"。
 """
 from __future__ import annotations
@@ -66,7 +66,7 @@ def _flow(actions: list, day: str) -> dict:
         if str(a.get("trade_date") or a.get("created_at") or "")[:10] != day:
             continue
         if (a.get("status") or "confirmed") != "confirmed":
-            continue                                  # 定投待确认: 钱在途, 还没有份额
+            continue                                  # 申购待确认: 钱在途, 还没有份额
         act = str(a.get("action_type") or "").upper()
         sh = float(a.get("shares") or 0)
         amt = float(a.get("amount") or 0)
@@ -161,7 +161,17 @@ async def _compute() -> dict:
             from services.market_data import quote_today_valid
             if quote_today_valid(mkt, q) is False:
                 continue                             # 港股今天不开市 / 美股那场已经不算今天: 不计今日盈亏
-        pnl = _one(q.get("price"), q.get("prev_close"), cur, f)
+        # 外部工具写入的快照行可能内部矛盾: price/prev_close 隐含涨跌与 change_pct 对不上
+        # (实测 AAPL 行 price 343.91/prev 342.1 隐含 +0.53%, change_pct 却是 -1.1%)。
+        # 各处展示的今日%都以 change_pct 为准, 这里同样: 偏差超 0.5 个百分点按 change_pct 反推昨收。
+        price, prev, pct = q.get("price"), q.get("prev_close"), q.get("change_pct")
+        if price and prev and pct is not None:
+            try:
+                if abs((float(price) / float(prev) - 1) * 100 - float(pct)) > 0.5:
+                    prev = round(float(price) / (1 + float(pct) / 100), 6)
+            except (TypeError, ValueError, ZeroDivisionError):
+                pass
+        pnl = _one(price, prev, cur, f)
         fx = float(q.get("fx_rate") or 1.0) if mkt in ("HK", "US") else 1.0
         if pnl is not None:
             pnl *= fx

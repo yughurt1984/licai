@@ -110,51 +110,10 @@ async def _hardcoded_proxy(fund_code: str) -> dict | None:
     }
 
 
-# ---- 真实持仓代理: top10 加权 ----
-
-async def _holdings_proxy(fund_code: str) -> dict | None:
-    from services.fund_holdings import get_fund_top10, fetch_holding_quote
-    holdings = await get_fund_top10(fund_code)
-    if not holdings:
-        return None
-    quotes = await asyncio.gather(
-        *(fetch_holding_quote(h) for h in holdings),
-        return_exceptions=True,
-    )
-    valid = [q for q in quotes if q and not isinstance(q, Exception) and q.get("change_pct") is not None]
-    if not valid:
-        return None
-    total_w = sum(q["weight"] for q in valid)
-    if total_w <= 0:
-        return None
-    weighted = sum(q["change_pct"] * q["weight"] for q in valid) / total_w
-    # 绝对口径: 未覆盖部分按持平算(债基适用——股票袋只占净值一小截, 其余是债券当日基本不动,
-    # 归一化外推会把股票袋的波动冒充整只基金)
-    abs_weighted = sum(q["change_pct"] * q["weight"] for q in valid)
-    label = f"top{len(valid)} 持仓加权 (覆盖 {total_w*100:.0f}% 净值)"
-    proxies_out = [
-        {
-            "code": v["code"], "name": v["name"], "market": v["market"],
-            "weight": v["weight"], "change_pct": v["change_pct"],
-            "source": "holdings",
-        }
-        for v in valid
-    ]
-    return {
-        "fund_code": fund_code,
-        "label": label,
-        "weighted_change_pct": round(weighted, 2),
-        "abs_weighted_change_pct": round(abs_weighted, 2),
-        "proxies": proxies_out,
-        "method": "holdings",
-        "coverage_pct": round(total_w * 100, 1),
-    }
-
-
 # ---- 主入口 ----
 
 async def get_fund_proxy(fund_code: str, force: bool = False) -> dict | None:
-    """优先用真实持仓加权; fallback 到硬编码代理."""
+    """硬编码代理(基金前十大穿透已移除)。"""
     now = time.time()
     if not force:
         c = _proxy_cache.get(fund_code)
@@ -162,17 +121,10 @@ async def get_fund_proxy(fund_code: str, force: bool = False) -> dict | None:
             return c[0]
 
     out = None
-    if fund_code not in SKIP_HOLDINGS:
-        try:
-            out = await _holdings_proxy(fund_code)
-        except Exception as e:
-            print(f"[fund-proxy] holdings path failed for {fund_code}: {e}")
-
-    if not out:
-        try:
-            out = await _hardcoded_proxy(fund_code)
-        except Exception as e:
-            print(f"[fund-proxy] hardcoded path failed for {fund_code}: {e}")
+    try:
+        out = await _hardcoded_proxy(fund_code)
+    except Exception as e:
+        print(f"[fund-proxy] hardcoded path failed for {fund_code}: {e}")
 
     if out:
         _proxy_cache[fund_code] = (out, now)

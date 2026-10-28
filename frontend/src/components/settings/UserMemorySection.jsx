@@ -41,7 +41,7 @@ export function UserMemorySection() {
         )}
       </label>
       <p className="text-[11px] text-text-muted mt-1 mb-2">
-        你在对话里交代的长期事实(比如哪些扣款是定投), 换会话也记得。
+        你在对话里交代的长期事实(比如哪些扣款是定期申购), 换会话也记得。
         它读过网页/新闻/行情后记下的条目可能不是你的原话, <b>确认了才生效</b>。
       </p>
       {pending.map(m => (

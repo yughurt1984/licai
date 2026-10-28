@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { isOnchainEtf } from '../../../helpers'
+import { brokersOfType, fundKindOf } from '../../../helpers'
 import { fetchJSON } from '../../../hooks/useApi'
-import { DcaPanel } from './DcaPanel'
 
 // Inline edit row for external asset
 export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
@@ -11,6 +10,8 @@ export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
   const isWealth = asset.asset_type === 'WEALTH'
   const isCash = asset.asset_type === 'CASH'
   const boundToOkx = !!asset.okx_algo_id
+  // FUND 细分类型: etf(场内, 股票式) / open(场外开放式, NAV T+1)。存过值用存值, 老数据按代码段位兜底。
+  const [fundKind, setFundKind] = useState(fundKindOf(asset))
 
   // --- Smart-linked fields for FUND/CRYPTO ---
   // Field semantics (matching mainstream 公募基金 App convention):
@@ -116,8 +117,9 @@ export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
         payload.manual_value = lockMv && mv !== '' ? parseFloat(mv) : null
         payload.pending_amount = pending !== '' ? parseFloat(pending) : 0
         // 申购费率: 百分比 → 小数. 留空写 null. 场内 ETF 走佣金无申购费, 不传。
-        if (isFund && !isOnchainEtf(asset.code)) payload.purchase_fee_rate = feeRatePct !== '' ? parseFloat(feeRatePct) / 100 : null
-        if (isFund && isOnchainEtf(asset.code)) payload.broker = broker || null
+        if (isFund && fundKind === 'open') payload.purchase_fee_rate = feeRatePct !== '' ? parseFloat(feeRatePct) / 100 : null
+        if ((isFund && fundKind === 'etf') || isCrypto) payload.broker = broker || null
+        if (isFund) payload.fund_kind = fundKind
       } else if (isWealth) {
         payload.cost_amount = cost !== '' ? parseFloat(cost) : null
         payload.shares = null
@@ -202,19 +204,34 @@ export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
             <label className="text-[11px] text-text-dim">待确认金额 ¥</label>
             <input type="number" step="0.01" value={pending} onChange={e => update('pending', e.target.value)} className={`${inp} w-28`} placeholder="0" />
           </div>
-          {isFund && !isOnchainEtf(asset.code) && (
+          {isFund && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] text-text-dim">基金类型</label>
+              <div className="flex rounded border border-border overflow-hidden">
+                {[['etf', 'ETF基金'], ['open', '开放式基金']].map(([k, lbl]) => (
+                  <button key={k} type="button"
+                    onClick={() => setFundKind(k)}
+                    className={`px-2 py-1 text-[11px] cursor-pointer transition-colors ${
+                      fundKind === k ? 'bg-accent/15 text-accent font-semibold' : 'text-text-dim hover:text-text'}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {isFund && fundKind === 'open' && (
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-text-dim">申购费率 %</label>
               <input type="number" step="0.01" value={feeRatePct} onChange={e => setFeeRatePct(e.target.value)}
-                className={`${inp} w-24`} placeholder="C类填0" title="定投批量确认按此费率内扣算份额。A类填折后实际费率(如0.15), C类/无申购费填0或留空" />
+                className={`${inp} w-24`} placeholder="C类填0" title="申购确认按此费率内扣算份额。A类填折后实际费率(如0.15), C类/无申购费填0或留空" />
             </div>
           )}
-          {isFund && isOnchainEtf(asset.code) && (
+          {((isFund && fundKind === 'etf') || isCrypto) && (
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-text-dim">券商</label>
               <select className={`${inp} w-28`} value={broker} onChange={e => setBroker(e.target.value)}>
                 <option value="">默认</option>
-                {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                {brokersOfType(brokers, asset.asset_type).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>
           )}
@@ -301,10 +318,6 @@ export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
         className="px-3 py-1.5 rounded border border-border text-text-dim text-[12px] hover:text-text cursor-pointer">
         取消
       </button>
-
-      {(isFund || isCrypto) && (
-        <DcaPanel assetId={asset.id} />
-      )}
     </div>
   )
 }
