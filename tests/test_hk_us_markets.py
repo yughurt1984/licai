@@ -105,7 +105,8 @@ _RT = ('var hq_str_rt_hk00700="TENCENT,腾讯控股,415.000,411.400,425.800,414.
 
 
 def test_hk_quote_fields_and_time():
-    q = md._parse_sina_hk("00700", _RT)
+    from services.sina_quote import _parse_sina_hk
+    q = _parse_sina_hk("00700", _RT)
     assert q["open"] == 415.0 and q["prev_close"] == 411.4       # [2] 今开 [3] 昨收
     assert q["price"] == 423.8 and q["change_pct"] == 3.01
     assert q["amount"] == pytest.approx(6069981837.33) and q["volume"] == 14432656

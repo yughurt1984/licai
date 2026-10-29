@@ -5,6 +5,8 @@ import { AssetActionsModal } from './actions'
 import { TYPE_META, TYPE_ORDER } from './constants'
 import { AddAShareForm } from './forms/AddAShareForm'
 import { AddAssetForm } from './forms/AddAssetForm'
+import { AddFuturesForm } from './forms/AddFuturesForm'
+import { FuturesLotRow } from './forms/FuturesLotRow'
 import { EditAssetRow } from './forms/EditAssetRow'
 import { AddLotRow, CashAdjustRow, ReduceLotRow } from './forms/lots'
 
@@ -47,7 +49,13 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {['F', 'C', 'R', 'W', 'M', 'T', 'O'].includes(addTarget) && (
+      {/* 期货/期权: 开仓表单(fuyao 合约搜索), 走 holdings 管线 */}
+      {['T', 'O'].includes(addTarget) && (
+        <AddFuturesForm kind={addTarget}
+          brokers={brokers}
+          onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
+      )}
+      {['F', 'C', 'R', 'W', 'M'].includes(addTarget) && (
         <AddAssetForm typeKey={addTarget}
           brokers={brokers}
           onDone={() => { hide('add'); onAssetsChanged() }}
@@ -66,6 +74,18 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('addLot'); onRealizedChanged() }}
           onCancel={() => hide('addLot')} />
+      )}
+
+      {/* 期货/期权: 加仓(同向 OPEN) / 平仓(CLOSE), 走持仓流水端点 */}
+      {open.futLot && (
+        <FuturesLotRow holding={open.futLot} mode="add"
+          onDone={() => { hide('futLot'); onAdd?.(); onRealizedChanged() }}
+          onCancel={() => hide('futLot')} />
+      )}
+      {open.futClose && (
+        <FuturesLotRow holding={open.futClose} mode="close"
+          onDone={() => { hide('futClose'); onAdd?.(); onRealizedChanged() }}
+          onCancel={() => hide('futClose')} />
       )}
 
       {open.reduce && (

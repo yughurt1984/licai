@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from services.market_data import (get_realtime_quotes, is_trading_day_active, markets_open,
-                                  split_stock_code, quote_auto_fetch)
+                                  split_stock_code)
 from services import feishu_notify
 from services.context import run_as_user, current_user_id
 from config import config
@@ -118,9 +118,10 @@ async def price_monitor_loop():
                     if not holdings:
                         continue
                     codes = [h["stock_code"] for h in holdings]
-                    # 自动联网模式: 监听循环自己是刷新器, force=True 直连远端保证 5s 推流是实盘价;
-                    # 纯 PG 模式(quote_auto_fetch=False): 只推库里的最新快照, 不联网。
-                    quotes = await get_realtime_quotes(codes, force=quote_auto_fetch())
+                    # 新频控策略: 推流循环绝不主动联网(force=False), 只推 PG quote_latest
+                    # 里的最新快照; 库里没行的冷启动持仓由 get_realtime_quotes 补一次。
+                    # 数据进库只靠手动刷新按钮(force=True)和后续的每日维护任务。
+                    quotes = await get_realtime_quotes(codes, force=False)
                     if not quotes:
                         continue
                     interval = _push_interval(opened, holdings)

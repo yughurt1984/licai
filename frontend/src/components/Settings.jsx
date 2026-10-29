@@ -203,6 +203,12 @@ export default function Settings({ onClose }) {
           <LLMConfigSection />
         </div>
 
+        {/* 同花顺 fuyao 数据源(期货/期权合约与行情) */}
+        <ThsKeySection />
+
+        {/* futu OpenD 网关(港/美股行情快照) */}
+        <FutuSection />
+
         {/* 知识星球(可选, 只读) */}
         <div className="mt-2 pt-4 border-t border-border">
           <ZsxqSection />
@@ -236,5 +242,130 @@ export default function Settings({ onClose }) {
         </div>
       </div>
     </section>
+  )
+}
+
+/* ── 同花顺 fuyao 数据源 Key ─────────────────────────────── */
+function ThsKeySection() {
+  const [saved, setSaved] = useState(null)      // {has_key, key_masked}
+  const [key, setKey] = useState('')
+  const [status, setStatus] = useState({ text: '', ok: null })
+  const [saving, setSaving] = useState(false)
+
+  const load = async () => {
+    try { setSaved(await fetchJSON('/api/settings/ths')) } catch {}
+  }
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    if (!key.trim()) return setStatus({ text: '请填 API key', ok: false })
+    setSaving(true)
+    try {
+      await fetchJSON('/api/settings/ths', { method: 'POST', body: JSON.stringify({ api_key: key.trim() }) })
+      setKey('')
+      setStatus({ text: '已保存', ok: true })
+      await load()
+    } catch (e) {
+      setStatus({ text: '保存失败：' + (e.message || e), ok: false })
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="mt-2 pt-4 border-t border-border">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-[12px] text-text-dim font-semibold">同花顺 fuyao 数据源 Key</label>
+        {saved?.has_key && <span className="text-[11px] text-bull">已配置 · {saved.key_masked}</span>}
+      </div>
+      <p className="text-[11px] text-text-muted mb-2 leading-relaxed">
+        期货/期权合约目录与行情(fuyao.aicubes.cn, X-api-key 鉴权)。key 存全局配置, 所有用户共用。
+      </p>
+      <div className="flex items-center gap-2">
+        <input type="password"
+          className="flex-1 bg-bg border border-border rounded px-3 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent"
+          placeholder={saved?.has_key ? '留空则不修改' : '粘贴 fuyao API key'}
+          value={key} onChange={e => setKey(e.target.value)} />
+        <button onClick={save} disabled={saving}
+          className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[12px] hover:opacity-90 disabled:opacity-50 cursor-pointer">
+          {saving ? '保存中...' : '保存'}
+        </button>
+        {status.text && (
+          <span className={`text-[12px] ${status.ok === true ? 'text-bull' : status.ok === false ? 'text-bear' : 'text-text-dim'}`}>
+            {status.text}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── futu OpenD 网关(港/美股行情快照) ─────────────────────── */
+function FutuSection() {
+  const [cfg, setCfg] = useState(null)          // {host, port, last_error}
+  const [host, setHost] = useState('')
+  const [port, setPort] = useState('')
+  const [status, setStatus] = useState({ text: '', ok: null })
+  const [saving, setSaving] = useState(false)
+
+  const load = async () => {
+    try {
+      const d = await fetchJSON('/api/settings/futu')
+      setCfg(d)
+      setHost(d.db_host || '')
+      setPort(d.db_port || '')
+    } catch {}
+  }
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await fetchJSON('/api/settings/futu', {
+        method: 'POST',
+        body: JSON.stringify({ host: host.trim(), port: port.trim() ? parseInt(port.trim(), 10) : null }),
+      })
+      setStatus({ text: '已保存', ok: true })
+      await load()
+    } catch (e) {
+      setStatus({ text: '保存失败：' + (e.message || e), ok: false })
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="mt-2 pt-4 border-t border-border">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-[12px] text-text-dim font-semibold">futu OpenD 网关（港/美股行情）</label>
+        {cfg?.host && (
+          <span className="text-[11px] text-text-muted font-mono">
+            {cfg.host}:{cfg.port}
+          </span>
+        )}
+      </div>
+      <p className="text-[11px] text-text-muted mb-2 leading-relaxed">
+        港/美股行情快照走本地 FutuOpenD 网关（需先启动 OpenD 并登录，依赖 pip install futu-api）。
+        网关没开或未装 SDK 时自动回退免费源。
+      </p>
+      {cfg?.last_error && (
+        <p className="text-[11px] text-bear mb-2">最近错误：{cfg.last_error}</p>
+      )}
+      <div className="flex items-center gap-2">
+        <input
+          className="flex-1 bg-bg border border-border rounded px-3 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent"
+          placeholder={cfg?.host ? `host（当前 ${cfg.host}）` : 'host（默认 127.0.0.1）'}
+          value={host} onChange={e => setHost(e.target.value)} />
+        <input
+          className="w-24 bg-bg border border-border rounded px-3 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent"
+          placeholder={cfg?.port ? String(cfg.port) : '11111'}
+          value={port} onChange={e => setPort(e.target.value)} />
+        <button onClick={save} disabled={saving}
+          className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[12px] hover:opacity-90 disabled:opacity-50 cursor-pointer">
+          {saving ? '保存中...' : '保存'}
+        </button>
+        {status.text && (
+          <span className={`text-[12px] ${status.ok === true ? 'text-bull' : status.ok === false ? 'text-bear' : 'text-text-dim'}`}>
+            {status.text}
+          </span>
+        )}
+      </div>
+    </div>
   )
 }

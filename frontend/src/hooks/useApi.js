@@ -57,8 +57,8 @@ export const api = {
   // Portfolio
   getPortfolio: () => fetchJSON('/api/portfolio'),
   addHolding: (data) => fetchJSON('/api/portfolio', { method: 'POST', body: JSON.stringify(data) }),
-  updateHolding: (code, data) => fetchJSON(`/api/portfolio/${code}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteHolding: (code) => fetchJSON(`/api/portfolio/${code}`, { method: 'DELETE' }),
+  updateHolding: (code, data, direction) => fetchJSON(`/api/portfolio/${encodeURIComponent(code)}${direction ? `?direction=${encodeURIComponent(direction)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteHolding: (code, direction) => fetchJSON(`/api/portfolio/${encodeURIComponent(code)}${direction ? `?direction=${encodeURIComponent(direction)}` : ''}`, { method: 'DELETE' }),
 
   // Settings
   getFeishuConfig: () => fetchJSON('/api/settings/feishu'),

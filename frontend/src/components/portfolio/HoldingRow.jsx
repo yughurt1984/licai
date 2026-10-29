@@ -26,6 +26,14 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="text-[14]px font-semibold text-text-bright truncate">{row.name}</span>
         <TypeChip type={row.type} compact />
+        {/* 期货/期权: 方向徽标(多红/空绿, A股习惯涨=红) */}
+        {(row.type === 'T' || row.type === 'O') && row.extra?.direction && (
+          <span className={`text-[9.5]px px-1 py-[1px] rounded border shrink-0 font-semibold
+            ${row.extra.direction === 'LONG'
+              ? 'bg-bull/15 text-bull border-bull/40' : 'bg-bear/15 text-bear border-bear/40'}`}>
+            {row.extra.direction === 'LONG' ? '多' : '空'}
+          </span>
+        )}
         {row.type === 'A' && <MarketChip market={row.extra?.market} code={row.code} />}
         {row.broker && (
           <span className="text-[10]px px-1 py-[1px] rounded bg-info/15 text-info border border-info/40 shrink-0 whitespace-nowrap font-medium">

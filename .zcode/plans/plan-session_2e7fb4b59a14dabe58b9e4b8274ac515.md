@@ -1,33 +1,51 @@
-# 底稿表 asset_type 改造 + 报价 PG 优先（提速资产页）
+# 期货/期权交易重设计：开平仓 + 多空方向 + 同花顺合约与行情
 
-## 一、symbol_dict 底稿改造（is_etf → asset_type）
+## 核心模型（按你的确认：同合约双向各一行 / 持仓页独立桶 / 无存量数据）
 
-**is_etf 全库实质使用仅 3 处**（database DDL/load、stock_agent._code_name_maps 填 _etf_codes、stock-search 排序 ETF 沉底），改造点少；其余 9 处 `_is_etf_lof` 类正则是独立启发式，不动。
+- **合约标识统一用同花顺 thscode**（如 `CU2601.SHF`、期权完整代码），存 `holdings.stock_code`。
+- **行情接 fuyao API**（X-api-key 鉴权）：现价 = `/api/futures|options/prices/intraday` 末点 price；昨收 = `/prices/daily` 倒数第二根 close → 涨跌幅自算。**期货和期权都自动报价**（期权不再手填市值）。结果 write-through `market.quote_latest`（复用 PG 优先快路径 + 底稿自动登记，与股票同一套机制）。
+- **净持仓→双向**：holdings 唯一键改 `(user_id, stock_code, direction)`，同合约多空各一行。
 
-1. **DDL**：`symbol_dict(code PK, name, asset_type TEXT NOT NULL DEFAULT 'a_stock', updated_at)`。init_db 幂等迁移：`ADD COLUMN IF NOT EXISTS asset_type` → 按 is_etf 回填（1→'etf'，0→'a_stock'）→ `DROP COLUMN IF EXISTS is_etf`。asset_type 取值对齐 quote_latest：`a_stock / etf / hk_stock / us_stock / fut / opt / fund(场外) / crypto`。
-2. **读写函数**：`load_symbol_dict` 返回 `[(code, name, asset_type)]`；`save_symbol_dict` 入参同形。`stock_agent._code_name_maps`：`asset_type in ('etf','fund') → _etf_codes`（搜股排序语义不变）。`/api/market/symbol-name` 返回加 `asset_type` 字段（向后兼容）。
-3. **自动登记（核心，零联网）**：`market_store.save_quotes` 落库时顺带 upsert symbol_dict——symbol 规范化为裸码（A股/HK/US/基金剥前缀，期货用合约号），name 用报价里的名称，asset_type 直接用 quote 行的（场内 ETF 判定沿用 `_is_etf_lof` 正则 → 'etf'）。覆盖点：A/HK/US 实时报价、场外基金净值、加密币价、期货报价（_enrich FUT 分支补 write-through）、汇率不登（fx 不进底稿）。`ON CONFLICT (code) DO UPDATE`——你实际用到的标的随使用自动长全。
-4. **全市场导入脚本** `scripts/import_symbol_dict.py`：akshare 拉 A股+ETF/港股/美股/期货合约/期权合约/场外基金 → 批量 upsert，支持 `--types a,hk,us,fut,opt,fund` 分批拉、结束时报各类型行数。**脚本由你自行择时执行**（单次联网任务，不影响应用启动）。
-5. **schema.sql 重写干净版**：现有文件因重复生成堆积了 5 份旧内容，改为固定头 + 当前 SCHEMA 单份。
+## 一、数据库（幂等迁移，无存量迁移）
 
-## 二、报价 PG 优先 + 后台刷新（资产页提速核心）
+1. `position_actions` 加列：`direction TEXT`（LONG/SHORT）、`contract_multiplier DOUBLE PRECISION`（每笔记当时乘数，历史准确）；action_type 新增 `OPEN`（开仓）/`CLOSE`（平仓）。
+2. `holdings` 加列：`direction TEXT`、`contract_multiplier DOUBLE PRECISION DEFAULT 1`、`asset_kind TEXT DEFAULT 'stock'`（stock/fut/opt）、`last_price DOUBLE PRECISION`（期权行情兜底）；唯一键重建为 `(user_id, stock_code, direction)`（沿用 init_db 条件重建机制）。
+3. `brokers` 表确认/补 `fut_rate/fut_min` 费率档（手续费默认 0，逐笔手填覆盖优先）。
+4. `.env`/`config.py` 加 `THS_API_KEY`（fuyao 鉴权），设置页补一个保存位（app_config 全局键 `ths_api_key`）。
 
-**前置修复**：`save_quotes` 目前把 `fetched_at` 显式写 NULL（覆盖了 DDL 默认），快照无法判新旧——改为 INSERT/冲突更新都写当前 UTC 时间；A 股行 quote_time 空的用当前北京时间兜底。
+## 二、行情服务（新 services/ths_fuyao.py）
 
-1. **`get_realtime_quotes(codes, force=False)` 改三段**：
-   - **PG 快路径**：先 `get_stored_quotes(codes)`，按新鲜度判（盘中 age ≤ 60s 或 非交易时段 age ≤ 6h 算新）——**全部新鲜 → 纯 PG 返回（零外网，毫秒级）**；
-   - **有旧快照但不新鲜** → 立即返回 PG 快照（不标 stale，前端无感）+ `spawn` 后台刷新远端（抓到后 write-through，下次即新）；
-   - **无快照** → 现有远端路径（首次冷启动同现状），远端全挂回退 PG（现有逻辑保留）。
-2. **`price_monitor_loop` 传 `force=True`**：它本身就是刷新器，绕过 PG 快路径保证 5s 实时推流不断（推的同时 write-through 让 PG 常新）。
-3. **汇率去同步化**：`_store_rows_to_quotes` 的 fx_rate 改为优先读 quote_latest 的 fx 行（USDCNY/HKDCNY，已有 write-through），miss 才走 `get_fx_info`（内存 300s 缓存）——消除冷启动首屏卡事件循环的 5s 同步 HTTP。
+- `contracts_list(asset_type)` / `contracts_search(keyword)`：合约目录与搜索（`/api/meta/tickers/list|search`、`/api/futures/contracts/list`）→ 供开仓表单搜合约带出 thscode/名称。
+- `quote(thscode)`：intraday 末点现价 + daily 昨收 → `{price, prev_close, change_pct, name}`，内存缓存 30s + write-through quote_latest（asset_type=fut/opt，顺带自动登记底稿）。
+- `get_realtime_quotes` 加分支：代码带交易所后缀（.SHF/.DCE/.CZCE/.CFFEX/.INE/.GFEX 等）→ 走 fuyao 行情；PG 快路径对 fut/opt 天然生效（quote_latest 已有行时零外网）。
 
-**效果**：服务跑过一轮（或盘中开过页面）后，再开资产页的 `/api/portfolio` 报价段纯 PG 毫秒级返回；实时性由 WebSocket 5s 推送覆盖；远端行情源全挂也不影响打开页面。冷启动第一天无快照时退化为你现在看到的旧行为。
+## 三、账本（position_ledger 方向语义，盈亏逻辑核查结论）
 
-## 三、验证
-- 临时库自检：迁移回填（is_etf→asset_type→drop）、自动登记（A/HK/US/FUT/fund/crypto 落库后底稿有行且类型正确）、PG 快路径（有新鲜快照时 get_realtime_quotes 不发外网——远端函数打桩计数为 0）、force 路径穿透、远端失败回退、旧库 is_etf 升级路径；
-- eslint + build（前端无改动，symbol-name 加字段向后兼容）；
-- 你重启验收：二开资产页对比速度、`python scripts/import_symbol_dict.py` 自行导入全市场、SQL 查 symbol_dict 行数。
+1. `compute_position_state` 支持方向：**SHORT 序列用负价技巧**——把 SHORT 的 OPEN/CLOSE 价格整体 ×(−1) 喂进现有 LONG FIFO，配对/段/carry/综合成本自动正确，输出 realized 再翻回（数学：LONG 公式 (C−P)×S 经负价变换恰等于空头真实盈亏 (P−C)×S），核心改动集中在入口变换 + 输出翻转，避免重写 FIFO。
+2. **三种盈亏核查结论**：
+   - 浮动盈亏：**必须调整**——多头=(现价−成本价)×乘数×手数；空头=(成本价−现价)×乘数×手数。list_holdings 加 fut/opt 分支；前端 WS 推送公式按 direction/multiplier 修正；
+   - 已实现盈亏：**必须调整**——FIFO 配对按方向（上述负价技巧），/api/portfolio/realized 的 ledger_state 复用后天然输出；
+   - 累计盈亏（浮动+realized_carry）：**口径不变**——方向在两个分量内各自消化，防重复机制照用；
+   - 今日盈亏：期货现金流口径不适用 → 改用 change_pct × 方向（前端 cryptoTodayPnl 同款公式）。
+3. 手数/价格语义：`holdings.shares`=手数、`cost_price`=每单位开仓均价（与报价同单位）；市值=现价×乘数×手数。
+
+## 四、API（api/portfolio_routes.py）
+
+- 添加持仓扩展：`kind='fut'|'opt'` → 校验 thscode、写 direction/multiplier、seed OPEN 流水；fuyao 拉合约名称自动补全。
+- 新端点：`GET /api/portfolio/contracts/search?q=`（fuyao 合约搜索，供表单）、`POST .../open` 与 `.../close`（或复用 actions 端点加 OPEN/CLOSE 类型）。
+- HoldingResponse 加 `direction/contract_multiplier/asset_kind`。
+
+## 五、前端（持仓页独立桶）
+
+1. 第一层分类：**股票（A/港/美）｜期货｜期权**——`normalizeHolding` 按 asset_kind 输出 type T/O；T/O 行改走 holdings 管线。
+2. **开仓表单**（AddAShareForm 风格）：合约搜索（fuyao）→ 带出 thscode/名称 → 方向（多红/空绿）+ 手数 + 每手乘数 + 开仓价（默认现价）+ 手续费 + 券商 + 日期/时刻。
+3. 行内操作：加仓（同向 OPEN）/平仓（CLOSE）/流水/编辑，复用现有 lots 交互模式；流水弹窗加 OPEN/CLOSE + 方向徽标；HoldingRow 显示方向徽标与"手数×乘数"。
+4. 移除 external 管线的 T/O 入口（AddAssetForm 的 FUT/OPT 分支、添加菜单旧项、EditAssetRow 隐患分支）；TYPE_META 保留供新管线。
+5. SummaryStrip/累计盈亏、today-pnl 的期货口径并入（change_pct×方向）。
+
+## 六、验证
+- 临时库自检：双向持仓行、OPEN/CLOSE FIFO 多空 realized（含多翻空序列）、浮动×方向×乘数、fuyao 客户端（mock 响应）、底稿登记、唯一键重建；
+- eslint + build；你配好 THS_API_KEY 后重启验收。
 
 ## 本期不做
-- 拼音索引扩到港股/美股（`_pinyin_rows` 仍只对 A股+ETF 名单生效，pypinyin 对英文 ticker 无意义）；
-- 底稿的搜索排序权重分类型细化（沿用现有 ETF 沉底）。
+- 保证金/杠杆占用跟踪、行权指派（期权到期行权）、K线图（fuyao daily 已具备，后续可接）、梯度佣金精细化。

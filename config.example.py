@@ -72,5 +72,20 @@ class Config:
     # 也可用环境变量 MARKET_PROVIDER 覆盖, 或在设置页填。
     market_provider: str = ""
 
+    # --- 同花顺 fuyao 数据源(期货/期权合约与行情) ---
+    # X-api-key 鉴权。优先设置页保存的(app_config 全局键 ths_api_key), 其次这里/.env(THS_API_KEY)。
+    ths_api_key: str = os.environ.get("THS_API_KEY", "")
+
+    # --- futu OpenD 网关(港/美股行情快照) ---
+    # 需先启动本地 FutuOpenD 并登录(依赖 pip install futu-api)。
+    # 优先设置页保存的(app_config 全局键 futu_host/futu_port), 其次这里/.env(FUTU_HOST/FUTU_PORT)。
+    futu_host: str = os.environ.get("FUTU_HOST", "127.0.0.1")
+    futu_port: int = int(os.environ.get("FUTU_PORT", "11111"))
+
+    # --- 行情数据源频控策略(新) ---
+    # ths/futu API 有访问上限: 只有「手动刷新按钮」和「新增持仓冷启动(quote_latest 无行)」联网,
+    # 其余一律读 PG(market.quote_latest)。每日 PG 维护为后续开发。
+    # (quote_auto_fetch=True 的自动联网三段策略已下线, WS 推流固定纯 PG。)
+
 
 config = Config()

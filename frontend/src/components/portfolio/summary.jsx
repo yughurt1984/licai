@@ -7,7 +7,7 @@ import { formatCurrencyMoney } from './helpers'
 // ============================================================
 // Summary strip
 // ============================================================
-export function SummaryStrip({ agg, aShareClosed, realized, todayPnl }) {
+export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'ALL' }) {
   const fxExposure = agg.fxExposure || []
   const realizedTotal = (realized?.stock || 0) + (realized?.asset || 0)
   const grandPnl = (agg.totalPnl || 0) + realizedTotal
@@ -54,7 +54,8 @@ export function SummaryStrip({ agg, aShareClosed, realized, todayPnl }) {
     (() => {
       // 当日盈亏优先用后端券商口径(含今日清仓的已实现 + 今日新建仓以买入价为基准);
       // 端点不可用时退回前端的纯市值变动口径, 并把标签退回「今日浮动」以免口径不符。
-      const useSrv = todayPnl && typeof todayPnl.total === 'number'
+      // scope 非 ALL(如期货 tab)时不用后端全组合 total —— 用前端分组口径, 显示该类自己的今日盈亏。
+      const useSrv = scope === 'ALL' && todayPnl && typeof todayPnl.total === 'number'
       const v = useSrv ? todayPnl.total : agg.totalToday
       const closedN = useSrv ? (todayPnl.items || []).filter(i => i.closed_today).length : 0
       const openedN = useSrv ? (todayPnl.items || []).filter(i => i.opened_today).length : 0

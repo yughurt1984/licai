@@ -1,16 +1,18 @@
 import { ASSET_TYPE_TO_KEY } from './constants'
 import { currencyOfCode, fundCategoryOf, stockCategoryOf, stockMarketOfCode } from './helpers'
 
-// Normalize raw A-share holding → unified row
+// Normalize raw holding → unified row (股票 / 期货 T / 期权 O 同一管线)
 export function normalizeHolding(h) {
+  const kind = h.asset_kind || 'stock'
+  const rowType = kind === 'fut' ? 'T' : kind === 'opt' ? 'O' : 'A'
   const mv = h.market_value || (h.current_price * h.shares) || 0
   const cost = h.cost_value ?? (h.cost_price * h.shares)
   const originalMarketValue = h.original_market_value ?? (h.current_price ? h.current_price * h.shares : null)
   const originalCostValue = h.original_cost_value ?? (h.cost_price * h.shares)
   return {
-    id: `A-${h.stock_code}`,
-    type: 'A',
-    category: stockCategoryOf(h),
+    id: `${rowType}-${h.stock_code}-${h.direction || ''}`,
+    type: rowType,
+    category: rowType === 'A' ? stockCategoryOf(h) : null,
     code: h.stock_code,
     name: h.stock_name,
     broker: h.broker || null,
@@ -20,10 +22,16 @@ export function normalizeHolding(h) {
     // 置 null 让行内显示 -- 并被浮动合计排除, 等行情 bootstrap 补上后自然恢复
     pnl: h.unrealized_pnl ?? (mv > 0 ? mv - cost : null),
     pnlPct: h.pnl_pct,
-    today: h.price_change_pct,
+    // 期货/期权: 今日涨跌按方向折算 —— 空头在价格上涨时是亏的(change_pct 本身不带方向)
+    today: h.price_change_pct == null ? null
+      : h.price_change_pct * (h.direction === 'SHORT' ? -1 : 1),
     _raw: h,
     extra: {
-      market: h.market || stockMarketOfCode(h.stock_code),
+      direction: h.direction || null,
+      multiplier: h.contract_multiplier || 1,
+      // 期货: 总资产的资产贡献 = 名义市值 × 保证金率(后端算好); 期权/股票为 null(按 mv 计)
+      marginValue: h.margin_value ?? null,
+      market: rowType === 'T' ? 'FUT' : rowType === 'O' ? 'OPT' : (h.market || stockMarketOfCode(h.stock_code)),
       currency: h.currency || currencyOfCode(h.stock_code),
       fxRate: h.fx_rate || 1,
       fxTime: h.fx_time || '',
@@ -118,14 +126,19 @@ export function normalizeAsset(a) {
 // `aShareTradingDay` controls whether T+1 markets (A-share, fund) contribute today.
 // Crypto/Bot are 24/7 so they always contribute.
 export function aggregate(rows, aShareTradingDay = true) {
-  const totalMv = rows.reduce((s, r) => s + (r.mv || 0), 0)
+  // 资产贡献口径: 期货是杠杆交易, 计入总资产的是保证金占用(名义市值×保证金率),
+  // 不是名义市值(那会把 10 倍杠杆的名义敞口全算成资产); 其余类型 = 市值。
+  const assetVal = (r) =>
+    r.type === 'T' && r.extra?.marginValue != null ? r.extra.marginValue : (r.mv || 0)
+  const totalMv = rows.reduce((s, r) => s + assetVal(r), 0)
   const groups = {}
   const fxExposure = {}
   for (const r of rows) {
-    if (!groups[r.type]) groups[r.type] = { items: [], mv: 0, cost: 0, pnl: 0, todayPnl: 0 }
+    if (!groups[r.type]) groups[r.type] = { items: [], mv: 0, asset: 0, cost: 0, pnl: 0, todayPnl: 0 }
     const g = groups[r.type]
     g.items.push(r)
-    g.mv += r.mv || 0
+    g.mv += r.mv || 0          // 名义市值(期货=价×乘数×手数, 用于行内/分组展示)
+    g.asset += assetVal(r)     // 资产贡献(期货=保证金占用)
     g.cost += r.cost || 0
     g.pnl += r.pnl || 0
     const currency = r.extra?.currency
@@ -162,7 +175,7 @@ export function aggregate(rows, aShareTradingDay = true) {
   }
   for (const t in groups) {
     const g = groups[t]
-    g.weight = totalMv > 0 ? g.mv / totalMv : 0
+    g.weight = totalMv > 0 ? g.asset / totalMv : 0   // 权重按资产贡献(期货=保证金)算, 与总资产同口径
     g.pnlPct = g.cost > 0 ? (g.pnl / g.cost) * 100 : 0
   }
   return {

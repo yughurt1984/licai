@@ -62,35 +62,12 @@ def quote_auto_fetch() -> bool:
 
 # ---- 行情库 read-through: 成功即落 PG, 失败回退最后快照(见 services/market_store.py) ----
 from services import market_store  # noqa: E402  (只依赖 config, 无循环导入)
+from services.quote_source import QuoteRow  # noqa: E402  (规范层: 只依赖 pydantic, 无循环导入)
 
-_ATYPE_BY_MARKET = {"A": "a_stock", "HK": "hk_stock", "US": "us_stock"}
-_MARKET_BY_ATYPE = {v: k for k, v in _ATYPE_BY_MARKET.items()}
+_MARKET_BY_ATYPE = {"a_stock": "A", "hk_stock": "HK", "us_stock": "US", "fut": "FUT", "opt": "OPT"}
 _MACRO_ATYPE = {"fx": "fx", "metal_base": "commodity", "metal_minor": "commodity",
                 "metal_precious": "commodity", "energy_new_black": "commodity",
                 "energy_chem": "commodity"}
-
-
-def _quote_to_store_rows(result: dict) -> list[dict]:
-    """get_realtime_quotes 的产物 → quote_latest 行。非股票类(A/HK/US 之外)跳过。"""
-    rows = []
-    for code, q in (result or {}).items():
-        market = q.get("market") or (split_stock_code(code)[0] if code else "")
-        atype = _ATYPE_BY_MARKET.get(market)
-        if not atype:
-            continue
-        rows.append({
-            "symbol": code,
-            "asset_type": atype,
-            "name": q.get("stock_name") or "",
-            "price": q.get("price"), "open": q.get("open"), "high": q.get("high"),
-            "low": q.get("low"), "prev_close": q.get("prev_close"),
-            "volume": q.get("volume"), "amount": q.get("amount"),
-            "change_pct": q.get("change_pct"), "turnover_rate": q.get("turnover_rate"),
-            "currency": q.get("currency") or "CNY",
-            "quote_time": str(q.get("quote_time") or ""),
-            "source": "sina",
-        })
-    return rows
 
 
 def _store_rows_to_quotes(rows: dict[str, dict], fx_map: dict[str, float] | None = None) -> dict[str, dict]:
@@ -129,6 +106,96 @@ def _store_rows_to_quotes(rows: dict[str, dict], fx_map: dict[str, float] | None
     return out
 
 
+# ── 通用分组获取: PG 优先 + 源链按码兜底(品种→源的映射见 _quote_chains) ──────────
+
+def _quote_chains() -> dict[str, tuple]:
+    """品种分组 → 源适配器链(有序, 主源在前, 见 services/quote_source.py)。
+
+    sina(sina_quote.py) 只兜底股票(A/HK/US); 期货/期权没有兜底源(sina 没有这些数据),
+    失败就空, 等每日维护任务补。新增品种/源 = 适配器实现 QuoteSource 协议 + 这里加一行。
+    """
+    from services import ths_fuyao, futu_quote, sina_quote
+    return {
+        "A": (ths_fuyao.SOURCE, sina_quote.SOURCE),
+        "HK": (futu_quote.SOURCE, sina_quote.SOURCE),
+        "US": (futu_quote.SOURCE, sina_quote.SOURCE),
+        "FUT": (ths_fuyao.SOURCE,),
+        "OPT": (ths_fuyao.SOURCE,),
+    }
+
+
+async def _fetch_group_rows(group: str, codes: list[str]) -> list[QuoteRow]:
+    """沿品种→源链抓行情。每个源只喂上一源没拿到的缺码(按码兜底)。"""
+    remaining = list(dict.fromkeys(codes))
+    rows: list[QuoteRow] = []
+    for src in _quote_chains().get(group, ()):
+        if not remaining:
+            break
+        try:
+            got = await src.snapshot(remaining)   # 协议契约: 适配器不抛, 这里再兜一层
+        except Exception as e:
+            print(f"[market_data] {getattr(src, 'name', src)} snapshot 异常: {e}")
+            got = []
+        got = [r for r in got if r.code and r.price]
+        have = {r.code for r in rows}
+        rows.extend(r for r in got if r.code not in have)
+        got_codes = {r.code for r in got}
+        remaining = [c for c in remaining if c not in got_codes]
+    return rows
+
+
+def _row_to_quote(r: QuoteRow, fx_map: dict[str, float] | None = None) -> dict:
+    """QuoteRow → get_realtime_quotes 输出形状的 quote(补汇率; 源特有字段从 info 透传)。"""
+    cur = r.currency or "CNY"
+    if cur == "CNY":
+        fx_rate, fx_src = 1.0, "CNY"
+    elif fx_map and cur in fx_map and fx_map[cur]:
+        fx_rate, fx_src = fx_map[cur], "db"
+    else:
+        info = get_fx_info(cur)
+        fx_rate, fx_src = info["rate"], info.get("source", "")
+    q = {
+        "stock_code": r.code, "stock_name": r.name,
+        "market": r.market, "currency": cur,
+        "fx_rate": fx_rate, "fx_time": "", "fx_source": fx_src,
+        "price": r.price, "open": r.open, "high": r.high, "low": r.low,
+        "prev_close": r.prev_close, "volume": r.volume, "amount": r.amount,
+        "change_pct": r.change_pct, "turnover_rate": 0,
+        "quote_time": r.quote_time, "source": r.source or "remote",
+    }
+    for k, v in (r.info or {}).items():
+        q.setdefault(k, v)
+    return q
+
+
+async def _get_group_quotes(group: str, codes: list[str], force: bool = False) -> dict:
+    """一组同品种代码的报价 —— 新频控策略(ths/futu API 有访问上限, 联网只允许两种模式):
+
+    ① force=True: 手动刷新按钮(POST /api/market/refresh) → 沿源链直连远端 + write-through PG;
+    ② 冷启动: quote_latest 里**没有**该 code 的行(全新持仓首次出现) → 只对缺码联网一次。
+    其余一切页面加载/WS 推送**只读 PG**: 有行(无论新鲜与否)原样返回, 绝不触发 API。
+    每日 PG 维护为后续开发。
+    """
+    if not codes:
+        return {}
+    try:
+        stored = await market_store.get_stored_quotes(codes)
+    except Exception as e:
+        print(f"[market_data] {group} 读库失败: {e}")
+        stored = {}
+    out = _store_rows_to_quotes(stored, await _fx_map_from_store())
+    missing = [c for c in codes if c not in stored]
+    targets = codes if force else missing
+    if not targets:
+        return out
+    rows = await _fetch_group_rows(group, targets)
+    if rows:
+        fx_map = await _fx_map_from_store()
+        out.update({r.code: _row_to_quote(r, fx_map) for r in rows})
+        market_store.spawn(market_store.save_quotes([r.to_store_row() for r in rows]))
+    return out
+
+
 async def _fx_map_from_store() -> dict[str, float]:
     """PG 的 fx 快照 → {USD: rate, HKD: rate}。没有则空 dict(调用方回退 get_fx_info)。"""
     try:
@@ -154,40 +221,6 @@ def _stored_fresh(row: dict) -> bool:
     if age < 0:
         return True
     return age <= (60 if market_open("A") else 6 * 3600)
-
-
-async def _refresh_quotes_bg(codes: list[str], cache_key: str):
-    """后台刷新过期快照: 抓远端 → write-through + 内存缓存(下次调用走①纯 PG)。"""
-    try:
-        a_codes = [c for c in codes if split_stock_code(c)[0] == "A"]
-        result = {}
-        if a_codes:
-            result.update(await asyncio.to_thread(_fetch_sina_quotes, a_codes))
-        async def fetch_one(code: str):
-            market, symbol = split_stock_code(code)
-            if market == "HK":
-                q = await asyncio.to_thread(_fetch_hk_stock_quote, symbol)
-            elif market == "US":
-                q = await asyncio.to_thread(_fetch_us_stock_quote, symbol)
-            else:
-                q = None
-            if not q:
-                return None
-            fx = get_fx_info(q.get("currency", "CNY"), allow_network=True)
-            return code, {"stock_code": code, "fx_rate": fx["rate"], "fx_time": fx.get("time", ""),
-                          "fx_source": fx.get("source", ""), **q}
-        oversea = await asyncio.gather(*(fetch_one(c) for c in codes if split_stock_code(c)[0] != "A"),
-                                       return_exceptions=True)
-        for item in oversea:
-            if isinstance(item, Exception) or not item:
-                continue
-            code, quote = item
-            result[code] = quote
-        if result:
-            _cache_set(cache_key, result)
-            market_store.spawn(market_store.save_quotes(_quote_to_store_rows(result)))
-    except Exception as e:
-        print(f"[market_data] 后台刷新报价失败(下次再试): {e}")
 
 
 def _macro_groups_to_store_rows(groups: dict) -> list[dict]:
@@ -577,217 +610,43 @@ def _is_bse(code: str) -> bool:
     return code[:3] == "920" or code[:1] in ("4", "8")
 
 
-def _sina_symbol(stock_code: str) -> str:
-    """Convert stock code to Sina symbol format (sh/sz/bj prefix)."""
-    stock_code = split_stock_code(stock_code)[1]
-    # 北交所(bj): 8/4/920 — 必须先判, 否则 920xxx 会被下面的 9→sh 规则吃掉
-    if _is_bse(stock_code):
-        return f"bj{stock_code}"
-    # Shanghai: 6 (主板), 9 (B股), 5 (ETF/封基/可转债)
-    # Shenzhen: 0/2/3 (主板/中小板/创业板), 1 (ETF/可转债, e.g. 159xxx)
-    if stock_code[:1] in ("6", "9", "5"):
-        return f"sh{stock_code}"
-    return f"sz{stock_code}"
-
-
-def _fetch_sina_quotes(stock_codes: list[str]) -> dict:
-    """Fetch real-time quotes from Sina Finance API (hq.sinajs.cn).
-    This API is stable, fast, and doesn't require auth.
-    """
-    if not stock_codes:
-        return {}
-
-    stock_codes = [normalize_stock_code(c) for c in stock_codes if is_a_share(c)]
-    if not stock_codes:
-        return {}
-    symbols = [_sina_symbol(c) for c in stock_codes]
-    # 响应里的 sh/sz 前缀码 → 标准代码(600111.SH)。key 必须与调用方(holdings/流水)的
-    # 代码格式一致 —— 曾经直接用裸码做 key, 快照落库/调用方查表全部错位。
-    by_sina = dict(zip(symbols, stock_codes))
-    url = f"https://hq.sinajs.cn/list={','.join(symbols)}"
-    headers = {"Referer": "https://finance.sina.com.cn"}
-
-    resp = _requests.get(url, headers=headers, timeout=10)
-    resp.encoding = "gbk"
-    text = resp.text
-
-    result = {}
-    for line in text.strip().split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        # Format: var hq_str_sh601168="西部矿业,8.14,8.54,8.13,...";
-        match = re.match(r'var hq_str_(\w+)="(.*)";', line)
-        if not match:
-            continue
-
-        symbol = match.group(1)
-        data_str = match.group(2)
-        if not data_str:
-            continue
-
-        fields = data_str.split(",")
-        if len(fields) < 32:
-            continue
-
-        # 标准代码(600111.SH); 映射不到(理应不会)退回裸码兜底
-        code = by_sina.get(symbol) or symbol[2:]
-
-        try:
-            name = fields[0]
-            open_price = float(fields[1]) if fields[1] else 0
-            prev_close = float(fields[2]) if fields[2] else 0
-            price = float(fields[3]) if fields[3] else 0
-            high = float(fields[4]) if fields[4] else 0
-            low = float(fields[5]) if fields[5] else 0
-            volume = float(fields[8]) if fields[8] else 0  # shares
-            amount = float(fields[9]) if fields[9] else 0  # RMB
-
-            change_pct = 0
-            if prev_close > 0 and price > 0:
-                change_pct = round((price - prev_close) / prev_close * 100, 2)
-
-            amplitude = 0
-            if prev_close > 0 and high > 0 and low > 0:
-                amplitude = round((high - low) / prev_close * 100, 2)
-
-            result[code] = {
-                "stock_code": code,
-                "stock_name": name,
-                "market": "A",
-                "currency": "CNY",
-                "fx_rate": 1.0,
-                "price": price,
-                "open": open_price,
-                "high": high,
-                "low": low,
-                "prev_close": prev_close,
-                "volume": volume,
-                "amount": amount,
-                "change_pct": change_pct,
-                "amplitude": amplitude,
-                "turnover_rate": 0,  # Sina doesn't provide this directly
-            }
-        except (ValueError, IndexError):
-            continue
-
-    return result
-
-
-async def _fetch_remote_quotes(codes: list[str]) -> dict:
-    """远端抓一批股票报价(A股批量新浪, 港美股逐只), 附汇率。全挂返回 {}; 不缓存不落库。"""
-    a_codes = [c for c in codes if split_stock_code(c)[0] == "A"]
-    hk_codes = [c for c in codes if split_stock_code(c)[0] == "HK"]
-    us_codes = [c for c in codes if split_stock_code(c)[0] == "US"]
-
-    result = {}
-    if a_codes:
-        result.update(await asyncio.to_thread(_fetch_sina_quotes, a_codes))
-
-    async def fetch_one(code: str):
-        market, symbol = split_stock_code(code)
-        if market == "HK":
-            q = await asyncio.to_thread(_fetch_hk_stock_quote, symbol)
-        elif market == "US":
-            q = await asyncio.to_thread(_fetch_us_stock_quote, symbol)
-        else:
-            q = None
-        if not q:
-            return None
-        fx = get_fx_info(q.get("currency", "CNY"), allow_network=True)
-        return code, {
-            "stock_code": code,
-            "fx_rate": fx["rate"],
-            "fx_time": fx.get("time", ""),
-            "fx_source": fx.get("source", ""),
-            **q,
-        }
-
-    overseas = await asyncio.gather(
-        *(fetch_one(c) for c in [*hk_codes, *us_codes]),
-        return_exceptions=True,
-    )
-    for item in overseas:
-        if isinstance(item, Exception) or not item:
-            continue
-        code, quote = item
-        result[code] = quote
-    return result
-
-
 async def get_realtime_quotes(stock_codes: list[str], force: bool = False) -> dict:
-    """Get real-time quotes for A/HK/US stock holdings.
+    """持仓实时报价 —— 统一入口, 数据源规范层见 services/quote_source.py。
 
-    三段策略(提速资产页): ① PG quote_latest 有**新鲜**快照 → 纯 PG 返回, 零外网毫秒级;
-    ② 有**旧**快照 → 立即返回 PG + 后台刷远端(stale-while-revalidate, 页面先出最近价,
-    WS 推送随后覆盖); ③ 无快照 → 现有远端路径(冷启动首日), 远端全挂回退 PG。
-    force=True 跳过①②(price_monitor_loop 用 —— 它自己就是刷新器)。
+    频控策略: ths/futu API 有访问上限, 联网只允许两种模式:
+    ① force=True: 手动刷新按钮(POST /api/market/refresh) → 沿源链直连远端 + 落 PG;
+    ② 冷启动: market.quote_latest 里**没有**该 code 的行(全新持仓首次出现) →
+       只对缺失的 code 联网一次, 拿到即落库, 下次起纯 PG。
+    其余情况一律只读 PG(market.quote_latest), 绝不触发 API。
+    每日 PG 维护(定时批量刷新)为后续开发。
+
+    派发: 按品种分组(A/HK/US/FUT/OPT) → 查源链(_quote_chains), 主源拿不到的码
+    按码交给链上下一个源: A股/港美 → sina legacy 兜底; 期货/期权无兜底。
+    新增品种/数据源 = 实现一个 QuoteSource 适配器 + 源链表加一行, 调用方零改动。
     """
     if not stock_codes:
         return {}
 
-    codes = [normalize_stock_code(c) for c in stock_codes]
-    cache_key = "sina_quotes_" + ",".join(sorted(codes))
-    cached = _cache_get(cache_key, config.quote_cache_ttl)
-    if cached is not None:
-        return cached
+    from services.ths_fuyao import is_thscode as _is_ths, ths_kind
+    groups: dict[str, list[str]] = {}
+    for raw in stock_codes:
+        c = str(raw or "").strip()
+        if not c:
+            continue
+        if _is_ths(c):
+            c = c.upper()
+            g = "FUT" if ths_kind(c) == "fut" else "OPT"
+        else:
+            c = normalize_stock_code(c)
+            g = split_stock_code(c)[0]
+        if g not in ("A", "HK", "US", "FUT", "OPT"):
+            continue
+        groups.setdefault(g, []).append(c)
 
-    # ── ⓪ 纯 PG 模式(quote_auto_fetch=False): 平时只读库, 永不联网 ──
-    # 例外: 快照表里**从未见过**的票(纯 PG 期间新加的持仓)联网 bootstrap 一次 —— 不补的话
-    # 它市值恒 0、浮动整个从总盈亏/总资产里消失, 行内还显示成 -成本。拿到即落库, 下次起仍纯 PG。
-    if not force and not quote_auto_fetch():
-        try:
-            stored = await market_store.get_stored_quotes(codes)
-            out = _store_rows_to_quotes(stored, await _fx_map_from_store())
-            missing = [c for c in codes if c not in stored]
-            if missing:
-                fetched = await _fetch_remote_quotes(missing)
-                if fetched:
-                    market_store.spawn(market_store.save_quotes(_quote_to_store_rows(fetched)))
-                    out.update(fetched)
-            if out:
-                _cache_set(cache_key, out)
-            return out
-        except Exception as e:
-            print(f"[market_data] 纯 PG 模式读库失败: {e}")
-            return {}
-
-    # ── ①②: PG 快路径(非 force) ──
-    if not force:
-        try:
-            stored = await market_store.get_stored_quotes(codes)
-            missing = [c for c in codes if c not in stored]
-            if stored and not missing:
-                fresh = {s: r for s, r in stored.items() if _stored_fresh(r)}
-                if len(fresh) == len(codes):          # 全部新鲜 → 纯 PG, 零外网
-                    out = _store_rows_to_quotes(fresh, await _fx_map_from_store())
-                    _cache_set(cache_key, out)
-                    return out
-                # 有旧快照 → 先回 PG(页面立即出最近价) + 后台刷远端(下次即新; WS 5s 推流实时覆盖)
-                market_store.spawn(_refresh_quotes_bg(codes, cache_key))
-                out = _store_rows_to_quotes(stored, await _fx_map_from_store())
-                return out
-            # 有缺码(首次见到这只票) → 同步走远端拿全量(下方现有路径), 落库后下次进快路径
-        except Exception as e:
-            print(f"[market_data] PG 快路径失败(走远端): {e}")
-
-    try:
-        result = await _fetch_remote_quotes(codes)
-        if result:
-            _cache_set(cache_key, result)
-            # write-through: 成功的快照落 PG(远端再挂, 这就是下一次的兜底数据)
-            market_store.spawn(market_store.save_quotes(_quote_to_store_rows(result)))
-            return result
-        # 远端一个都没取到 → PG 最后快照兜底(带 stale 标注)
-        stored = await market_store.get_stored_quotes(codes)
-        return _store_rows_to_quotes(stored, await _fx_map_from_store())
-    except Exception as e:
-        print(f"[market_data] Error fetching Sina quotes: {e}")
-        try:
-            stored = await market_store.get_stored_quotes(codes)
-            return _store_rows_to_quotes(stored, await _fx_map_from_store())
-        except Exception:
-            return {}
+    out: dict = {}
+    for g, cs in groups.items():
+        out.update(await _get_group_quotes(g, cs, force=force))
+    return out
 
 
 async def get_stock_name(stock_code: str) -> str:
@@ -892,6 +751,7 @@ def _fetch_history_sina(stock_code: str, days: int) -> pd.DataFrame:
     成交量统一为「手」: 新浪 getKLineData 的 volume 是股, 而东财/腾讯/TDX 都给手。
     不归一的话同一只票在不同源之间切换时, 成交量会跳 100 倍, 还会以两种量纲混写进
     SQLite 缓存, 在序列中间留下假的放量/缩量接缝(实测缓存里有 50 处)。"""
+    from services.sina_quote import _sina_symbol   # 新浪代码格式归 sina_quote 维护
     symbol = _sina_symbol(stock_code)
     # Sina provides historical K-line via money.finance.sina.com.cn
     # We use the simple daily K-line API
@@ -1510,72 +1370,6 @@ def _fetch_overseas_quote(symbol: str) -> dict | None:
         return None
 
 
-def _parse_sina_hk(code: str, text: str) -> dict | None:
-    """解析新浪港股行(rt_hk / hk 两种前缀字段顺序相同)。
-    字段: [0]英文名 [1]中文名 [2]今开 [3]昨收 [4]最高 [5]最低 [6]现价 [7]涨跌额 [8]涨跌% [9]买一 [10]卖一
-          [11]成交额(港元) [12]成交量(股) ... [17]日期 YYYY/MM/DD [18]时刻 HH:MM(:SS)
-    以 腾讯 00700 实测核过: 现价 423.8 − 昨收 411.4 = 涨跌额 12.4。"""
-    m = re.search(r'var hq_str_(?:rt_)?hk\w+="(.*)";', text or "")
-    if not m or not m.group(1):
-        return None
-    f = m.group(1).split(",")
-    if len(f) < 13:
-        return None
-
-    def _num(i):
-        try:
-            return float(f[i]) if f[i] else 0.0
-        except (ValueError, IndexError):
-            return 0.0
-
-    open_, prev, high, low, last = _num(2), _num(3), _num(4), _num(5), _num(6)
-    if last <= 0:
-        return None
-    try:
-        change_pct = round(float(f[8]), 2)
-    except (ValueError, IndexError):
-        change_pct = round((last - prev) / prev * 100, 2) if prev > 0 else 0
-    out = {
-        "stock_name": f[1] or f[0] or code,
-        "price": last,
-        "open": open_,
-        "high": high,
-        "low": low,
-        "prev_close": prev,
-        "volume": _num(12),
-        "amount": _num(11),              # 港元
-        "change_pct": change_pct,
-        "amplitude": round((high - low) / prev * 100, 2) if prev > 0 and high and low else 0,
-        "turnover_rate": 0,
-        "market": "HK",
-        "currency": "HKD",
-    }
-    if len(f) > 18 and f[17]:
-        out["quote_time"] = f"{f[17].replace('/', '-')} {f[18]}".strip()   # 港交所当地时间(=北京时间)
-    return out
-
-
-def _fetch_hk_stock_quote(code: str) -> dict | None:
-    """港股个股行情. code = '00700' (5位带前导0)。
-
-    走新浪 rt_hk<CODE>(实时); 同源的 hk<CODE> 是 15 分钟延时行 —— 2026-10-09 14:45 实测
-    hk00700 时刻停在 14:22, rt_hk00700 是 14:45:13, 腾讯 r_hk00700 是 14:45:09(无前缀
-    hk00700 也延时)。rt_ 取不到时退回延时行, 时刻照实带在 quote_time 里。"""
-    for prefix in ("rt_hk", "hk"):
-        try:
-            resp = _requests.get(f"https://hq.sinajs.cn/list={prefix}{code}",
-                                 headers={"Referer": "https://finance.sina.com.cn"}, timeout=5)
-            resp.encoding = "gbk"
-            q = _parse_sina_hk(code, resp.text.strip())
-            if q:
-                if prefix == "hk":
-                    q["delayed"] = True
-                return q
-        except Exception as e:
-            print(f"[hk-stock] {prefix}{code} failed: {e}")
-    return None
-
-
 _hk_search_cache: dict[str, tuple[list, float]] = {}
 
 
@@ -1611,112 +1405,6 @@ def search_hk_stocks(query: str, limit: int = 8) -> list[dict]:
     if len(_hk_search_cache) > 500:
         _hk_search_cache.clear()
     return out[:limit]
-
-
-def _us_session_of(clock: str) -> str:
-    """把新浪给的交易所本地时刻(如 "Aug 19 08:41AM EDT")归到哪个时段。
-
-    时刻本身已经是交易所本地时间, 不用做时区换算, 只看墙上钟点:
-      04:00-09:29 盘前 / 09:30-15:59 盘中 / 16:00-19:59 盘后 / 其余 休市
-    """
-    m = re.search(r"(\d{1,2}):(\d{2})\s*(AM|PM)", clock or "", re.I)
-    if not m:
-        return ""
-    h, mi, ap = int(m.group(1)), int(m.group(2)), m.group(3).upper()
-    if h == 12:
-        h = 0
-    if ap == "PM":
-        h += 12
-    t = h * 60 + mi
-    if 4 * 60 <= t < 9 * 60 + 30:
-        return "pre"
-    if 9 * 60 + 30 <= t < 16 * 60:
-        return "regular"
-    if 16 * 60 <= t < 20 * 60:
-        return "post"
-    return "closed"
-
-
-def _fetch_us_stock_quote(symbol: str) -> dict | None:
-    """美股个股实时 via Sina (gb_<lowercase>)。
-
-    字段位置在 mrvl/aapl/nvda/ko/sndl 五只上逐一核过, 并拿 Yahoo(含 includePrePost)
-    交叉验证:
-      [1] 最新成交价(正式时段; 盘外时=上一时段收盘)  [2] 对应涨跌%    [5][6][7] 开/高/低
-      [10] 成交量(股)   [21] 盘前或盘后价   [22] 盘外相对 [1] 的涨跌%
-      [24] [21] 那个价的时刻   [25] [1] 那个价的时刻   [26] 昨收(真值)
-    实测 [21] 与 Yahoo 盘前末点吻合(AAPL 309.80/309.8, NVDA 220.6757/220.68,
-    KO 88.7147/88.7147)。
-
-    price 保持"正式时段成交价"语义不变(持仓估值按它算, 别让盘前几十分钟的跳动改写
-    组合市值), 盘外价另开 ext_hours 一块给出, 并带上两个时刻 —— 否则亚洲白天看到的
-    "现在 -7.82%" 其实是上一个交易日的事, 模型无从分辨。
-    """
-    try:
-        url = f"https://hq.sinajs.cn/list=gb_{symbol.lower()}"
-        resp = _requests.get(url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=5)
-        resp.encoding = "gbk"
-        text = resp.text.strip()
-        m = re.match(r'var hq_str_gb_\w+="(.*)";', text)
-        if not m or not m.group(1):
-            return None
-        f = m.group(1).split(",")
-        if len(f) < 5:
-            return None
-
-        def _f(i):
-            try:
-                v = float(f[i])
-                return v if v > 0 else None
-            except (ValueError, IndexError):
-                return None
-
-        last = float(f[1]) if f[1] else 0
-        change_pct = float(f[2]) if f[2] else 0
-        # 昨收优先取源里的真值 [26]; 缺了才用 last/(1+pct) 反推(反推会被 pct 的两位
-        # 小数放大, MRVL 实测反推 234.3241 vs 真值 234.33)
-        prev = _f(26)
-        if not prev:
-            prev = round(last / (1 + change_pct / 100), 4) if last > 0 and change_pct != 0 else last
-        high, low = _f(6), _f(7)
-        out = {
-            "stock_name": f[0] or symbol.upper(),
-            "price": last,
-            "open": _f(5) or 0,
-            "high": high or 0,
-            "low": low or 0,
-            "prev_close": prev,
-            "volume": _f(10) or 0,
-            "amount": 0,            # 新浪美股行只给成交量, 没有成交额
-            "change_pct": round(change_pct, 2),
-            "amplitude": round((high - low) / prev * 100, 2) if (high and low and prev) else 0,
-            "turnover_rate": 0,
-            "market": "US",
-            "currency": "USD",
-        }
-        if len(f) > 25 and f[25]:
-            out["price_as_of"] = f[25].strip()          # 如 "Aug 18 04:00PM EDT"
-
-        # 盘外(盘前/盘后)。盘中时 [21] 跟着最新价走、[22] 约等于 0, 这时不单列, 免得
-        # 多出一块和 price 重复的信息让模型犯迷糊。
-        ext_px, ext_clock = _f(21), (f[24].strip() if len(f) > 24 else "")
-        sess = _us_session_of(ext_clock)
-        out["session"] = sess or ""
-        if ext_px and sess in ("pre", "post"):
-            try:
-                ext_pct = round(float(f[22]), 2)
-            except (ValueError, IndexError):
-                ext_pct = round((ext_px - last) / last * 100, 2) if last else 0
-            out["ext_hours"] = {
-                "label": "盘前" if sess == "pre" else "盘后",
-                "price": ext_px,
-                "change_pct": ext_pct,       # 相对 price(上一时段收盘)
-                "as_of": ext_clock,
-            }
-        return out
-    except Exception as e:
-        print(f"[us-stock] {symbol} failed: {e}")
-        return None
 
 
 def _fetch_hk_index_quote(symbol: str = "HSI") -> dict | None:

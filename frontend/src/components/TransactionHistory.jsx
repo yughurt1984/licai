@@ -17,6 +17,16 @@ const SPLIT_TYPE = { value: 'SPLIT', label: '拆股/合股' }
 const typesOf = (market) => market === 'A' ? ACTION_TYPES : [...ACTION_TYPES, SPLIT_TYPE]
 const FX_HINT = '成交汇率(1 外币 = ? 人民币), 可选; 留空按成交日中行牌价自动取, 填结单上的汇率更准'
 
+// 期货/期权(同花顺 thscode, 如 CU2601.SHF): 流水只有 开仓/平仓, 每笔带方向
+const isDerivCode = (code) => {
+  const c = String(code || '').toUpperCase()
+  if (!c || c.startsWith('HK.') || c.startsWith('US.')) return false
+  if (!/^[A-Z0-9]{2,16}\.[A-Z]{2,5}$/.test(c)) return false
+  const b = c.split('.')[0]
+  return !(b.length === 6 && /^\d+$/.test(b))   // 6 位数字主体是 A股/ETF 新格式
+}
+const DERIV_TYPES = [{ value: 'OPEN', label: '开仓' }, { value: 'CLOSE', label: '平仓' }]
+
 const ACQUIRE_TYPES = new Set(['BUY', 'ADD', 'BONUS'])
 
 // 港美股流水按原币记: 价格、手续费都是港元/美元; 股数没有 100 股一手的规则
@@ -24,7 +34,7 @@ const marketOf = (code) => {
   const c = String(code || '').toUpperCase()
   return c.startsWith('HK.') ? 'HK' : c.startsWith('US.') ? 'US' : 'A'
 }
-const CCY = { A: '¥', HK: 'HK$', US: 'US$' }
+const CCY = { A: '¥', HK: 'HK$', US: 'US$', FUT: '¥' }
 // 美股: 日期 = 美东交易日(券商成交记录上那天), 时刻按美东录入/展示; 后端 trade_time 统一存北京时间
 const US_DATE_HINT = '美东交易日 · 盈立成交记录上的日期; 北京时间凌晨成交算前一天'
 const TIME_HINT = { A: '成交时刻(可选), 留空用录入时间, 供分时图打点', HK: '成交时刻(可选), 留空用录入时间, 供分时图打点',
@@ -42,7 +52,15 @@ const FEE_HINT = {
   A: '按券商费率自动估算 (万2.5 / 5元起)',
   HK: '按港股收费方案自动估算(默认盈立 PRO: 佣金 0.06% + 平台费 18 港元/单 + 印花税等法定费用), 港元',
   US: '按美股收费方案自动估算(默认盈立 PRO: 佣金 0.01 美元/股、最低 1 美元 + 平台费 0.009 美元/股、最低 2.88 美元; 卖出另加 SEC/TAF), 美元',
+  FUT: '按券商「期货费/手」自动(未配则为 0), 手填覆盖优先',
 }
+
+const DirectionBadge = ({ d }) => d ? (
+  <span className={`ml-1 text-[10px] px-1 py-[1px] rounded border font-semibold
+    ${d === 'LONG' ? 'bg-bull/15 text-bull border-bull/40' : 'bg-bear/15 text-bear border-bear/40'}`}>
+    {d === 'LONG' ? '多' : '空'}
+  </span>
+) : null
 
 function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, brokers = [], market = 'A', code = '' }) {
   // 草稿里的 trade_time 是界面时区(美股=美东), 保存时再换回北京时间
@@ -54,8 +72,9 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
   useEffect(() => { setDraft(toDraft(action)) }, [action, market])
 
   if (!editing) {
-    const isAcquire = ACQUIRE_TYPES.has(action.action_type)
-    const typeLabel = typesOf(market).find(t => t.value === action.action_type)?.label || action.action_type
+    const isDeriv = isDerivCode(code)
+    const isAcquire = isDeriv ? action.action_type === 'OPEN' : ACQUIRE_TYPES.has(action.action_type)
+    const typeLabel = (isDeriv ? DERIV_TYPES : typesOf(market)).find(t => t.value === action.action_type)?.label || action.action_type
     const isSplit = action.action_type === 'SPLIT'
     const feeOverride = action.fee != null   // 用户手填了 override
     return (
@@ -64,6 +83,7 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
           {action.at_time && <span className="block text-[10px] text-text-dim font-mono">{String(localTime(market, action.trade_date, action.at_time)).slice(0, 5)}{market === 'US' && <span className="text-text-muted ml-0.5" title="美东时间">美东</span>}{!action.trade_time && <span title="按录入时间推断">~</span>}</span>}
         </td>
         <td className={`py-1.5 px-2 text-[11px] ${isAcquire ? 'text-bull' : 'text-bear'}`}>{typeLabel}
+          <DirectionBadge d={action.direction} />
           {action.broker_effective && <span className="block text-[10px] text-text-dim">{action.broker_effective}{!action.broker && <span title="用持仓默认券商">~</span>}</span>}
         </td>
         <td className="py-1.5 px-2 text-right font-mono">{isSplit && market !== 'A' ? `×${action.price}` : fmtPrice(action.price, code)}
@@ -96,7 +116,7 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
       </td>
       <td className="py-1.5 px-2">
         <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px]" value={draft.action_type} onChange={e => setDraft({ ...draft, action_type: e.target.value })}>
-          {typesOf(market).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          {(isDerivCode(code) ? DERIV_TYPES : typesOf(market)).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={draft.broker || ''} onChange={e => setDraft({ ...draft, broker: e.target.value })} title="本笔券商, 留空用持仓默认">
           <option value="">默认券商</option>
@@ -125,8 +145,9 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
   )
 }
 
-export default function TransactionHistory({ stockCode, stockName, onClose, onChange }) {
-  const market = marketOf(stockCode)
+export default function TransactionHistory({ stockCode, stockName, direction, contractMultiplier, defaultActionType, onClose, onChange }) {
+  const market = isDerivCode(stockCode) ? 'FUT' : marketOf(stockCode)
+  const isDeriv = market === 'FUT'
   const [actions, setActions] = useState([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState(null)
@@ -140,7 +161,8 @@ export default function TransactionHistory({ stockCode, stockName, onClose, onCh
     return () => window.removeEventListener('licai:brokers-changed', onChange)
   }, [])
   const [newAction, setNewAction] = useState({
-    action_type: 'BUY',
+    action_type: isDeriv ? (defaultActionType || 'OPEN') : (defaultActionType || 'BUY'),
+    direction: direction || 'LONG',     // 期货/期权: 本行方向, 加/平仓都带
     broker: '',
     price: '',
     shares: '',
@@ -176,6 +198,12 @@ export default function TransactionHistory({ stockCode, stockName, onClose, onCh
       price: parseFloat(newAction.price),
       shares: isSplit ? 0 : parseFloat(newAction.shares),
     }
+    if (isDeriv) {
+      // 期货/期权: OPEN/CLOSE 必带方向 + 乘数(每笔记当时乘数, 历史准确); 无汇率概念
+      body.direction = newAction.direction || direction || 'LONG'
+      body.contract_multiplier = parseFloat(contractMultiplier) || 1
+      delete body.fx_rate
+    }
     if (market !== 'A' && !isSplit && parseFloat(newAction.fx_rate) > 0) body.fx_rate = parseFloat(newAction.fx_rate)
     else delete body.fx_rate
     if (newAction.fee != null && newAction.fee !== '') {
@@ -188,7 +216,7 @@ export default function TransactionHistory({ stockCode, stockName, onClose, onCh
       body: JSON.stringify(body),
     })
     setAdding(false)
-    setNewAction({ action_type: 'BUY', broker: '', price: '', shares: '', trade_date: defaultDate(market), trade_time: '', note: '', fee: '', fx_rate: '' })
+    setNewAction({ action_type: isDeriv ? 'OPEN' : 'BUY', broker: '', price: '', shares: '', trade_date: defaultDate(market), trade_time: '', note: '', fee: '', fx_rate: '' })
     await load()
     onChange?.()
   }
@@ -280,8 +308,14 @@ export default function TransactionHistory({ stockCode, stockName, onClose, onCh
                     </td>
                     <td className="py-1.5 px-2">
                       <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px]" value={newAction.action_type} onChange={e => setNewAction({ ...newAction, action_type: e.target.value })}>
-                        {typesOf(market).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        {(isDeriv ? DERIV_TYPES : typesOf(market)).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                       </select>
+                      {isDeriv && (
+                        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={newAction.direction} onChange={e => setNewAction({ ...newAction, direction: e.target.value })} title="方向(与本行持仓一致)">
+                          <option value="LONG">多 (LONG)</option>
+                          <option value="SHORT">空 (SHORT)</option>
+                        </select>
+                      )}
                       <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={newAction.broker} onChange={e => setNewAction({ ...newAction, broker: e.target.value })} title="本笔券商, 留空用持仓默认">
                         <option value="">默认券商</option>
                         {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
@@ -293,7 +327,7 @@ export default function TransactionHistory({ stockCode, stockName, onClose, onCh
                         value={newAction.fx_rate ?? ''} onChange={e => setNewAction({ ...newAction, fx_rate: e.target.value })} />}
                     </td>
                     <td className="py-1.5 px-2">{newAction.action_type === 'SPLIT' ? <span className="text-[11px] text-text-dim">--</span>
-                      : <input type="number" step={market === 'A' ? 100 : market === 'US' ? 'any' : 1} min={market === 'A' ? 100 : market === 'US' ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="数量" value={newAction.shares} onChange={e => setNewAction({ ...newAction, shares: e.target.value })} />}</td>
+                      : <input type="number" step={market === 'A' && !isDeriv ? 100 : market === 'US' ? 'any' : 1} min={market === 'A' && !isDeriv ? 100 : market === 'US' ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="数量" value={newAction.shares} onChange={e => setNewAction({ ...newAction, shares: e.target.value })} />}</td>
                     <td className="py-1.5 px-2"><input type="number" step="0.01" min="0" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="自动估" value={newAction.fee ?? ''} onChange={e => setNewAction({ ...newAction, fee: e.target.value })} title={`留空 = 按券商费率自动估; 填值 = 实际手续费(单位 ${CCY[market]})`} /></td>
                     <td className="py-1.5 px-2"><input type="text" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-full" placeholder="备注" value={newAction.note} onChange={e => setNewAction({ ...newAction, note: e.target.value })} /></td>
                     <td className="py-1.5 px-2 text-center">

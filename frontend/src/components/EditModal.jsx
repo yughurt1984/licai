@@ -2,36 +2,44 @@ import { useState } from 'react'
 import { api } from '../hooks/useApi'
 
 export default function EditModal({ holding, onClose, onChange }) {
+  const isDeriv = (holding.asset_kind || 'stock') !== 'stock'   // 期货/期权行: 只改手数/成本/最新价, 不支持换合约
   const [code, setCode] = useState(holding.stock_code)
   const [shares, setShares] = useState(holding.shares)
   const [cost, setCost] = useState(holding.cost_price)
+  const [lastPrice, setLastPrice] = useState(holding.last_price ?? '')
   const [saving, setSaving] = useState(false)
   // 港美股没有 100 股一手的规则(港股每手股数因股而异), 按 1 股步进; 成本价按原币
   const mkt = /^HK\.?/i.test(code.trim()) ? 'HK' : /^US\./i.test(code.trim()) ? 'US' : 'A'
   const ccy = mkt === 'HK' ? 'HKD' : mkt === 'US' ? 'USD' : null
 
   const handleSave = async () => {
-    if (!code || !code.trim()) return alert('请输入股票代码')
+    if (!code || !code.trim()) return alert('请输入代码')
     setSaving(true)
     try {
-      const nextCode = code.trim().toUpperCase()
-      if (nextCode !== holding.stock_code) {
-        await api.deleteHolding(holding.stock_code)
-        await api.addHolding({ stock_code: nextCode, stock_name: '', shares: parseFloat(shares), cost_price: parseFloat(cost) })
+      if (isDeriv) {
+        const body = { shares: parseFloat(shares), cost_price: parseFloat(cost) }
+        if (holding.asset_kind === 'opt' && lastPrice !== '') body.last_price = parseFloat(lastPrice)
+        await api.updateHolding(code.trim().toUpperCase(), body, holding.direction)
       } else {
-        await api.updateHolding(nextCode, { shares: parseFloat(shares), cost_price: parseFloat(cost) })
+        const nextCode = code.trim().toUpperCase()
+        if (nextCode !== holding.stock_code) {
+          await api.deleteHolding(holding.stock_code)
+          await api.addHolding({ stock_code: nextCode, stock_name: '', shares: parseFloat(shares), cost_price: parseFloat(cost) })
+        } else {
+          await api.updateHolding(nextCode, { shares: parseFloat(shares), cost_price: parseFloat(cost) })
+        }
       }
       onChange()
       onClose()
-    } catch {
-      alert('操作失败')
+    } catch (e) {
+      alert(e.message || '操作失败')
     }
     setSaving(false)
   }
 
   const handleDelete = async () => {
     if (!confirm(`确定删除 ${holding.stock_name || holding.stock_code} 的持仓？`)) return
-    await api.deleteHolding(holding.stock_code)
+    await api.deleteHolding(holding.stock_code, holding.direction)
     onChange()
     onClose()
   }
@@ -61,6 +69,21 @@ export default function EditModal({ holding, onClose, onChange }) {
             <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
               step={0.0001} value={cost} onChange={e => setCost(e.target.value)} />
           </div>
+          {isDeriv && (
+            <div>
+              <label className="text-[12px] text-text-dim block mb-1">每手乘数</label>
+              <input type="number" disabled
+                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text-muted font-mono"
+                value={holding.contract_multiplier || 1} />
+            </div>
+          )}
+          {holding.asset_kind === 'opt' && (
+            <div>
+              <label className="text-[12px] text-text-dim block mb-1">最新价 <span className="text-text-muted text-[11px]">行情不可达时手填</span></label>
+              <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
+                step={0.0001} value={lastPrice} onChange={e => setLastPrice(e.target.value)} />
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 pt-1">

@@ -192,6 +192,28 @@ export default function App() {
         if (!q) return h
         const currentPrice = q.price
         const fxRate = q.fx_rate || h.fx_rate || 1
+        // 期货/期权: 市值=价×乘数×手数; 浮动按方向(空头 = 成本−市值); 今日%由后端按方向折好
+        if ((h.asset_kind || 'stock') !== 'stock') {
+          const mult = h.contract_multiplier || 1
+          const lots = h.shares
+          const short = h.direction === 'SHORT'
+          const costV = h.cost_price * mult * lots
+          const mv = currentPrice * mult * lots
+          return {
+            ...h,
+            current_price: currentPrice,
+            price_change_pct: q.change_pct,
+            original_cost_value: Math.round(costV * 100) / 100,
+            original_market_value: Math.round(mv * 100) / 100,
+            cost_value: Math.round(costV * 100) / 100,
+            market_value: Math.round(mv * 100) / 100,
+            unrealized_pnl: Math.round((short ? costV - mv : mv - costV) * 100) / 100,
+            pnl_pct: h.cost_price > 0
+              ? Math.round((short ? (h.cost_price - currentPrice) / h.cost_price
+                                 : (currentPrice - h.cost_price) / h.cost_price) * 10000) / 100
+              : h.pnl_pct,
+          }
+        }
         const originalCostValue = h.cost_price * h.shares
         const originalMarketValue = currentPrice * h.shares
         const pnl = (originalMarketValue - originalCostValue) * fxRate
@@ -231,6 +253,7 @@ export default function App() {
           onEdit={setEditTarget}
           onHistory={setHistoryTarget}
           onAdd={handleHoldingChange}
+          onHoldingsChanged={handleHoldingChange}
           dataVersion={dataVersion}
         />
       </div>
@@ -393,6 +416,9 @@ export default function App() {
         <TransactionHistory
           stockCode={historyTarget.stock_code}
           stockName={historyTarget.stock_name}
+          direction={historyTarget.direction}
+          contractMultiplier={historyTarget.contract_multiplier}
+          defaultActionType={historyTarget.presetType}
           onClose={() => setHistoryTarget(null)}
           onChange={handleHoldingChange}
         />

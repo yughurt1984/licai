@@ -181,6 +181,15 @@ export function ProxyPulse({ change, label, fallbackToday, details, mv }) {
 
 export function TypeMiniInfo({ row }) {
   const { type, extra } = row
+  if (type === 'T' || type === 'O') {
+    // 期货/期权: 手数×乘数 · 开仓均价(与报价同单位)
+    return (
+      <span className="text-[11.5]px text-text-muted font-mono">
+        {extra.shares} 手 × {extra.multiplier} · 开仓 {fmtPrice(extra.avgCost, row.code)}
+        {extra.price != null && <> · 现价 <span className="text-text">{fmtPrice(extra.price, row.code)}</span></>}
+      </span>
+    )
+  }
   if (type === 'A') {
     return (
       <span className="text-[11.5]px text-text-muted font-mono">
@@ -266,28 +275,41 @@ export function TypeMiniInfo({ row }) {
 // ============================================================
 // Hover action buttons
 // ============================================================
-export function RowActions({ row, visible, onEdit, onHistory, onRemove, onAddLot, onReduceLot, onShowActions, onCashAdjust }) {
+export function RowActions({ row, visible, onEdit, onHistory, onRemove, onAddLot, onReduceLot, onShowActions, onCashAdjust, onCloseLot }) {
   // 桌面: hover 才显示 (opacity 控制); 移动: 始终显示, 1 字按钮
-  // 股票行只留 历史/编辑; K线/质地/逻辑入口已按需求移除
+  // 统一四按钮口径(按期货样式): 证券类=开仓|买入 / 平仓|卖出 / 流水 / 删除
   const btnBase = 'rounded border border-border-med bg-surface-2 text-text-dim ' +
     'hover:border-accent hover:text-accent transition-colors cursor-pointer whitespace-nowrap'
   const actions = []
-  if (row.type === 'A') {
-    actions.push({ short: '史', label: '历史', fn: () => onHistory?.(row._raw) })
+  if (row.type === 'M') {
+    // 现金就是一个余额数字: 直接调整(支持 +/- 增减或输新余额), 免交易流水逻辑
+    actions.push({ short: '调', label: '调余额', fn: () => onCashAdjust?.(row) })
     actions.push({ short: '改', label: '编辑', fn: () => onEdit?.(row) })
+    actions.push({ short: '删', label: '删除', fn: () => onRemove?.(row), danger: true })
+  } else if (row.type === 'A') {
+    // A股: 买入/卖出 = 打开流水弹窗并预选 BUY/SELL
+    actions.push({ short: '买', label: '买入', fn: () => onHistory?.(row._raw, 'BUY') })
+    actions.push({ short: '卖', label: '卖出', fn: () => onHistory?.(row._raw, 'SELL') })
+    actions.push({ short: '史', label: '流水', fn: () => onHistory?.(row._raw) })
+    actions.push({ short: '删', label: '删除', fn: () => onRemove?.(row), danger: true })
+  } else if (row.type === 'T' || row.type === 'O') {
+    // 期货/期权: 开仓(同向 OPEN) / 平仓(CLOSE) / 流水 / 删除
+    actions.push({ short: '开', label: '开仓', fn: () => onAddLot?.(row) })
+    actions.push({ short: '平', label: '平仓', fn: () => onCloseLot?.(row) })
+    actions.push({ short: '史', label: '流水', fn: () => onHistory?.(row._raw) })
+    actions.push({ short: '删', label: '删除', fn: () => onRemove?.(row), danger: true })
   } else {
-    if (row.type === 'M') {
-      // 现金就是一个余额数字: 直接调整(支持 +/- 增减或输新余额), 免交易流水逻辑
-      actions.push({ short: '调', label: '调余额', fn: () => onCashAdjust?.(row) })
-    } else if (row.type === 'F' || row.type === 'C' || row.type === 'W') {
-      actions.push({ short: '加', label: '加仓', fn: () => onAddLot?.(row) })
-      actions.push({ short: '减', label: '减仓', fn: () => onReduceLot?.(row) })
+    // 场外(基金/加密/理财等): 买入=加仓 / 卖出=减仓 / 流水 / 删除
+    if (row.type === 'F' || row.type === 'C' || row.type === 'W') {
+      actions.push({ short: '买', label: '买入', fn: () => onAddLot?.(row) })
+      actions.push({ short: '卖', label: '卖出', fn: () => onReduceLot?.(row) })
       const pendingN = row._raw?.pending_actions_count || 0
       const histLabel = pendingN > 0 ? `流水 (${pendingN}!)` : '流水'
       actions.push({ short: pendingN > 0 ? `史${pendingN}` : '史', label: histLabel,
         fn: () => onShowActions?.(row), highlight: pendingN > 0 })
     }
-    actions.push({ short: '改', label: '编辑', fn: () => onEdit?.(row) })
+    // 其余场外类型(如 R 机器人): 只留 编辑/删除
+    if (actions.length === 0) actions.push({ short: '改', label: '编辑', fn: () => onEdit?.(row) })
     actions.push({ short: '删', label: '删除', fn: () => onRemove?.(row), danger: true })
   }
   const dangerHover = (a) => a.danger ? {
@@ -374,9 +396,10 @@ export function AllocationDonut({ groups, totalMv }) {
               <span className="font-mono text-text-bright tabular-nums shrink-0">
                 {(g.weight * 100).toFixed(1)}%
               </span>
-              {/* 金额和盈亏只在桌面显示 (移动端空间不够, 数据已在持仓表里) */}
+              {/* 金额和盈亏只在桌面显示 (移动端空间不够, 数据已在持仓表里)。
+                  金额用资产贡献口径(g.asset, 期货=保证金占用), 与中心总资产/权重同口径 */}
               <span className="hidden md:inline font-mono text-text-dim text-[11]px ml-auto truncate">
-                ¥{fmtMoney(g.mv)}
+                ¥{fmtMoney(g.asset)}
               </span>
               <span className={`hidden md:inline font-mono text-[11]px text-right shrink-0 ${priceColor(g.pnl)}`}>
                 {g.pnl >= 0 ? '+' : ''}{fmtMoney(g.pnl)}

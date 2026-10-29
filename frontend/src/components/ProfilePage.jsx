@@ -114,6 +114,8 @@ function BrokerSection() {
                   <th className="text-right py-1.5 px-3 font-medium">最低期权费</th>
                   <th className="text-right py-1.5 px-3 font-medium">平台费</th>
                   <th className="text-right py-1.5 px-3 font-medium">最低平台费</th>
+                  <th className="text-right py-1.5 px-3 font-medium">期货费/手</th>
+                  <th className="text-right py-1.5 px-3 font-medium">期货最低</th>
                   <th className="text-center py-1.5 px-3 font-medium">默认</th>
                   <th className="text-right py-1.5 font-medium">操作</th>
                 </tr>
@@ -131,6 +133,8 @@ function BrokerSection() {
                     <td className="py-1.5 px-3 text-right font-mono">{money(b.opt_min, CCY_OF[b.type || 'A股'])}</td>
                     <td className="py-1.5 px-3 text-right font-mono">{money(b.platform_fee, CCY_OF[b.type || 'A股'])}</td>
                     <td className="py-1.5 px-3 text-right font-mono">{money(b.platform_min, CCY_OF[b.type || 'A股'])}</td>
+                    <td className="py-1.5 px-3 text-right font-mono">{b.fut_rate ? money(b.fut_rate, CCY_OF[b.type || 'A股']) + '/手' : '—'}</td>
+                    <td className="py-1.5 px-3 text-right font-mono">{money(b.fut_min, CCY_OF[b.type || 'A股'])}</td>
                     <td className="py-1.5 px-3 text-center">
                       {b.is_default ? <span className="text-accent">★ 默认</span> : ''}
                     </td>
@@ -183,6 +187,8 @@ function BrokerEditForm({ broker, onDone, onCancel }) {
   const [optMin, setOptMin] = useState(broker ? (broker.opt_min || '') : '')      // 最低期权费
   const [platformFee, setPlatformFee] = useState(broker ? (broker.platform_fee || '') : '')
   const [platformMin, setPlatformMin] = useState(broker ? (broker.platform_min || '') : '')
+  const [futRate, setFutRate] = useState(broker ? (broker.fut_rate || '') : '')
+  const [futMin, setFutMin] = useState(broker ? (broker.fut_min || '') : '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -217,6 +223,8 @@ function BrokerEditForm({ broker, onDone, onCancel }) {
       opt_min: parseFloat(optMin) || 0,
       platform_fee: parseFloat(platformFee) || 0,
       platform_min: parseFloat(platformMin) || 0,
+      fut_rate: parseFloat(futRate) || 0,
+      fut_min: parseFloat(futMin) || 0,
     }
     // 股票费率/期权费必填(可填 0); 基金费率可留空(=同股票费率); 其余最低值可留空按 0 计
     if (![body.stock_rate, body.opt_rate].every(v => v >= 0)) {
@@ -274,6 +282,8 @@ function BrokerEditForm({ broker, onDone, onCancel }) {
         {field(`最低期权费 ${ccy}`, optMin, setOptMin, '0', '0.01')}
         {field(`平台费 ${ccy}`, platformFee, setPlatformFee, '0', '0.01')}
         {field(`最低平台费 ${ccy}`, platformMin, setPlatformMin, '0', '0.01')}
+        {field(`期货费/手 ${ccy}`, futRate, setFutRate, '0', '0.01')}
+        {field(`期货最低 ${ccy}`, futMin, setFutMin, '0', '0.01')}
         <div className="flex gap-2 pb-0.5">
           <button onClick={submit} disabled={busy}
             className="px-4 py-1.5 rounded-md bg-accent text-bg text-[12px] font-medium hover:opacity-90 disabled:opacity-50 cursor-pointer">

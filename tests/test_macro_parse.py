@@ -368,7 +368,7 @@ LINE_MRVL = ("迈威尔科技,216.0000,-7.82,2026-08-19 20:43:00,-18.3300,220.52
 
 
 def test_us_session_from_exchange_clock():
-    from services.market_data import _us_session_of
+    from services.sina_quote import _us_session_of
     assert _us_session_of("Aug 19 08:43AM EDT") == "pre"
     assert _us_session_of("Aug 19 04:00AM EDT") == "pre"
     assert _us_session_of("Aug 19 09:29AM EDT") == "pre"
@@ -382,14 +382,14 @@ def test_us_session_from_exchange_clock():
 
 
 def test_us_quote_separates_last_session_from_premarket(monkeypatch):
-    from services import market_data as md
+    from services import sina_quote as sq
 
     class R:
         text = f'var hq_str_gb_mrvl="{LINE_MRVL}";'
         encoding = "gbk"
 
-    monkeypatch.setattr(md._requests, "get", lambda *a, **k: R())
-    q = md._fetch_us_stock_quote("MRVL")
+    monkeypatch.setattr(sq._requests, "get", lambda *a, **k: R())
+    q = sq._fetch_us_stock_quote("MRVL")
 
     # 正式时段那一档: 价与涨跌幅是 8/18 收盘的, 并且带上时刻
     assert q["price"] == 216.0 and q["change_pct"] == -7.82
@@ -409,29 +409,29 @@ def test_us_quote_separates_last_session_from_premarket(monkeypatch):
 
 def test_us_quote_hides_ext_block_during_regular_session(monkeypatch):
     """盘中时源里的 [21] 跟着最新价走, 再单列一块会和 price 重复, 反而让人分不清。"""
-    from services import market_data as md
+    from services import sina_quote as sq
     line = LINE_MRVL.replace("Aug 19 08:43AM EDT", "Aug 19 10:15AM EDT")
 
     class R:
         text = f'var hq_str_gb_mrvl="{line}";'
         encoding = "gbk"
 
-    monkeypatch.setattr(md._requests, "get", lambda *a, **k: R())
-    q = md._fetch_us_stock_quote("MRVL")
+    monkeypatch.setattr(sq._requests, "get", lambda *a, **k: R())
+    q = sq._fetch_us_stock_quote("MRVL")
     assert q["session"] == "regular"
     assert "ext_hours" not in q
 
 
 def test_us_quote_survives_short_line(monkeypatch):
     """有的票字段少, 不能因为读不到 [21]/[26] 就把整条行情丢了。"""
-    from services import market_data as md
+    from services import sina_quote as sq
 
     class R:
         text = 'var hq_str_gb_xyz="某公司,10.0000,2.00,2026-08-19,0.2000";'
         encoding = "gbk"
 
-    monkeypatch.setattr(md._requests, "get", lambda *a, **k: R())
-    q = md._fetch_us_stock_quote("XYZ")
+    monkeypatch.setattr(sq._requests, "get", lambda *a, **k: R())
+    q = sq._fetch_us_stock_quote("XYZ")
     assert q["price"] == 10.0 and q["change_pct"] == 2.0
     assert q["prev_close"] == round(10.0 / 1.02, 4)      # 缺 [26] 才反推
     assert "ext_hours" not in q and q["session"] == ""

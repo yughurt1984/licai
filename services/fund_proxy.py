@@ -72,7 +72,7 @@ def _fetch_hardcoded_one(p: dict) -> dict | None:
         q = _fetch_hk_index_quote(sym)
     elif t == "a_etf":
         # A股 ETF 用同步 sina quotes (运行在 thread executor 里, 不能再嵌一层 event loop)
-        from services.market_data import _fetch_sina_quotes
+        from services.sina_quote import _fetch_sina_quotes
         r = _fetch_sina_quotes([sym])
         qq = r.get(sym)
         q = {"price": qq["price"], "change_pct": qq["change_pct"]} if qq else None

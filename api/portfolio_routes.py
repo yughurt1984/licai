@@ -1,6 +1,7 @@
 """Portfolio management REST endpoints."""
 from __future__ import annotations
 import asyncio
+import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -9,7 +10,7 @@ from models import HoldingCreate, HoldingUpdate, HoldingResponse
 from database import (
     get_all_holdings, get_holding, add_holding, update_holding, delete_holding,
     get_position_actions, add_position_action, update_position_action, delete_position_action,
-    list_brokers,
+    list_brokers, get_futures_product,
     get_thesis, list_theses, set_thesis, delete_thesis,
 )
 from services.market_data import (
@@ -40,7 +41,7 @@ async def _broker_stock_fee(broker_name):
 
 
 class ActionCreate(BaseModel):
-    action_type: str  # BUY / SELL / ADD / REDUCE / DIVIDEND / BONUS / SPLIT(港美股拆合股: price=比例, shares=0)
+    action_type: str  # BUY / SELL / ADD / REDUCE / DIVIDEND / BONUS / SPLIT / OPEN(期货期权开仓) / CLOSE(平仓)
     price: float
     shares: float   # 美股可碎股; A 股/港股由 _check_shares 校验为整数
     trade_date: Optional[str] = None  # YYYY-MM-DD
@@ -49,6 +50,8 @@ class ActionCreate(BaseModel):
     fee: Optional[float] = None    # 手续费覆盖(原币: A 股人民币、港股港元、美股美元); None 让后端按券商费率自动算
     broker: Optional[str] = None   # 本笔券商(可选, 留空用持仓默认)
     fx_rate: Optional[float] = None  # 港美股成交日汇率(每 1 原币折人民币), 按结单填; 不填按成交日自动取
+    direction: Optional[str] = None  # 期货/期权: LONG | SHORT (OPEN/CLOSE 必带)
+    contract_multiplier: Optional[float] = None  # 期货/期权: 本笔乘数
 
 
 class ActionUpdate(BaseModel):
@@ -124,17 +127,23 @@ def _current_segment_brokers(actions: list, default_broker) -> list:
     return out
 
 
-async def _recompute_holding(stock_code: str):
-    """Rebuild holding shares/cost_price from FIFO ledger."""
+async def _recompute_holding(stock_code: str, direction: str | None = None):
+    """Rebuild holding shares/cost_price from FIFO ledger.
+
+    同合约多空各一行: direction 给定时只取该方向的流水重算该行(两本独立账)。
+    """
     actions = await get_position_actions(stock_code, limit=500)
-    h = await get_holding(stock_code)
+    if direction is not None:
+        actions = [a for a in actions if (a.get("direction") or None) == direction]
+    h = await get_holding(stock_code, direction=direction)
     hb = (h or {}).get("broker")
     state = await ledger_state(stock_code, actions, hb, dilute=False)   # 每笔按各自券商费率
     if state["shares"] > 0:
-        await update_holding(stock_code, shares=state["shares"], cost_price=state["cost_price"])
+        await update_holding(stock_code, shares=state["shares"], cost_price=state["cost_price"],
+                             _direction=direction)
     else:
         # No shares left — keep holding row but set shares=0
-        await update_holding(stock_code, shares=0, cost_price=0)
+        await update_holding(stock_code, shares=0, cost_price=0, _direction=direction)
 
 
 @router.get("")
@@ -181,8 +190,11 @@ async def list_holdings() -> list[HoldingResponse]:
             fx_info = get_fx_info(currency)
         fx_rate = float(fx_info.get("rate") or 1.0)
         cost_value_cny = None      # 港美股: 按各笔成交日汇率折的人民币成本(含本金汇兑)
+        _direction = h.get("direction")
         try:
             _acts = await get_position_actions(code, limit=500)
+            if _direction is not None:
+                _acts = [a for a in _acts if (a.get("direction") or None) == _direction]
             if _acts:
                 _st = await ledger_state(code, _acts, hb, resolve=fee_resolve, fee_overrides=fee_overrides,
                                          fx_now=fx_rate if currency != "CNY" else None)
@@ -199,29 +211,65 @@ async def list_holdings() -> list[HoldingResponse]:
         except Exception:
             pass
 
+        # 估值输出统一在此初始化; 期货/期权分支直接定稿, 股票走下方通用块
+        unrealized_pnl = pnl_pct = market_value = original_market_value = None
+        fx_pnl = None
+        original_cost_value = cost_value = None
+        margin_value = None
+
+        # ── 期货/期权估值: 市值=价×乘数×手数; 浮动按方向(空头翻号); 今日=涨跌幅×方向 ──
+        # 算完直接定稿 —— 下面的股票通用估值块对 fut/opt 必须跳过, 否则乘数/方向会被
+        # 覆盖掉(实测: 浮动盈亏变成 现价×手数 − 成本×乘数×手数, 差一个乘数还丢了空头翻号)。
+        is_fut = h.get("asset_kind") in ("fut", "opt")
+        if is_fut:
+            mult = float(h.get("contract_multiplier") or 1)
+            lots = float(h["shares"] or 0)
+            cost_v = round(float(h["cost_price"] or 0) * mult * lots, 2)
+            original_cost_value = cost_v
+            cost_value = cost_v
+            fx_rate = 1.0
+            if current_price:
+                market_value = round(current_price * mult * lots, 2)
+                original_market_value = market_value
+                if (_direction or "LONG") == "SHORT":
+                    unrealized_pnl = round(cost_v - market_value, 2)
+                    pnl_pct = (round((float(h["cost_price"]) - current_price) / float(h["cost_price"]) * 100, 2)
+                               if h["cost_price"] else None)
+                else:
+                    unrealized_pnl = round(market_value - cost_v, 2)
+                    pnl_pct = (round((current_price - float(h["cost_price"])) / float(h["cost_price"]) * 100, 2)
+                               if h["cost_price"] else None)
+                if change_pct is not None:
+                    change_pct = round(change_pct * (-1 if (_direction or "LONG") == "SHORT" else 1), 3)
+            # 期货是杠杆交易, 总资产里的资产贡献 = 成本×保证金率 + 浮动盈亏(symbol_dict 品种行);
+            # 期权是权利金全额(买方), 不走保证金口径。品种行没配 margin_rate → None, 前端退回名义市值。
+            if h.get("asset_kind") == "fut" and cost_v:
+                prod = re.match(r"^[A-Za-z]+", code)
+                p = await get_futures_product(prod.group(0)) if prod else None
+                rate = (p or {}).get("margin_rate")
+                if rate:
+                    margin_value = round(cost_v * float(rate) + (unrealized_pnl or 0), 2)
+
         # Auto-fix empty stock name
         if not h["stock_name"] and q and q.get("stock_name"):
             await update_holding(code, stock_name=q["stock_name"])
             h["stock_name"] = q["stock_name"]
 
-        unrealized_pnl = None
-        pnl_pct = None
-        market_value = None
-        original_cost_value = round(h["cost_price"] * h["shares"], 2)
-        original_market_value = None
-        cost_value = round(original_cost_value * fx_rate, 2)
-        fx_pnl = None
-        if cost_value_cny is not None and h["shares"]:
-            # 成本按成交日汇率: 浮动盈亏 = 现市值(现汇率) − 人民币成本, 其中本金汇兑 = 原币成本 × 现汇率 − 人民币成本
-            fx_pnl = round(cost_value - cost_value_cny, 2)
-            cost_value = round(cost_value_cny, 2)
-        if current_price and current_price > 0:
-            original_market_value = round(current_price * h["shares"], 2)
-            market_value = round(original_market_value * fx_rate, 2)
-            unrealized_pnl = (round(market_value - cost_value, 2) if cost_value_cny is not None
-                              else round((original_market_value - original_cost_value) * fx_rate, 2))
-            if h["cost_price"] > 0:
-                pnl_pct = round((current_price - h["cost_price"]) / h["cost_price"] * 100, 2)
+        # ── 股票通用估值(fut/opt 已在上面定稿, 跳过 —— 那套公式没有乘数/方向) ──
+        if not is_fut:
+            original_cost_value = round(h["cost_price"] * h["shares"], 2)
+            cost_value = round(original_cost_value * fx_rate, 2)
+            if cost_value_cny is not None and h["shares"]:
+                # 成本按成交日汇率: 浮动盈亏 = 现市值(现汇率) − 人民币成本, 其中本金汇兑 = 原币成本 × 现汇率 − 人民币成本
+                fx_pnl = round(cost_value - cost_value_cny, 2)
+                cost_value = round(cost_value_cny, 2)
+            if current_price and current_price > 0:
+                original_market_value = round(current_price * h["shares"], 2)
+                market_value = round(original_market_value * fx_rate, 2)
+                unrealized_pnl = (round(market_value - cost_value, 2) if cost_value_cny is not None
+                                  else round((original_market_value - original_cost_value) * fx_rate, 2))
+                if h["cost_price"] > 0:
+                    pnl_pct = round((current_price - h["cost_price"]) / h["cost_price"] * 100, 2)
 
         result.append(HoldingResponse(
             stock_code=code,
@@ -244,6 +292,10 @@ async def list_holdings() -> list[HoldingResponse]:
             fx_pnl=fx_pnl,
             sector=sector_map.get(code),
             broker=broker_display,
+            asset_kind=h.get("asset_kind") or "stock",
+            direction=h.get("direction"),
+            contract_multiplier=h.get("contract_multiplier"),
+            margin_value=margin_value,
             div_per_share=h.get("div_per_share"),
             today_valid=quote_today_valid(market, q),
         ))
@@ -279,9 +331,37 @@ async def realized_pnl():
     total = 0.0
     total_carry = 0.0
     for code in codes:
-        actions = await get_position_actions(code, limit=500)
-        if not actions:
+        all_acts = await get_position_actions(code, limit=500)
+        if not all_acts:
             continue
+        # 同合约双向: 期货/期权按方向各算一本账再合并; 股票无 direction 单本。
+        h0 = holdings_map.get(code) or {}
+        if h0.get("asset_kind") in ("fut", "opt"):
+            dir_groups: dict = {}
+            for a in all_acts:
+                dir_groups.setdefault(a.get("direction") or "LONG", []).append(a)
+            mult = float(h0.get("contract_multiplier") or 1)
+            rp = carry = 0.0
+            still = False
+            for d, acts in dir_groups.items():
+                st = await ledger_state(code, acts, h0.get("broker"),
+                                        resolve=resolve, fee_overrides=fee_overrides, dilute=False)
+                rp += float(st.get("realized_pnl") or 0) * mult
+                carry += float(st.get("realized_carry") or 0) * mult
+                still = still or (st.get("shares") or 0) > 0
+            total += rp
+            total_carry += carry
+            items.append({
+                "stock_code": code,
+                "stock_name": h0.get("stock_name") or code,
+                "realized_pnl": round(rp, 2),
+                "realized_carry": round(carry, 2),
+                "currency": "CNY", "realized_pnl_native": round(rp, 2), "fx_rate": 1.0,
+                "fx_pnl": 0.0,
+                "still_holding": still,
+            })
+            continue
+        actions = all_acts
         # 账本按原币记(港股 HKD、美股 USD); 人民币口径每笔按自己的成交日汇率(fx_rate, 没记的按当前汇率),
         # 所以已实现里含本金的汇兑损益(fx_pnl 单列)。费用与看板同一口径(每笔券商 + fee_schedules 覆盖)。
         foreign = code_currency(code) != "CNY"
@@ -1507,6 +1587,30 @@ def _check_shares(stock_code: str, shares) -> None:
         raise HTTPException(400, "A 股和港股的股数必须是整数, 只有美股支持碎股")
 
 
+@router.get("/contracts/search")
+async def contracts_search(q: str = "", asset_type: str = "futures"):
+    """同花顺合约搜索(期货/期权): 开仓表单按代码/名称选合约, 带出 thscode/名称。"""
+    from services import ths_fuyao
+    try:
+        items = await ths_fuyao.contracts_search(q, asset_type=asset_type or "")
+        return {"items": [
+            {"thscode": it.get("thscode") or "", "name": it.get("name") or "",
+             "ticker": it.get("ticker") or "", "exchange": it.get("exchange") or "",
+             "asset_type": it.get("asset_type") or asset_type}
+            for it in (items or [])[:30]
+        ]}
+    except Exception as e:
+        return {"items": [], "error": str(e)}
+
+
+@router.get("/products/search")
+async def products_search(q: str = "", kind: str = "fut"):
+    """期货/期权品种搜索(symbol_dict 品种行, 如 CU → 沪铜): 开仓表单选品种+月份拼合约。"""
+    from database import search_futures_products
+    items = await search_futures_products(q, asset_type=kind if kind in ("fut", "opt") else "")
+    return {"items": items}
+
+
 @router.get("/fee-estimate")
 async def fee_estimate(stock_code: str, price: float, shares: float,
                        broker: str = "", action: str = "BUY", trade_date: str = "", kind: str = ""):
@@ -1563,27 +1667,59 @@ def stockCodeIsEtf(code: str) -> bool:
 
 @router.post("")
 async def create_holding(data: HoldingCreate):
-    stock_code = normalize_stock_code(data.stock_code)
-    _check_shares(stock_code, data.shares)
-    existing = await get_holding(stock_code)
+    kind = (data.asset_kind or "stock").lower()
+    if kind in ("fut", "opt"):
+        if (data.direction or "").upper() not in ("LONG", "SHORT"):
+            raise HTTPException(400, "期货/期权必须指定方向(多/空)")
+        if not (data.contract_multiplier and data.contract_multiplier > 0):
+            raise HTTPException(400, "期货/期权必须填每手乘数")
+        stock_code = data.stock_code.strip().upper()      # thscode 原样(CU2601.SHF), 不走股票 normalize
+        if not (data.shares and float(data.shares) > 0):
+            raise HTTPException(400, "手数必须大于 0")
+        direction = data.direction.upper()
+        mult = float(data.contract_multiplier)
+    else:
+        stock_code = normalize_stock_code(data.stock_code)
+        direction = mult = None
+        _check_shares(stock_code, data.shares)
+    existing = await get_holding(stock_code, direction=direction)
     # 还有持仓 → 真重复, 让用户走「加仓」。shares=0 的已清仓标的允许从这里重新建仓,
     # 复用原有交易历史 (FIFO 续上, 之前的已实现盈亏保留)。
+    # 双向: 同合约另一方向的行不算重复 —— 多空各一行是本设计的前提。
     if existing and (existing.get("shares") or 0) > 0:
-        raise HTTPException(400, f"持仓 {stock_code} 已存在，请用「加仓」补仓")
+        raise HTTPException(400, f"持仓 {stock_code} ({'多' if direction == 'LONG' else '空'}) 已存在，请用「加仓」补仓")
 
     name = data.stock_name or (existing.get("stock_name") if existing else None)
     if not name:
-        name = await get_stock_name(stock_code)
+        name = await get_stock_name(stock_code) if kind == "stock" else ""
+    if kind in ("fut", "opt") and not name:
+        try:
+            from services.ths_fuyao import contract_detail
+            d = await contract_detail(stock_code)
+            name = (d or {}).get("name") or stock_code
+        except Exception:
+            name = stock_code
 
     # 1) 建持仓行 (已清仓标的的行还在, 不重复 INSERT, 顺手更新名字)
     if existing:
-        await update_holding(stock_code, stock_name=name)
+        await update_holding(stock_code, stock_name=name, direction=direction,
+                             contract_multiplier=mult, asset_kind=kind)
     else:
-        await add_holding(stock_code, name, data.shares, data.cost_price)
+        await add_holding(stock_code, name, data.shares, data.cost_price,
+                          direction=direction, contract_multiplier=mult, asset_kind=kind)
     # 1b) 如果前端传了券商, 在 recompute 之前写入, 这样 _recompute_holding 能用正确的费率
     if data.broker:
         await update_holding(stock_code, broker=data.broker)
-    # 2) 写一笔 BUY action,然后重算综合成本 (会自动加佣金/印花税/过户费)
+    # 2) 股票写 BUY; 期货/期权写 OPEN(带方向+乘数)。种子流水后重算综合成本。
+    if kind in ("fut", "opt"):
+        await add_position_action(
+            stock_code, "OPEN", data.cost_price, data.shares,
+            note="initial (auto)", trade_date=data.trade_date,
+            trade_time=(data.trade_time or None), broker=(data.broker or None),
+            fee=data.fee, direction=direction, contract_multiplier=mult,
+        )
+        await _recompute_holding(stock_code)
+        return {"message": "开仓成功", "stock_code": stock_code, "stock_name": name}
     await add_position_action(
         stock_code, "BUY", data.cost_price, data.shares,
         note="re-entry (auto)" if existing else "initial (auto)",
@@ -1598,13 +1734,15 @@ async def create_holding(data: HoldingCreate):
 
 
 @router.put("/{stock_code}")
-async def modify_holding(stock_code: str, data: HoldingUpdate):
-    stock_code = normalize_stock_code(stock_code)
-    existing = await get_holding(stock_code)
+async def modify_holding(stock_code: str, data: HoldingUpdate, direction: str = None):
+    """direction 查询参数: 期货/期权同合约双向行选择器(?direction=LONG/SHORT)。"""
+    _direction = (direction or "").upper() or None
+    existing = await get_holding(stock_code, direction=_direction)
     if not existing:
         raise HTTPException(404, f"持仓 {stock_code} 不存在")
 
-    _check_shares(stock_code, data.shares)
+    if (existing.get("asset_kind") or "stock") == "stock":
+        _check_shares(stock_code, data.shares)
     kwargs = {}
     if data.stock_name is not None:
         kwargs["stock_name"] = data.stock_name
@@ -1614,19 +1752,21 @@ async def modify_holding(stock_code: str, data: HoldingUpdate):
         kwargs["cost_price"] = data.cost_price
     if data.broker is not None:
         kwargs["broker"] = data.broker
+    if data.last_price is not None:       # 期权: 手填最新价(浮动盈亏用)
+        kwargs["last_price"] = data.last_price
 
-    await update_holding(stock_code, **kwargs)
+    await update_holding(stock_code, _direction=_direction, **kwargs)
     return {"message": "更新成功"}
 
 
 @router.delete("/{stock_code}")
-async def remove_holding(stock_code: str):
-    stock_code = normalize_stock_code(stock_code)
-    existing = await get_holding(stock_code)
+async def remove_holding(stock_code: str, direction: str = None):
+    _direction = (direction or "").upper() or None
+    existing = await get_holding(stock_code, direction=_direction)
     if not existing:
         raise HTTPException(404, f"持仓 {stock_code} 不存在")
 
-    await delete_holding(stock_code)
+    await delete_holding(stock_code, direction=_direction)
     return {"message": "删除成功"}
 
 
@@ -1646,13 +1786,17 @@ async def today_pnl_api():
 
 
 @router.get("/{stock_code}/actions")
-async def list_actions(stock_code: str):
+async def list_actions(stock_code: str, direction: str = None):
     """List all buy/sell actions for a stock, chronologically.
     每条附加 fee_effective (override 或估算的实际值) 和 fee_auto (估算值, 用作 UI placeholder).
+    direction 查询参数: 期货/期权同合约双向行只看自己的流水。
     """
     stock_code = normalize_stock_code(stock_code)
     from database import resolve_action_time
     actions = await get_position_actions(stock_code, limit=500)
+    _direction = (direction or "").upper() or None
+    if _direction is not None:
+        actions = [a for a in actions if (a.get("direction") or None) == _direction]
     is_a = stock_code and not stock_code.upper().startswith(("HK.", "US."))
     h = await get_holding(stock_code)
     hb = (h or {}).get("broker") or await _default_broker_name()   # 未指定→持仓→配置默认, 让默认也有 tag
@@ -1686,14 +1830,20 @@ async def create_action(stock_code: str, data: ActionCreate):
     解套计划/加仓子弹池已退役: BUY/ADD 不再自动撮合 pending tranche,
     历史 tranche 数据冻结保留, 新 action 一律不写 tranche_id.
     """
-    stock_code = normalize_stock_code(stock_code)
-    holding = await get_holding(stock_code)
+    is_fut = (data.action_type or "").upper() in ("OPEN", "CLOSE")
+    _direction = (data.direction or "").upper() or None
+    if is_fut and not _direction:
+        raise HTTPException(400, "期货/期权的开仓/平仓必须带方向(多/空)")
+    holding = await get_holding(stock_code, direction=_direction)
     if not holding:
         raise HTTPException(404, f"持仓 {stock_code} 不存在")
-    _check_shares(stock_code, data.shares)
+    if not is_fut:
+        _check_shares(stock_code, data.shares)
     is_split = (data.action_type or "").upper() == "SPLIT"
     if is_split and not (data.price and data.price > 0):
         raise HTTPException(400, "拆合股请在价格栏填比例(新股数/旧股数): 1 拆 4 填 4, 10 合 1 填 0.1")
+    mult = (data.contract_multiplier
+            or (holding.get("contract_multiplier") if is_fut else None))
     await add_position_action(
         stock_code=stock_code,
         action_type=data.action_type,
@@ -1706,8 +1856,10 @@ async def create_action(stock_code: str, data: ActionCreate):
         trade_time=(data.trade_time or None),
         broker=(data.broker or None),
         fx_rate=None if is_split else await _trade_fx(stock_code, data.trade_date, data.fx_rate),
+        direction=_direction if is_fut else None,
+        contract_multiplier=mult if is_fut else None,
     )
-    await _recompute_holding(stock_code)
+    await _recompute_holding(stock_code, direction=_direction)
     return {"message": "记录已添加"}
 
 
@@ -1748,7 +1900,7 @@ async def modify_action(action_id: int, data: ActionUpdate):
         fx_rate=fx_new,
     )
     if old:
-        await _recompute_holding(old["stock_code"])
+        await _recompute_holding(old["stock_code"], direction=old.get("direction"))
     return {"message": "已更新"}
 
 
@@ -1758,13 +1910,13 @@ async def remove_action(action_id: int):
     from database import get_db
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT stock_code FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
+        cursor = await db.execute("SELECT stock_code, direction FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
         row = await cursor.fetchone()
     finally:
         await db.close()
     await delete_position_action(action_id)
     if row:
-        await _recompute_holding(row["stock_code"])
+        await _recompute_holding(row["stock_code"], direction=row.get("direction"))
     return {"message": "已删除"}
 
 

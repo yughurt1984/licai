@@ -28,6 +28,8 @@ class BrokerCreate(BaseModel):
     opt_min: float = 0.0                # 最低期权费
     platform_fee: float = 0.0
     platform_min: float = 0.0           # 最低平台费
+    fut_rate: float = 0.0               # 期货/期权手续费(每手, 原币; 0=逐笔手填覆盖)
+    fut_min: float = 0.0                # 期货/期权最低手续费
 
 
 class BrokerUpdate(BaseModel):
@@ -44,6 +46,8 @@ class BrokerUpdate(BaseModel):
     opt_min: Optional[float] = None
     platform_fee: Optional[float] = None
     platform_min: Optional[float] = None
+    fut_rate: Optional[float] = None
+    fut_min: Optional[float] = None
     is_default: Optional[bool] = None
 
 
@@ -62,6 +66,7 @@ async def create_broker(data: BrokerCreate):
     bid = await add_broker(data.name, data.stock_rate, data.stock_min, data.etf_rate, data.etf_min,
                            opt_rate=data.opt_rate, opt_min=data.opt_min,
                            platform_fee=data.platform_fee, platform_min=data.platform_min,
+                           fut_rate=data.fut_rate, fut_min=data.fut_min,
                            stock_unit=data.stock_unit, etf_unit=data.etf_unit, opt_unit=data.opt_unit,
                            btype=data.type)
     return {"id": bid, "message": "created"}

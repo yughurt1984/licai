@@ -83,7 +83,10 @@ export default function Dashboard({ holdings }) {
   }
 
   // --- Stock aggregates ---
-  const aValue = holdings.reduce((s, h) => s + (h.market_value || 0), 0)
+  // 期货是杠杆交易: 计入总资产的是保证金占用(后端算好的 margin_value = 成本×保证金率+浮动盈亏),
+  // 不是名义市值 —— 否则顶栏总资产和持仓总览(totalMv 同口径)对不上。
+  const aValue = holdings.reduce((s, h) =>
+    s + (h.asset_kind === 'fut' && h.margin_value != null ? h.margin_value : (h.market_value || 0)), 0)
   const aCost = holdings.reduce((s, h) => s + (h.cost_value ?? h.cost_price * h.shares), 0)
   const aPnl = holdings.reduce((s, h) => s + (h.unrealized_pnl || 0), 0)
   // 股票今日浮动：A 股按 A 股交易日，港美股按后端给的 today_valid。

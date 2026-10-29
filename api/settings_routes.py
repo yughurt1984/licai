@@ -268,6 +268,65 @@ async def test_feishu():
     return {"success": ok, "message": "发送成功" if ok else "发送失败，请检查 Webhook URL"}
 
 
+class ThsApiKey(BaseModel):
+    api_key: str
+
+
+@router.get("/ths")
+async def get_ths_key():
+    """同花顺 fuyao API key: 只回掩码, 不回明文。"""
+    key = await get_config("ths_api_key") or ""
+    masked = (key[:4] + "****" + key[-2:]) if len(key) > 6 else ("****" if key else "")
+    return {"has_key": bool(key), "key_masked": masked}
+
+
+@router.post("/ths")
+async def save_ths_key(data: ThsApiKey):
+    key = (data.api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "API key 不能为空")
+    await set_config("ths_api_key", key)
+    from services.ths_fuyao import invalidate_key_cache
+    invalidate_key_cache()
+    return {"message": "保存成功"}
+
+
+# ── futu OpenD 网关(港/美股行情源) ──────────────────────────
+class FutuConfig(BaseModel):
+    host: str = ""
+    port: Optional[int] = None
+
+    @field_validator("host")
+    @classmethod
+    def _vh(cls, v: str) -> str:
+        return (v or "").strip()
+
+
+@router.get("/futu")
+async def get_futu_config():
+    """futu OpenD 网关地址: 本地进程, 非凭证, 直接回明文。DB 优先, 其次 config.py/.env。"""
+    from services import futu_quote
+    host, port = await futu_quote.futu_config()
+    db_host = await get_config("futu_host") or ""
+    db_port = await get_config("futu_port") or ""
+    return {"host": host, "port": port,
+            "db_host": db_host, "db_port": db_port,
+            "last_error": futu_quote.last_error()}
+
+
+@router.post("/futu")
+async def save_futu_config(data: FutuConfig):
+    """保存 OpenD host/port 到 DB 并立刻重建连接上下文(下次快照用新地址)。"""
+    if data.host:
+        await set_config("futu_host", data.host)
+    if data.port:
+        await set_config("futu_port", str(data.port))
+    from services import futu_quote
+    futu_quote.invalidate_ctx()
+    host, port = await futu_quote.futu_config()
+    return {"message": "保存成功", "host": host, "port": port}
+
+
 # --- Risk Config ---
 
 class RiskConfig(BaseModel):

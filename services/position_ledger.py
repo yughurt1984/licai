@@ -206,6 +206,21 @@ def compute_position_state(
     if today is None:
         today = date.today()
 
+    # ── 期货/期权方向语义(负价技巧) ──────────────────────────────
+    # OPEN/CLOSE + direction → 现有 LONG FIFO 直接复用:
+    #   LONG : OPEN→BUY, CLOSE→SELL(价格不变), realized=(平价−开价)×手数 ✓
+    #   SHORT: 全部价格取负后再走同一套 → FIFO 算出 (−C−(−P))×S = (P−C)×S
+    #          = 空头真实盈亏, realized/carry 无需翻转; 仅成本价需取负还原展示值。
+    # 乘数不进账本: 流水/持仓的价格都按"每单位"计, 名义价值 = 价×乘数×手数, 由展示层乘。
+    direction = next((str(a.get("direction") or "").upper() for a in actions if a.get("direction")), "")
+    if direction in ("LONG", "SHORT"):
+        sign = -1.0 if direction == "SHORT" else 1.0
+        remap = {"OPEN": "BUY", "CLOSE": "SELL"}
+        actions = [dict(a,
+                        price=(float(a.get("price") or 0) * sign),
+                        action_type=remap.get(a.get("action_type"), a.get("action_type")))
+                   for a in actions]
+
     def sort_key(a):
         return _parse_date(a.get("trade_date") or a.get("created_at"))
 
@@ -447,17 +462,19 @@ def compute_position_state(
 
     return {
         "shares": whole if abs(total_shares - whole) < 1e-6 else round(total_shares, 4),
-        "cost_price": round(net_cost_diluted, 4),       # primary: 综合成本法 + 分红摊薄 (matches broker)
-        "cost_price_raw": round(net_cost, 4),           # 未摊薄(仅买卖+费), 供对照
+        # SHORT(负价技巧): 成本价是负的每单位均价 → 取负还原为正的展示值;
+        # realized_pnl/carry 已经是真实空头盈亏, 不翻。
+        "cost_price": round(-net_cost_diluted, 4) if direction == "SHORT" else round(net_cost_diluted, 4),
+        "cost_price_raw": round(-net_cost, 4) if direction == "SHORT" else round(net_cost, 4),
         "div_per_share": round(div_ps, 4),              # 持有期累计每股现金分红(已摊进 cost_price)
-        "fifo_cost_price": round(fifo_cost_diluted, 4), # for reference
+        "fifo_cost_price": round(-fifo_cost_diluted, 4) if direction == "SHORT" else round(fifo_cost_diluted, 4),
         "total_fees": round(total_fees, 2),
         "weighted_days": int(round(weighted_days)),
         "realized_pnl": realized_pnl,
         "realized_carry": realized_carry_out,            # 已平仓段+分红 (不在浮动里, 供顶部总盈亏补)
         "income_realized": round(income_realized, 2),   # 累计现金分红 (DIVIDEND, 税后)
         "dividend_tax": round(dividend_tax, 2),         # 港美股分红预扣税累计(原币)
-        "cost_value_cny": round(cost_value_cny, 2),     # 持仓成本(人民币, 按各笔成交日汇率; A 股 = 成本×股数)
+        "cost_value_cny": round(abs(cost_value_cny), 2) if direction == "SHORT" else round(cost_value_cny, 2),
         **cny,
         "lots": [
             {"shares": round(l["shares"], 4) if l["shares"] % 1 else int(l["shares"]), "price": l["price"],
@@ -471,6 +488,29 @@ def compute_position_state(
 # 所有要「某只票现在的账」的地方都走 ledger_state: 每笔按自己的券商(没填用持仓券商)估费,
 # 港美股收费方案吃 app_config.fee_schedules 的覆盖, 当前汇率懒取。各处自己拼参数容易漏一项
 # (曾经 realized / trade-review / today-pnl 都没走自动估费, 港美股的费用回退成默认券商方案)。
+
+async def _product_fee_of(code: str):
+    """thscode → symbol_dict 品种行的 (open_fee, close_fee), 单位元/手。
+
+    品种 = 合约主体的字母前缀(CU2601 → CU / IO2601-C-4000 → IO); 查不到品种行或无费率 → None。
+    close_fee 未配时回退 open_fee(多数品种开平同费)。
+    """
+    try:
+        import re as _re
+        from database import get_futures_product
+        body = (code or "").split(".")[0]
+        m = _re.match(r"^[A-Za-z]+", body)
+        if not m:
+            return None
+        prod = await get_futures_product(m.group(0).upper())
+        if not prod:
+            return None
+        o = prod.get("open_fee")
+        c = prod.get("close_fee")
+        return (o, c if c is not None else o)
+    except Exception:
+        return None
+
 
 async def broker_fee_resolver():
     """一次性读券商表, 返回 (name, market)->(rate,min) 解析器(找不到→默认券商), 避免每笔查库。
@@ -494,6 +534,16 @@ async def broker_fee_resolver():
             pick = hit or rows[0]
             return (pick["stock_rate"], pick["stock_min"])
         return (default["stock_rate"], default["stock_min"]) if default else (None, None)
+
+    def resolve_fut(name):
+        """期货/期权手续费档(每手, 原币)。同名/默认券商同口径; 没有券商 → (0,0)=逐笔手填。"""
+        rows = byname.get(name) if name else None
+        pick = (rows[0] if rows else None) or default
+        if not pick:
+            return (0.0, 0.0)
+        return (pick.get("fut_rate") or 0.0, pick.get("fut_min") or 0.0)
+
+    resolve.fut = resolve_fut       # 挂在同一个 resolver 上, 免得调用方多管一个对象
     return resolve
 
 
@@ -514,9 +564,26 @@ async def attach_auto_fees(actions: list, stock_code: str, holding_broker, resol
         from database import get_config
         fee_overrides = await get_config("fee_schedules")   # 港美股收费方案的覆盖(JSON), 见 services/market_fees.py
     by_broker: dict = {}
+    fut_actions: list = []
+    from services.ths_fuyao import is_thscode
     for a in actions:
         code = a.get("stock_code") or stock_code
         b = a.get("broker") or holding_broker
+        if is_thscode(code):
+            # 期货/期权: 手续费 = 每手费率 × 手数(与 A股按成交金额%完全不同口径), 不进分摊管线。
+            # 费率来源优先级: symbol_dict 品种行(open_fee/close_fee, 元/手) > brokers.fut_rate 兜底
+            #   > 0。逐笔手填的 fee 覆盖优先(compute 处已按 a["fee"] 优先)。
+            lots = a.get("shares") or 0
+            per_lot, fmin = None, 0.0
+            prod = await _product_fee_of(code)          # (open_fee, close_fee) 品种行
+            if prod:
+                per_lot = prod[0] if (a.get("action_type") or "OPEN") == "OPEN" else prod[1]
+            if per_lot is None:
+                fr, fmin0 = resolve.fut(b)
+                per_lot, fmin = fr, fmin0
+            a["_auto_fee"] = max((per_lot or 0) * lots, fmin or 0) if per_lot else 0.0
+            fut_actions.append(a)
+            continue
         r, m = resolve(b, _foreign_market(code))
         # 港美股按券商名分组(方案按名字取); A 股沿用按费率分组
         by_broker.setdefault((r, m, b if _foreign_market(code) else None), []).append(a)

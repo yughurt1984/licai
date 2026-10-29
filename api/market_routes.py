@@ -20,10 +20,11 @@ async def symbol_name(code: str = ""):
     from database import get_db
     db = await get_db()
     try:
-        cur = await db.execute("SELECT name, code FROM symbol_dict WHERE ticker = ? LIMIT 1", (bare,))
+        # 大小写不敏感: 库里存 cu / aapl / 600406.sh 都能命中(美股 ticker 尤其常见小写)
+        cur = await db.execute("SELECT name, code FROM symbol_dict WHERE UPPER(ticker) = ? LIMIT 1", (bare,))
         r = await cur.fetchone()
         if r is None:
-            cur = await db.execute("SELECT name, code FROM symbol_dict WHERE code = ? LIMIT 1", (bare,))
+            cur = await db.execute("SELECT name, code FROM symbol_dict WHERE UPPER(code) = ? LIMIT 1", (bare,))
             r = await cur.fetchone()
         return {"name": r[0] if r else None, "code": r[1] if r else None}
     finally:

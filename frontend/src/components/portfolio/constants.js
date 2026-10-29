@@ -23,9 +23,9 @@ export const TYPE_COLOR = {
 
 export const TYPE_ORDER = ['A', 'F', 'W', 'M', 'C', 'R', 'T', 'O']
 
-export const ASSET_TYPE_TO_KEY = { FUND: 'F', CRYPTO: 'C', BOT: 'R', WEALTH: 'W', CASH: 'M', FUT: 'T', OPT: 'O' }
+export const ASSET_TYPE_TO_KEY = { FUND: 'F', CRYPTO: 'C', BOT: 'R', WEALTH: 'W', CASH: 'M' }
 
-export const KEY_TO_ASSET_TYPE = { F: 'FUND', C: 'CRYPTO', R: 'BOT', W: 'WEALTH', M: 'CASH', T: 'FUT', O: 'OPT' }
+export const KEY_TO_ASSET_TYPE = { F: 'FUND', C: 'CRYPTO', R: 'BOT', W: 'WEALTH', M: 'CASH' }
 
 // 券商佣金率（默认万 2.5; 在 config.py 改为你自己的费率）。影响"按股买"模式的手续费自动估算.
 export const BROKER_COMMISSION_RATE = 0.00025

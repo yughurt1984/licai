@@ -130,7 +130,10 @@ async def _compute() -> dict:
     items: list[dict] = []
 
     # ---------- A 股 ----------
-    holdings = {h["stock_code"]: h for h in await get_all_holdings()}
+    all_holdings = await get_all_holdings()
+    # 期货/期权(双向)单独走 涨跌幅×方向 口径, 不进股票现金流账本; 同合约多空两行都要计
+    fut_holdings = [h for h in all_holdings if h.get("asset_kind") in ("fut", "opt")]
+    holdings = {h["stock_code"]: h for h in all_holdings if h.get("asset_kind") not in ("fut", "opt")}
     acts_all = await get_position_actions(limit=5000)
     by_code: dict[str, list] = {}
     for a in acts_all:
@@ -141,11 +144,50 @@ async def _compute() -> dict:
     yday = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
     a_codes = set(holdings) | {c for c, arr in by_code.items()
                                if any(_flow(arr, d)["bought_shares"] or _flow(arr, d)["sold_shares"] for d in (day, yday))}
-    quotes = await get_realtime_quotes(list(a_codes)) if a_codes else {}
+    fut_codes = [h["stock_code"] for h in fut_holdings]
+    quotes = await get_realtime_quotes(list(a_codes) + fut_codes) if (a_codes or fut_codes) else {}
     from database import get_config
     from services.position_ledger import attach_auto_fees, broker_fee_resolver
     resolve = await broker_fee_resolver()
     fee_overrides = await get_config("fee_schedules")
+    # ── 期货/期权(双向): 现金流口径不适用(开仓不是"买入市值"), 按 涨跌幅×方向×名义市值 ──
+    # 今天开的仓不能套昨收涨跌幅(昨收与刚开的仓无关): 拆两段算 ——
+    #   隔夜段 (现价−昨收)×乘数×昨日已有手数×方向; 今日段 (现价−开仓均价)×乘数×今日开仓手数×方向
+    for hrow in fut_holdings:
+        q = quotes.get(hrow["stock_code"]) or {}
+        price, pct = q.get("price"), q.get("change_pct")
+        if price is None:
+            continue
+        mult = float(hrow.get("contract_multiplier") or 1)
+        lots = float(hrow.get("shares") or 0)
+        sign = -1.0 if (hrow.get("direction") or "LONG") == "SHORT" else 1.0
+        hdir = hrow.get("direction") or "LONG"
+        opened_amt = opened_sh = 0.0
+        for a in by_code.get(hrow["stock_code"]) or []:
+            if (str(a.get("trade_date") or "")[:10] != day
+                    or (a.get("direction") or "LONG") != hdir
+                    or str(a.get("action_type") or "").upper() not in ("OPEN", "ADD", "BUY")
+                    or (a.get("status") or "confirmed") != "confirmed"):
+                continue
+            s, px = float(a.get("shares") or 0), float(a.get("price") or 0)
+            if s > 0 and px > 0:
+                opened_sh += s
+                opened_amt += px * s
+        overnight = lots - opened_sh
+        pnl = 0.0
+        if overnight > 1e-9 and pct is not None:
+            pnl += price * mult * overnight * float(pct) / 100 * sign
+        if opened_sh > 1e-9 and opened_amt > 0:
+            pnl += (price - opened_amt / opened_sh) * mult * opened_sh * sign
+        items.append({
+            "code": hrow["stock_code"], "type": hrow["asset_kind"].upper(), "market": "FUT",
+            "currency": "CNY", "fx_rate": 1.0,
+            "name": hrow.get("stock_name") or hrow["stock_code"],
+            "today_pnl": round(pnl, 2),
+            "shares": lots, "bought": opened_sh, "sold": 0,
+            "closed_today": False, "opened_today": opened_sh >= lots > 0,
+        })
+
     for code in sorted(a_codes):
         if by_code.get(code):          # 没手填 fee 的流水按看板同一口径估费(每笔券商, 港美股收费方案)
             await attach_auto_fees(by_code[code], code, (holdings.get(code) or {}).get("broker"),

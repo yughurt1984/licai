@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { fmtMoney, fmtPct, loadBrokers, priceColor } from '../helpers'
-import { fetchJSON } from '../hooks/useApi'
+import { api, fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 import Tooltip from './Tooltip'
 import { AllocationDonut, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './portfolio/atoms'
@@ -22,7 +22,7 @@ import { usePortfolioModals } from './portfolio/useModals'
 // ============================================================
 // Main
 // ============================================================
-export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, dataVersion = 0 }) {
+export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, dataVersion = 0, onHoldingsChanged }) {
   const [assets, setAssets] = useState([])
   const [brokers, setBrokers] = useState([])
   useEffect(() => { loadBrokers().then(setBrokers) }, [])
@@ -256,17 +256,29 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
 
   const removeAsset = async (row) => {
     if (!confirm(`删除 ${row.name}？`)) return
-    await fetchJSON(`/api/assets/${row._raw.id}`, { method: 'DELETE' })
+    // 证券持仓(A股/期货/期权)是 holdings 表 → 按 code(+方向) 删; 场外资产走 assets 路由
+    if (row.type === 'A' || row.type === 'T' || row.type === 'O') {
+      await api.deleteHolding(row._raw.stock_code, row._raw.direction)
+      onHoldingsChanged?.()
+    } else {
+      await fetchJSON(`/api/assets/${row._raw.id}`, { method: 'DELETE' })
+    }
     loadAssets()
   }
 
   const handleEdit = (row) => {
-    if (row.type === 'A') onEdit?.(row._raw)
+    // A股/期货/期权都是 holdings —— 走 App 的 EditModal(支持期货手数/成本/最新价/删除);
+    // 其余是场外资产 → EditAssetRow
+    if (row.type === 'A' || row.type === 'T' || row.type === 'O') onEdit?.(row._raw)
     else show('edit', row._raw)
   }
   const handleAddLot = (row) => {
     if (row.type === 'A') return  // A股 走 TransactionHistory
+    if (row.type === 'T' || row.type === 'O') return show('futLot', row._raw)  // 期货/期权: 同向 OPEN
     show('addLot', row._raw)
+  }
+  const handleCloseLot = (row) => {
+    if (row.type === 'T' || row.type === 'O') show('futClose', row._raw)       // 平仓 CLOSE
   }
   const handleReduceLot = (row) => {
     if (row.type === 'A') return
@@ -299,10 +311,12 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
 
   // 行内操作的一整套回调。RowActions 的入参本来就是这几个, 所以整体传,
   // 不在 HoldingRow 上摊成九个 prop。
+  // onHistory(raw, preset): A股 买入/卖出按钮打开流水弹窗并预选方向, preset 挂在 raw 上带给 App。
   const rowActions = {
     onEditBotBudget: editBotBudget,
-    onEdit: handleEdit, onHistory, onRemove: removeAsset,
-    onAddLot: handleAddLot, onReduceLot: handleReduceLot,
+    onEdit: handleEdit,
+    onHistory: (raw, preset) => onHistory?.(preset ? { ...raw, presetType: preset } : raw), onRemove: removeAsset,
+    onAddLot: handleAddLot, onReduceLot: handleReduceLot, onCloseLot: handleCloseLot,
     onShowActions: handleShowActions,
     onCashAdjust: (r) => show('cashAdjust', r._raw),
     onKline: (h) => show('kline', h),
@@ -328,7 +342,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
           </div>
           {isEmpty
             ? <div className="text-text-dim text-[13]px py-2">还没有持仓,点击下方「+ 添加」开始</div>
-            : <SummaryStrip agg={agg} aShareClosed={!aShareTradingDay} realized={realized} todayPnl={todayPnl} />
+            : <SummaryStrip agg={agg} aShareClosed={!aShareTradingDay} realized={realized} todayPnl={todayPnl} scope={filter} />
           }
         </div>
         {!isEmpty && <AllocationDonut groups={agg.groups} totalMv={agg.totalMv} />}
