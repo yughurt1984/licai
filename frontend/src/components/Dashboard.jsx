@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { fetchJSON, MUTATED_EVENT } from '../hooks/useApi'
-import { fmtMoney, priceColor, fundKindOf } from '../helpers'
+import { fmtMoney, priceColor, fundKindOf, isOnchainFundKind } from '../helpers'
 import Tooltip from './Tooltip'
 
 function currencySymbol(currency = 'CNY') {
@@ -130,7 +130,7 @@ export default function Dashboard({ holdings }) {
   // 场内 ETF(券商买的 5xxxxx/1xxxxx)跟支付宝/天天基金买的场外基金都存在 external_assets 里,
   // 但它们是场内按市价成交的, 统统标"场外"是错的 —— 按代码拆出来单独一格。
   const onchain = (external?.assets || []).reduce((s, a) => {
-    if (a.asset_type === 'FUND' && fundKindOf(a) === 'etf') {
+    if (a.asset_type === 'FUND' && isOnchainFundKind(fundKindOf(a))) {
       s.value += a.current_value || 0
       s.pnl += a.pnl || 0
     }

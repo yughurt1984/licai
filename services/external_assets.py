@@ -104,7 +104,7 @@ def nav_date_for(trade_date: str, trade_time: str | None = None) -> str:
 
 async def get_fund_nav_on_date(code: str, date_str: str) -> dict | None:
     """异步: 取 code 在 date_str (YYYY-MM-DD) 的已确认净值, 无则 None。"""
-    return await asyncio.to_thread(_fetch_fund_nav_on_date_sync, code, date_str)
+    return await asyncio.to_thread(_fetch_fund_nav_on_date_sync, bare_fund_code(code), date_str)
 
 
 def _fetch_fund_meta_sync(code: str) -> dict | None:
@@ -156,23 +156,38 @@ def _fetch_fund_sync(code: str) -> dict | None:
 
 def _is_onchain_etf(code: str) -> bool:
     """场内 ETF / LOF 代码识别（深交所 1xxxxx / 上交所 5xxxxx）。
-    场外公募基金通常是 0xxxxx / 6xxxxx / 008xxx 这种联接基金代码。"""
-    if not code or len(code) != 6 or not code.isdigit():
+    场外公募基金通常是 0xxxxx / 6xxxxx / 008xxx 这种联接基金代码。
+    兼容场外存档码的 .OF 后缀(019144.OF → 裸码判定)。"""
+    c = bare_fund_code(code)
+    if not c or len(c) != 6 or not c.isdigit():
         return False
-    return code[0] in ("1", "5")
+    return c[0] in ("1", "5")
+
+
+def bare_fund_code(code: str) -> str:
+    """'019144.OF' → '019144'。场外基金存档带 .OF 后缀, 上游(天天基金/ths/新浪)都要裸码。"""
+    c = str(code or "").strip()
+    if "." in c and c.upper().endswith(".OF"):
+        return c.split(".", 1)[0]
+    return c
 
 
 def fund_kind_of(asset: dict | None) -> str:
-    """基金细分类型: 'etf'(场内, 股票式市价记账) | 'open'(场外开放式, NAV T+1)。
+    """基金细分类型: 'etf'(场内, 股票式市价记账) | 'open'(场外开放式, NAV T+1) | 'reits'(场内REITs)。
 
     用户在添加/编辑时显式选择, 存 external_assets.fund_kind; 老数据列里没值时
     按代码段位兜底(与 _is_onchain_etf 同规则)。非基金资产返回 'open'(无意义, 仅为类型统一)。
     """
     a = asset or {}
     kind = str(a.get("fund_kind") or "").strip().lower()
-    if kind in ("etf", "open"):
+    if kind in ("etf", "open", "reits"):
         return kind
     return "etf" if _is_onchain_etf(str(a.get("code") or "")) else "open"
+
+
+def is_onchain_fund(kind: str) -> bool:
+    """场内基金判定(etf / reits), 决定按股票式市价口径而非净值 T+1。"""
+    return kind in ("etf", "reits")
 
 
 # 基金全称缓存 (名字稳定, 长期缓存避免每次报价都打 pingzhongdata)
@@ -180,8 +195,9 @@ _fund_name_cache: dict[str, str] = {}
 
 
 async def _onchain_fund_name(code: str, fallback: str) -> str:
-    """场内 ETF 的展示名: 优先天天基金全称 (如 '半导体ETF国泰'), 拉不到回退
-    A股行情的证券简称 (如 '芯片')。全称缓存, 失败也缓存 fallback 避免反复重试。"""
+    """基金的展示名: 优先天天基金全称 (如 '半导体ETF国泰'), 拉不到回退 fallback。
+    全称缓存, 失败也缓存 fallback 避免反复重试。"""
+    code = bare_fund_code(code)      # 兼容 .OF 存档码
     cached = _fund_name_cache.get(code)
     if cached:
         return cached
@@ -196,8 +212,23 @@ async def _onchain_fund_name(code: str, fallback: str) -> str:
 
 
 async def _fetch_onchain_etf_quote(code: str) -> dict | None:
-    """场内 ETF 用 A股实时行情接口，返回二级市场成交价（用户在券商 App 看到的"现价"）。
+    """场内基金现价。主源 ths fuyao 快照(基金行情接口), 拉不到回退 A股实时行情(新浪);
     名字用天天基金全称 (行情接口的证券简称对不上基金全称)。"""
+    from services import ths_fuyao
+    q = await ths_fuyao.fund_snapshot(code)
+    if q and q.get("price"):
+        return {
+            "code": code,
+            "name": await _onchain_fund_name(code, ""),
+            "nav": q["price"],          # 字段复用：场内场景下这是市价
+            "est_nav": q["price"],
+            "change_pct": q.get("change_pct") or 0,
+            "nav_date": "",
+            "est_time": q.get("quote_time") or "",
+            "realtime": True,
+            "source": "ths",
+        }
+    # fuyao 没拿到(频控/未覆盖) → 原新浪链路兜底
     from services.market_data import get_realtime_quotes
     quotes = await get_realtime_quotes([code])
     q = quotes.get(code)
@@ -217,8 +248,54 @@ async def _fetch_onchain_etf_quote(code: str) -> dict | None:
     }
 
 
+async def _fetch_reits_quote(code: str) -> dict | None:
+    """REITs 实时行情: TickFlow 数据源。字段复用基金报价形状(nav=市价)。"""
+    from services import tickflow
+    q = await tickflow.reits_quote(code)
+    if not q or not q.get("price"):
+        return None
+    return {
+        "code": code,
+        "name": q.get("name") or "",
+        "nav": q["price"],          # 字段复用：场内场景下这是市价
+        "est_nav": q["price"],
+        "change_pct": q.get("change_pct") or 0,
+        "nav_date": "",
+        "est_time": q.get("quote_time") or "",
+        "realtime": True,
+        "source": "tickflow",
+    }
+
+
+async def _fetch_open_nav_ths(code: str) -> dict | None:
+    """场外基金净值: ths fuyao 净值接口(T+1 官方净值)。
+
+    code 用存档码原样请求(019144.OF, ths_fuyao.fund_thscode 内部处理后缀);
+    接口不返回名称, 名称用天天基金全称兜底(有缓存)。"""
+    from services import ths_fuyao
+    n = await ths_fuyao.fund_nav(code)
+    if not n or not n.get("nav"):
+        return None
+    name = await _onchain_fund_name(code, "")
+    return {
+        "code": code,
+        "name": name,
+        "nav": n["nav"],
+        "est_nav": n["nav"],
+        "change_pct": n.get("change_pct") or 0,
+        "nav_date": n.get("nav_date") or "",
+        "est_time": "",
+        "realtime": False,
+        "source": "ths",
+    }
+
+
 async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
-    """kind: 'etf'|'open' 显式基金类型(None=按代码段位兜底)。场外开放式即便代码像场内也走净值。"""
+    """kind: 'etf'|'open'|'reits' 显式基金类型(None=按代码段位兜底)。场外开放式即便代码像场内也走净值。
+
+    数据源: 场内基金(ETF/LOF) → ths fuyao 快照(新浪兜底); 场外 → ths fuyao 净值(天天基金兜底);
+    REITs → TickFlow 实时行情(用户显式选 'reits' 才走, 代码段位无法与场内基金区分)。
+    """
     cached = _fund_cache.get(code)
     if cached and time.time() - cached[1] < _FUND_TTL:
         return cached[0]
@@ -227,17 +304,42 @@ async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
     from services.market_data import quote_auto_fetch
     if not quote_auto_fetch():
         return await _fund_from_store(code)
-    # 场内 ETF/LOF 优先用实时行情；拉不到则回退到天天基金 NAV
-    if (kind or ("etf" if _is_onchain_etf(code) else "open")) == "etf":
+    # 场外存档码(019144.OF)按处理后代码原样请求 ths; 天天基金/新浪兜底与 tickflow
+    # 只要裸码, 用 bare。缓存/落库按原始 code 键, 新旧存档各自成行。
+    bare = bare_fund_code(code)
+    eff = kind or ("etf" if _is_onchain_etf(code) else "open")
+    # REITs: TickFlow 实时行情
+    if eff == "reits":
         try:
-            data = await _fetch_onchain_etf_quote(code)
+            data = await _fetch_reits_quote(bare)
             if data:
                 _fund_cache[code] = (data, time.time())
-                await _store_fund_quote(code, data, "sina")
+                await _store_fund_quote(code, data, "tickflow")
+                return data
+        except Exception as e:
+            print(f"[fund] reits quote {code} failed: {e}")
+        return await _fund_from_store(code)
+    # 场内 ETF/LOF 优先用 ths 快照(内部已带新浪兜底)；再拉不到回退天天基金 NAV
+    if eff == "etf":
+        try:
+            data = await _fetch_onchain_etf_quote(bare)
+            if data:
+                _fund_cache[code] = (data, time.time())
+                await _store_fund_quote(code, data, str(data.get("source") or "ths"))
                 return data
         except Exception as e:
             print(f"[fund] onchain quote {code} failed, fallback to NAV: {e}")
-    data = await asyncio.to_thread(_fetch_fund_sync, code)
+    else:
+        # 场外: ths 净值优先(按处理后代码 019144.OF 请求), 拉不到走天天基金兜底
+        try:
+            data = await _fetch_open_nav_ths(code)
+            if data:
+                _fund_cache[code] = (data, time.time())
+                await _store_fund_quote(code, data, "ths")
+                return data
+        except Exception as e:
+            print(f"[fund] ths nav {code} failed, fallback to eastmoney: {e}")
+    data = await asyncio.to_thread(_fetch_fund_sync, bare)
     if data:
         _fund_cache[code] = (data, time.time())
         await _store_fund_quote(code, data, "fundgz")

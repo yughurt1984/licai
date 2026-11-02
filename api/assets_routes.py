@@ -48,7 +48,7 @@ class AssetCreate(BaseModel):
     fee: Optional[float] = None                 # 建仓手续费 ¥ (含在 cost_amount 内, 单存便于流水展示)
     broker: Optional[str] = None               # 托管券商/平台, e.g. "招商证券"
     contract_multiplier: Optional[float] = None  # FUT/OPT 每手乘数(沪铜 5; 期权合约单位 10000)
-    fund_kind: Optional[str] = None            # FUND 细分: 'etf'(场内, 股票式) | 'open'(场外开放式, NAV T+1)
+    fund_kind: Optional[str] = None            # FUND 细分: 'etf'(场内, 股票式) | 'open'(场外开放式, NAV T+1) | 'reits'
 
 
 class AssetUpdate(BaseModel):
@@ -67,7 +67,7 @@ class AssetUpdate(BaseModel):
     purchase_fee_rate: Optional[float] = None
     broker: Optional[str] = None
     contract_multiplier: Optional[float] = None   # FUT/OPT 每手乘数
-    fund_kind: Optional[str] = None               # FUND 细分: 'etf' | 'open'
+    fund_kind: Optional[str] = None               # FUND 细分: 'etf' | 'open' | 'reits'
 
 
 class OkxCredentials(BaseModel):
@@ -569,7 +569,7 @@ async def create_asset(data: AssetCreate):
     # 场内 ETF 按市价即时成交, 没有份额就是没填 —— 不进 pending。
     has_shares = data.shares is not None and float(data.shares) > 0
     fund_kind = (data.fund_kind or "").strip().lower() if data.asset_type == "FUND" else ""
-    if data.asset_type == "FUND" and fund_kind not in ("etf", "open"):
+    if data.asset_type == "FUND" and fund_kind not in ("etf", "open", "reits"):
         fund_kind = "etf" if _is_onchain_etf(data.code or "") else "open"
     is_pending_fund = (
         (data.asset_type == "CRYPTO" or (data.asset_type == "FUND" and fund_kind == "open"))

@@ -2487,6 +2487,56 @@ def markets_open(now: datetime | None = None) -> dict[str, bool]:
     return {m: market_open(m, now) for m in ("A", "HK", "US")}
 
 
+def _session_close_minute(market: str, d) -> int | None:
+    """d(交易所当地日)那场交易的实际收盘分钟数(当地时间, 半开区间上界), 拿不到返回 None。
+    半日市(美股感恩节次日/独立日前夕等 13:00 收, 港股圣诞/新年前夕 12:00 收)按静态
+    时段表会在真实收盘后仍被算作盘中 —— 对刷新频率无所谓, 对要展示的徽章就是错的,
+    所以这里用 exchange_calendars 的真实收盘时刻修正。"""
+    cal = _get_ec_calendar(market)
+    if cal is None:
+        return None
+    try:
+        import pandas as pd
+        from zoneinfo import ZoneInfo
+        ts = cal.last_minutes.loc[pd.Timestamp(d)]           # UTC 时刻
+        local = ts.tz_convert(ZoneInfo(_SESSIONS[market][0]))
+        return local.hour * 60 + local.minute + 1            # 最后一分钟 15:59 → 16:00 起算收
+    except Exception:
+        return None
+
+
+def market_status(market: str, now: datetime | None = None) -> str:
+    """某市场此刻的三态: open=连续交易时段(交易中), closed=交易日但休市(已收盘),
+    rest=非交易日(休息)。交易日按交易所当地日期判定(A股 chinese_calendar, 港美股
+    exchange_calendars); 港美股在静态时段窗口内再用真实收盘时刻修正半日市。
+    A股/港股的午休本来就落在时段窗口之外, 天然归 closed。"""
+    from zoneinfo import ZoneInfo
+    now = now or datetime.now(timezone.utc)
+    if market == "A":
+        cst = now.astimezone(ZoneInfo("Asia/Shanghai"))
+        if not _is_a_share_trading_day(cst.date()):
+            return "rest"
+        return "open" if market_open("A", now) else "closed"
+    spec = _SESSIONS.get(market)
+    if not spec:
+        return "rest"
+    local = now.astimezone(ZoneInfo(spec[0]))
+    if not _is_market_trading_day(local.date(), market):
+        return "rest"
+    t = local.hour * 60 + local.minute
+    if not any(a <= t < b for a, b in spec[1]):
+        return "closed"
+    close = _session_close_minute(market, local.date())
+    if close is not None and t >= close:
+        return "closed"                      # 半日市已提前收盘
+    return "open"
+
+
+def markets_status(now: datetime | None = None) -> dict[str, str]:
+    """{A, HK, US} 三市场此刻的 open/closed/rest 状态。"""
+    return {m: market_status(m, now) for m in ("A", "HK", "US")}
+
+
 def is_trading_day_active() -> bool:
     """Broad: from 9:15 to 15:00 on weekdays (excl. holidays), including lunch break.
     Used for signal display — during lunch, signals are still valid for the afternoon."""

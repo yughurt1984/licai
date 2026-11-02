@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { brokersOfType, fundKindOf } from '../../../helpers'
+import { brokersOfType, fundKindOf, isOnchainFundKind } from '../../../helpers'
 import { fetchJSON } from '../../../hooks/useApi'
 
 // Inline edit row for external asset
@@ -118,7 +118,7 @@ export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
         payload.pending_amount = pending !== '' ? parseFloat(pending) : 0
         // 申购费率: 百分比 → 小数. 留空写 null. 场内 ETF 走佣金无申购费, 不传。
         if (isFund && fundKind === 'open') payload.purchase_fee_rate = feeRatePct !== '' ? parseFloat(feeRatePct) / 100 : null
-        if ((isFund && fundKind === 'etf') || isCrypto) payload.broker = broker || null
+        if ((isFund && isOnchainFundKind(fundKind)) || isCrypto) payload.broker = broker || null
         if (isFund) payload.fund_kind = fundKind
       } else if (isWealth) {
         payload.cost_amount = cost !== '' ? parseFloat(cost) : null
@@ -208,7 +208,7 @@ export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-text-dim">基金类型</label>
               <div className="flex rounded border border-border overflow-hidden">
-                {[['etf', 'ETF基金'], ['open', '开放式基金']].map(([k, lbl]) => (
+                {[['etf', 'ETF基金'], ['open', '开放式基金'], ['reits', 'REITs']].map(([k, lbl]) => (
                   <button key={k} type="button"
                     onClick={() => setFundKind(k)}
                     className={`px-2 py-1 text-[11px] cursor-pointer transition-colors ${

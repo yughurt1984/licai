@@ -319,6 +319,104 @@ async def a_share_snapshot(thscodes: list[str]) -> Optional[list[dict]]:
         return None
 
 
+# ---- 基金(场内 ETF/LOF 行情快照 + 场外基金净值) ----
+
+def fund_thscode(code: str) -> str:
+    """基金代码 → thscode。场外存档码带 .OF 后缀(019144.OF)原样透传给上游;
+    裸 6 位码按段位映射: 5 开头(50/51/56/58/519 沪系) → .SH, 其余 → .SZ
+    (场外基金代码 0/1/6 开头为主挂深市, 5 开头含 519 场外沪挂沪市)。
+    带 SH/SZ 等其他后缀的原样大写。"""
+    c = (code or "").strip()
+    if "." in c:
+        base, suf = c.split(".", 1)
+        if suf.upper() == "OF":
+            return f"{base}.{suf.upper()}"     # 场外开放式 → ths 认 .OF, 原样请求
+        return c.upper()
+    if len(c) == 6 and c.isdigit():
+        return f"{c}.SH" if c.startswith("5") else f"{c}.SZ"
+    return c.upper()
+
+
+async def fund_snapshot(code: str) -> Optional[dict]:
+    """场内基金(ETF/LOF)行情快照(GET /api/fund/market/snapshot, 单只)。
+
+    返回 {price, prev_close, change_pct, open, high, low, volume, turnover, quote_time};
+    接口不返回名称(name 由资产行/天天基金兜底)。REITs 不支持(上游 code=3004)。
+    """
+    try:
+        d = await _get("/api/fund/market/snapshot", {"thscode": fund_thscode(code)})
+        items = (d or {}).get("item") or []
+        it = items[0] if items else None
+        if not it:
+            return None
+        last = float(it.get("last_price") or 0)
+        if not last:
+            return None
+        prev = float(it.get("prev_price") or 0)
+        chg = it.get("price_change_ratio_pct")
+        ts = (d or {}).get("timestamp")
+        quote_time = ""
+        if ts:
+            try:
+                from datetime import datetime, timedelta, timezone
+                quote_time = (datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
+                              + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                pass
+        return {
+            "price": last,
+            "prev_close": prev or None,
+            "change_pct": float(chg) if chg is not None else (
+                round((last - prev) / prev * 100, 3) if prev else None),
+            "open": float(it.get("open_price") or 0) or None,
+            "high": float(it.get("high_price") or 0) or None,
+            "low": float(it.get("low_price") or 0) or None,
+            "volume": float(it.get("volume") or 0),
+            "turnover": float(it.get("turnover") or 0),
+            "quote_time": quote_time,
+        }
+    except Exception as e:
+        print(f"[ths_fuyao] fund snapshot {code} 失败: {str(e)[:120]}")
+        return None
+
+
+async def fund_nav(code: str) -> Optional[dict]:
+    """场外基金单位净值(GET /api/fund/performance/nav, nav_type=unit)。
+
+    不传 range 只回最新一条 → 取不到涨跌; 用 range=week 拿近一周序列,
+    末两根算日涨跌幅(净值 T+1 口径)。返回 {nav, prev_nav, nav_date(YYYY-MM-DD), change_pct}。
+    """
+    try:
+        d = await _get("/api/fund/performance/nav",
+                       {"thscode": fund_thscode(code), "nav_type": "unit", "range": "week"})
+        items = (d or {}).get("item") or []
+        if not items:
+            return None
+        last = items[-1]
+        nav = float(last.get("unit_nav") or 0)
+        if not nav:
+            return None
+        prev = float(items[-2].get("unit_nav") or 0) if len(items) >= 2 else 0.0
+        nav_date = ""
+        nd = last.get("nav_date")
+        if nd:
+            try:
+                from datetime import datetime, timedelta, timezone
+                nav_date = (datetime.fromtimestamp(int(nd) / 1000, tz=timezone.utc)
+                            + timedelta(hours=8)).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        return {
+            "nav": round(nav, 4),
+            "prev_nav": round(prev, 4) or None,
+            "nav_date": nav_date,
+            "change_pct": round((nav - prev) / prev * 100, 3) if prev else None,
+        }
+    except Exception as e:
+        print(f"[ths_fuyao] fund nav {code} 失败: {str(e)[:120]}")
+        return None
+
+
 # ── 源适配器(规范层, 见 services/quote_source.py) ──────────────────────
 async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
     """fuyao 源适配器: 标准码 → 规范 QuoteRow(翻译在此完成, 不再散在派发层)。

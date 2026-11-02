@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 
@@ -58,15 +58,17 @@ export default function PortfolioCurve() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(false)
 
-  useEffect(() => {
-    let dead = false
+  const load = useCallback(async () => {
     setLoading(true); setErr(false)
-    fetchJSON(`/api/portfolio/curve?days=${days}`)
-      .then(d => { if (!dead) { if (d.error) setErr(d.error); else setData(d) } })
-      .catch(() => { if (!dead) setErr(true) })
-      .finally(() => { if (!dead) setLoading(false) })
-    return () => { dead = true }
+    try {
+      const d = await fetchJSON(`/api/portfolio/curve?days=${days}`)
+      if (d.error) setErr(d.error)
+      else setData(d)
+    } catch { setErr(true) }
+    finally { setLoading(false) }
   }, [days])
+
+  useEffect(() => { load() }, [load])
 
   const m = data?.metrics
   return (
@@ -82,7 +84,7 @@ export default function PortfolioCurve() {
           ))}
         </div>
       </div>
-      {loading && !data && <SkeletonCard bare rows={4} label="逐日重建组合市值中…（首算约 1 分钟, 之后 1 小时缓存）" />}
+      {loading && !data && <SkeletonCard bare rows={4} label="逐日重建组合市值中…（首算要拉各标的的历史K线, 之后走缓存）" />}
       {!loading && err && <div className="text-[11.5px] text-text-dim py-3">{typeof err === 'string' ? err : '曲线暂不可达'}</div>}
       {data && !err && (
         <>
@@ -93,6 +95,11 @@ export default function PortfolioCurve() {
             <span className="text-[11px] text-text-muted">超额 <span className={`font-mono font-semibold text-[13px] ${colorOf(m['超额%'])}`}>{fmtPct(m['超额%'])}</span></span>
             <span className="text-[10px] text-text-dim ml-auto">起点 {m['起点']}</span>
           </div>
+          {data.coverage?.missing_prices?.length > 0 && (
+            <div className="text-[10px] text-warn mb-0.5">
+              部分标的取不到历史价({data.coverage.missing_prices.join('、')}), 该部分市值未计入曲线
+            </div>
+          )}
           <Chart dates={data.dates} twr={data.twr} bench={data.bench.series} />
           <div className="flex items-center gap-3 mt-0.5">
             <span className="text-[9.5px] text-text-dim"><span className="inline-block w-3 h-[2px] align-middle mr-1" style={{ background: '#c8a876' }} />我的组合</span>

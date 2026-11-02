@@ -205,12 +205,17 @@ CREATE TABLE IF NOT EXISTS morning_briefings (
 );
 
 -- 每日组合市值快照(收盘后记一次): 机器人/加密等无价史资产的真实市值序列,
--- 净值曲线用它替代成本基线(快照攒得越久, 这部分曲线越真)
+-- 净值曲线用它替代成本基线(快照攒得越久, 这部分曲线越真)。
+-- day_pnl/base_value 给盈亏日历: 当日盈亏(券商现金流口径, services/today_pnl)和
+-- 比例分母(≈昨收市值口径总值)。价格是易逝数据, 事后回算要逐标的补历史价,
+-- 所以当天的盈亏只在当天钉下来。
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
     user_id BIGINT NOT NULL DEFAULT 0,
     snap_date TEXT NOT NULL,             -- YYYY-MM-DD
     total_value DOUBLE PRECISION NOT NULL,
     by_asset TEXT,                       -- JSON {"EXT:<id>"|"A:<code>": value}
+    day_pnl DOUBLE PRECISION,            -- 当日盈亏(¥, 含手续费); NULL=老快照没记
+    base_value DOUBLE PRECISION,         -- 当日盈亏的分母(≈昨收市值口径总值)
     created_at TEXT DEFAULT utc_now_text(),
     PRIMARY KEY (user_id, snap_date)
 );
@@ -617,6 +622,9 @@ async def init_db():
         # 基金细分类型: etf(场内, 股票式市价记账) | open(场外开放式, NAV T+1)。
         # 老库按代码段位回填(深 1xxxxx / 沪 5xxxxx), 与报价层 _is_onchain_etf 同规则。
         await db.execute("ALTER TABLE external_assets ADD COLUMN IF NOT EXISTS fund_kind TEXT DEFAULT ''")
+        # 盈亏日历: 快照行带当日盈亏与比例分母(新库 SCHEMA 已带, 老库补列)
+        await db.execute("ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS day_pnl DOUBLE PRECISION")
+        await db.execute("ALTER TABLE portfolio_snapshots ADD COLUMN IF NOT EXISTS base_value DOUBLE PRECISION")
         await db.execute("UPDATE external_assets SET fund_kind='etf' "
                          "WHERE asset_type='FUND' AND COALESCE(fund_kind,'')='' AND code ~ '^[15][0-9]{5}$'")
         # 定投计划已下线: 表里只有计划定义(不含账本数据), 直接清掉
@@ -1973,15 +1981,32 @@ async def delete_broker(broker_id: int):
 
 # ---- 每日组合市值快照 ----
 
-async def save_portfolio_snapshot(snap_date: str, total_value: float, by_asset_json: str):
+async def save_portfolio_snapshot(snap_date: str, total_value: float, by_asset_json: str,
+                                  day_pnl: float | None = None, base_value: float | None = None):
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO portfolio_snapshots (user_id, snap_date, total_value, by_asset) VALUES (?, ?, ?, ?) "
+            "INSERT INTO portfolio_snapshots (user_id, snap_date, total_value, by_asset, day_pnl, base_value) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (user_id, snap_date) DO UPDATE SET total_value = excluded.total_value, "
-            "by_asset = excluded.by_asset, created_at = utc_now_text()",
-            (_uid(), snap_date, total_value, by_asset_json))
+            "by_asset = excluded.by_asset, day_pnl = excluded.day_pnl, base_value = excluded.base_value, "
+            "created_at = utc_now_text()",
+            (_uid(), snap_date, total_value, by_asset_json, day_pnl, base_value))
         await db.commit()
+    finally:
+        await db.close()
+
+
+async def list_snapshots_between(start_date: str, end_date: str) -> list[dict]:
+    """[start, end] 闭区间的每日快照, 按日期升序。盈亏日历按月取数用。"""
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT snap_date, total_value, by_asset, day_pnl, base_value FROM portfolio_snapshots "
+            "WHERE user_id = ? AND snap_date >= ? AND snap_date <= ? ORDER BY snap_date",
+            (_uid(), start_date, end_date))
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
     finally:
         await db.close()
 

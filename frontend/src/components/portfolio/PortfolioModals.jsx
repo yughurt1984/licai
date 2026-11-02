@@ -2,9 +2,9 @@ import StockKlineModal from '../StockKlineModal'
 import { QualityModal } from './QualityModal'
 import { ThesisModal } from './ThesisModal'
 import { AssetActionsModal } from './actions'
-import { TYPE_META, TYPE_ORDER } from './constants'
+import { TYPE_META } from './constants'
 import { AddAShareForm } from './forms/AddAShareForm'
-import { AddAssetForm } from './forms/AddAssetForm'
+import { AddFundForm } from './forms/AddFundForm'
 import { AddFuturesForm } from './forms/AddFuturesForm'
 import { FuturesLotRow } from './forms/FuturesLotRow'
 import { EditAssetRow } from './forms/EditAssetRow'
@@ -32,7 +32,10 @@ export function PortfolioModals({
             ['A:A', 'A股'],
             ['A:HK', '港股'],
             ['A:US', '美股'],
-            ...TYPE_ORDER.filter(t => t !== 'A').map(t => [t, TYPE_META[t].label]),
+            ['F', '基金'],
+            ['T', '期货'],
+            ['O', '期权'],
+            ...['C', 'R', 'W', 'M'].map(t => [t, TYPE_META[t].label]),
           ].map(([target, label]) => (
             <button key={target} onClick={() => show('add', target)}
               className="px-3 py-1 rounded border border-border-med text-[12px] text-text hover:border-accent hover:text-accent transition-colors cursor-pointer">
@@ -55,11 +58,17 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {['F', 'C', 'R', 'W', 'M'].includes(addTarget) && (
-        <AddAssetForm typeKey={addTarget}
+      {/* AddFundForm 仅处理基金(F); 加密/机器人/理财/现金入口保留, 表单待单独开发 */}
+      {addTarget === 'F' && (
+        <AddFundForm typeKey={addTarget}
           brokers={brokers}
           onDone={() => { hide('add'); onAssetsChanged() }}
           onCancel={() => hide('add')} />
+      )}
+      {['C', 'R', 'W', 'M'].includes(addTarget) && (
+        <div className="px-6 py-4 bg-surface-2/50 border-b border-border text-[12.5px] text-text-muted">
+          「{TYPE_META[addTarget]?.label || addTarget}」添加表单待单独开发。
+        </div>
       )}
 
       {open.edit && (

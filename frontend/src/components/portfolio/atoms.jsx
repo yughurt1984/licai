@@ -1,4 +1,4 @@
-import { fmtMoney, fmtPrice, fundKindOf, priceColor } from '../../helpers'
+import { fmtMoney, fmtPrice, fundKindOf, isOnchainFundKind, priceColor } from '../../helpers'
 import Tooltip from '../Tooltip'
 import { TYPE_COLOR, TYPE_META, TYPE_ORDER } from './constants'
 import { currencySymbol, fxSourceLabel } from './helpers'
@@ -203,8 +203,8 @@ export function TypeMiniInfo({ row }) {
     )
   }
   if (type === 'F') {
-    // 场内 ETF/LOF: 按股票口径展示 (持有份额 · 成本价), 它本就是市价实时成交, 不是净值 T+1.
-    if (fundKindOf(row._raw || {}) === 'etf') {
+    // 场内 ETF/LOF/REITs: 按股票口径展示 (持有份额 · 成本价), 它本就是市价实时成交, 不是净值 T+1.
+    if (isOnchainFundKind(fundKindOf(row._raw || {}))) {
       const sh = Number(row._raw?.shares) || 0
       const ca = Number(row._raw?.cost_amount) || 0
       const avg = sh > 0 ? ca / sh : 0

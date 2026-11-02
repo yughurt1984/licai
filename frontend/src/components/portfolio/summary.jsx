@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { fmtMoney, fmtPct, fundKindOf, priceColor } from '../../helpers'
+import { fmtMoney, fmtPct, fundKindOf, isOnchainFundKind, priceColor } from '../../helpers'
 import Tooltip from '../Tooltip'
 import { FxHint } from './atoms'
 import { formatCurrencyMoney } from './helpers'
@@ -171,7 +171,7 @@ export function ClosedPositionsBlock({ items, onHistory, onKline }) {
                   {it.realized_pnl >= 0 ? '+' : ''}¥{fmtMoney(it.realized_pnl)}
                 </span>
                 {/* A股清仓 / 场内ETF清仓: 有K线; BS标记按保留的流水照常标出买卖点 */}
-                {((!it._asset) || (it._asset && fundKindOf(it) === 'etf')) && (
+                {((!it._asset) || (it._asset && isOnchainFundKind(fundKindOf(it)))) && (
                   <button onClick={() => onKline?.({
                     stock_code: it.code || it.stock_code, stock_name: it.stock_name,
                     asset_id: it._asset ? it.asset_id : undefined,

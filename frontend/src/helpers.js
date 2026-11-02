@@ -185,12 +185,17 @@ export function isOnchainEtf(code = '') {
   return c.length === 6 && /^[15]/.test(c)
 }
 
-// 基金细分类型: 'etf'(场内, 股票式市价记账) | 'open'(场外开放式, NAV T+1)。
+// 基金细分类型: 'etf'(场内, 股票式市价记账) | 'open'(场外开放式, NAV T+1) | 'reits'(场内REITs, tickflow行情)。
 // 用户显式选择存 asset.fund_kind; 老数据列里没值时按代码段位兜底(与 isOnchainEtf 同规则)。
 export function fundKindOf(asset = {}) {
   const k = String(asset.fund_kind || '').trim().toLowerCase()
-  if (k === 'etf' || k === 'open') return k
+  if (k === 'etf' || k === 'open' || k === 'reits') return k
   return isOnchainEtf(asset.code) ? 'etf' : 'open'
+}
+
+// 场内口径(etf/reits): 按市价成交、股票式记账, 不走净值 T+1/申购赎回
+export function isOnchainFundKind(k) {
+  return k === 'etf' || k === 'reits'
 }
 
 // 券商费率: 拉一次缓存. resolveFee 按 (券商名, kind) 给 {rate, min}

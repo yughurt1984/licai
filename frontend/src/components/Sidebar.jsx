@@ -1,5 +1,7 @@
 const ICONS = {
   portfolio: <><rect x="4" y="8" width="16" height="11" rx="2" /><path d="M9 8V6a2 2 0 012-2h2a2 2 0 012 2v2M4 13h16" /></>,
+  // AI记账: 笔尖 + 星芒 —— 手写/截图丢给 AI 记账
+  ailedger: <><path d="M13 5.5l5.5 5.5L9 20.5H3.5V15z" /><path d="M17.5 3l.8 2.2L20.5 6l-2.2.8L17.5 9l-.8-2.2L14.5 6l2.2-.8z" /></>,
   sector: <><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></>,
   rankings: <><path d="M8 4h8v4a4 4 0 01-8 0z" /><path d="M8 5H5v1a3 3 0 003 3M16 5h3v1a3 3 0 01-3 3M10 15h4M9 19.5h6M12 15v4.5" /></>,
   // 大盘·股池: 三档收窄的梯队(首板 → 2 连板 → 3 板及以上), 和 sector 那个等大四宫格区分得开
@@ -28,6 +30,7 @@ const ICONS = {
 export const NAV = [
   { group: '我的', items: [
     { key: 'portfolio',   label: '持仓' },
+    { key: 'ailedger',    label: 'AI记账' },
     { key: 'cashflow',    label: '资金·现金流' },
     { key: 'performance', label: '绩效·基准' },
     { key: 'allocation',  label: '配置建议' },

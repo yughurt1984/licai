@@ -62,6 +62,33 @@ def test_markets_open_has_all_three_flags():
     assert r == {"A": False, "HK": True, "US": False}
 
 
+# 三态: open=连续交易时段, closed=交易日但休市, rest=非交易日
+@pytest.mark.parametrize("now, market, expect", [
+    (_utc(2026, 10, 9, 2, 0), "A", "open"),       # 北京周五 10:00 盘中
+    (_utc(2026, 10, 9, 4, 0), "A", "closed"),     # 午休(交易日但非连续时段)
+    (_utc(2026, 10, 8, 16, 30), "A", "closed"),   # 北京周五 00:30(交易日凌晨未开盘)
+    (_utc(2026, 10, 10, 2, 0), "A", "rest"),      # 周六
+    (_utc(2026, 10, 1, 2, 0), "A", "rest"),       # 国庆
+    (_utc(2026, 10, 9, 7, 30), "HK", "open"),     # 港时 15:30
+    (_utc(2026, 10, 9, 8, 30), "HK", "closed"),   # 港时 16:30 已收(同一交易日)
+    (_utc(2026, 12, 24, 6, 0), "HK", "closed"),   # 港时 14:00: 圣诞前夕半日市 12:00 已收
+    (_utc(2026, 12, 24, 3, 30), "HK", "open"),    # 港时 11:30: 半日市上午仍在交易
+    (_utc(2026, 12, 25, 2, 0), "HK", "rest"),     # 圣诞
+    (_utc(2026, 10, 9, 18, 0), "US", "open"),     # 美东周五 14:00 盘中
+    (_utc(2026, 10, 9, 20, 30), "US", "closed"),  # 美东周五 16:30 已收
+    (_utc(2026, 11, 27, 18, 30), "US", "closed"), # 美东 13:30: 感恩节次日半日市 13:00 已收
+    (_utc(2026, 11, 27, 17, 30), "US", "open"),   # 美东 12:30: 半日市仍在交易
+    (_utc(2026, 11, 26, 15, 0), "US", "rest"),    # 感恩节
+])
+def test_market_status_three_states(now, market, expect):
+    assert md.market_status(market, now) == expect
+
+
+def test_markets_status_keys():
+    r = md.markets_status(_utc(2026, 10, 9, 7, 30))   # 北京 15:30
+    assert r == {"A": "closed", "HK": "open", "US": "closed"}
+
+
 def test_push_interval_fast_only_when_a_held_market_is_open():
     from api.ws import _push_interval
     from config import config

@@ -1,6 +1,7 @@
 """Portfolio management REST endpoints."""
 from __future__ import annotations
 import asyncio
+import json
 import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -12,6 +13,7 @@ from database import (
     get_position_actions, add_position_action, update_position_action, delete_position_action,
     list_brokers, get_futures_product,
     get_thesis, list_theses, set_thesis, delete_thesis,
+    save_portfolio_snapshot, list_snapshots_between,
 )
 from services.market_data import (
     quote_today_valid,
@@ -622,9 +624,9 @@ async def trade_journal(limit: int = 80):
             continue
         fcode = str(a.get("code") or "")
         fname = a.get("name") or fcode
-        cls = fund_kind_of(a)                                # 场内ETF(etf) / 场外基金(fund→open)
+        cls = fund_kind_of(a)                                # 场内ETF(etf) / 场外基金(open) / REITs(reits)
         try:
-            fq = await get_fund_quote(fcode)
+            fq = await get_fund_quote(fcode, cls)   # 带显式类型: reits 走 tickflow, 代码段位无法区分
         except Exception:
             fq = None
         fcur = float((fq or {}).get("nav") or (fq or {}).get("est_nav") or 0)
@@ -1026,7 +1028,7 @@ async def trade_review_ai(period: str = "all", force: int = 0):
             dts = sorted(t["date"] for t in ts if t["date"])
             small = sum(1 for t in bs if (t.get("amount") or 0) and t["amount"] <= 200)
             dca = " [多笔小额=定投]" if small >= 3 else ""
-            label = "场内ETF" if cls == "etf" else "场外基金"
+            label = "场内ETF" if cls == "etf" else "REITs" if cls == "reits" else "场外基金"
             ln = f"  [{label}] {nm}: {len(bs)}买{len(ss)}赎, 投入约¥{invested:.0f}"
             if redeemed:
                 ln += f", 赎回约¥{redeemed:.0f}"
@@ -1785,6 +1787,119 @@ async def today_pnl_api():
         return {"error": str(e), "total": None, "items": []}
 
 
+def _today_cst_str() -> str:
+    from services.today_pnl import _today_cst
+    return _today_cst()
+
+
+async def _portfolio_total_value() -> float:
+    """全资产当前总值(¥): 持仓市值 + 场外资产现值, 与看板顶栏同一套 enrich。
+
+    任一边失败按 0 计(打印日志), 不让单边故障把整行快照写坏。
+    """
+    total = 0.0
+    try:
+        for h in await list_holdings():
+            h = h if isinstance(h, dict) else h.model_dump()
+            total += float(h.get("market_value") or 0)
+    except Exception as e:
+        print(f"[pnl-calendar] 持仓市值汇总失败: {e}")
+    try:
+        from api.assets_routes import list_assets
+        total += float(((await list_assets()).get("summary") or {}).get("total_value") or 0)
+    except Exception as e:
+        print(f"[pnl-calendar] 场外资产汇总失败: {e}")
+    return round(total, 2)
+
+
+async def _snapshot_today() -> dict:
+    """把「今天」的盈亏钉进 portfolio_snapshots(upsert 覆盖当天)。
+
+    打开绩效页时 lazy 采样, 不做后台定时: 纯 PG 模式没有联网后台任务, 而且当天没打开
+    应用就没有行情更新, 落了也不准。一天内多次打开覆盖同一天, 收盘后最后一次≈收盘值。
+    """
+    from services.today_pnl import today_pnl
+    day = _today_cst_str()
+    try:
+        tp = await today_pnl()
+    except Exception as e:
+        raise HTTPException(502, f"当日盈亏计算失败: {e}")
+    total = await _portfolio_total_value()
+    pnl = tp.get("total")
+    # 分母自洽: 盈亏是相对昨收的现金流口径, total−pnl≈昨收市值口径总值。
+    # 当天有标的缺行情时 pnl 只含算出的部分, base 会随之偏差, 随下一次打开覆盖修正。
+    base = round(total - (pnl or 0), 2) if pnl is not None else None
+    by_asset = {str(i.get("code") or ""): i.get("today_pnl")
+                for i in (tp.get("items") or []) if i.get("today_pnl") is not None}
+    await save_portfolio_snapshot(day, total, json.dumps(by_asset, ensure_ascii=False),
+                                  day_pnl=pnl, base_value=base)
+    return {"date": day, "total": total, "day_pnl": pnl}
+
+
+@router.get("/pnl-calendar")
+async def pnl_calendar(month: str = ""):
+    """月度盈亏日历: 每天的当日盈亏 + 当日收益率(分母≈昨收市值)。
+
+    读 portfolio_snapshots。每天的盈亏在打开本页时 lazy 快照入库, 历史深度随使用
+    自然增长; 没记录的日子 pnl=None, 前端渲染成"无记录"。
+    """
+    m = (month or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", m or ""):
+        m = _today_cst_str()[:7]
+    year, mon = int(m[:4]), int(m[5:7])
+    if not (2000 <= year <= 2100 and 1 <= mon <= 12):
+        raise HTTPException(400, f"月份格式应为 YYYY-MM: {month}")
+    # 先落今天(无论看哪个月 —— 打开页面本身就是一次采样), 再查所请求的月份
+    snap_err = ""
+    try:
+        await _snapshot_today()
+    except HTTPException as e:
+        snap_err = str(e.detail)          # 快照失败不挡日历: 历史数据照常展示
+    import calendar as _cal
+    last_day = _cal.monthrange(year, mon)[1]
+    rows = await list_snapshots_between(f"{m}-01", f"{m}-{last_day:02d}")
+    days = []
+    for r in rows:
+        pnl, base = r.get("day_pnl"), r.get("base_value")
+        days.append({
+            "date": r["snap_date"],
+            "pnl": pnl,
+            "pct": round(pnl / base * 100, 2) if (pnl is not None and base and abs(base) > 1e-9) else None,
+            "total": r.get("total_value"),
+            "assets": json.loads(r.get("by_asset") or "{}"),
+        })
+    known = [d for d in days if d["pnl"] is not None]
+    return {
+        "month": m,
+        "days": days,
+        "month_pnl": round(sum(d["pnl"] for d in known), 2),
+        "recorded_days": len(known),
+        "snapshot_error": snap_err,
+        "note": "当日盈亏=现市值+今日卖出所得−昨收市值−今日买入成本(券商口径, 含手续费), "
+                "与顶栏「今日」同一份计算; 现金/理财利息不计。打开本页时落当天快照, "
+                "没打开应用的日子无记录。",
+    }
+
+
+@router.get("/curve")
+async def portfolio_curve(days: int = 60, symbol: str = "sh000300"):
+    """组合净值曲线(TWR 逐日重建) + 基准对照 —— 上一版服务被删后由 services/portfolio_curve 重建。
+
+    days=0 全部历史(从第一笔流水起); 否则最近 N 个自然日, 窗口起点已持有的仓位按当时
+    收盘估值当作期初(与跑赢基准对照同规则)。symbol 为可选基准指数, 超额收益曲线卡
+    换基准时复用同一端点(结果按 (days, symbol) 缓存 1h)。
+    无交易记录/取不到行情时返回 {"error": 提示}, 前端渲染成友好文案而不是空白。
+    """
+    from services.portfolio_curve import curve_cached, SYMBOLS as _SYMBOLS
+    if symbol not in _SYMBOLS:
+        symbol = "sh000300"
+    days = max(0, min(int(days or 0), 1200))
+    try:
+        return await curve_cached(days, symbol)
+    except Exception as e:
+        return {"error": f"曲线计算失败: {e}"}
+
+
 @router.get("/{stock_code}/actions")
 async def list_actions(stock_code: str, direction: str = None):
     """List all buy/sell actions for a stock, chronologically.
@@ -1975,10 +2090,6 @@ async def portfolio_exposure(min_pct: float = 0.5, as_of: str = ""):
     """穿透敞口: 把基金拆到季报前十大, 算同一标的/同一行业的真实合计敞口。
 
     as_of=YYYY-MM-DD 回看那天的结构(复盘用): 当下的敞口里已经没有那天清掉的票了。
-
-    与 /correlation 的分工: 这个是**结构**上的同源(底层就是同一批票), correlation 是
-    **统计**上的同源(走势一起动)。两个都看才完整 —— 结构不重叠但高相关(同受美债利率
-    影响)、结构重叠但低相关(权重太小)都真实存在。
     """
     from services.exposure import look_through
     return await look_through(min_pct=min_pct, as_of=(as_of or None))

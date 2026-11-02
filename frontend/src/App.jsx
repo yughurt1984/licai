@@ -8,6 +8,7 @@ import Dashboard from './components/Dashboard'
 import RiskBanner from './components/RiskBanner'
 import StaleBundleNotice from './components/StaleBundleNotice'
 import UnifiedPortfolio from './components/UnifiedPortfolio'
+import AILedger from './components/AILedger'
 import Rankings from './components/Rankings'
 import StockAsk from './components/StockAsk'
 import { GlobalStockModal } from './components/ask/stockOpener'
@@ -36,7 +37,8 @@ import Cashflow from './components/Cashflow'
 import BenchmarkCompare from './components/BenchmarkCompare'
 import SectorRadar from './components/SectorRadar'
 import PortfolioCurve from './components/PortfolioCurve'
-import PortfolioCorrelation from './components/PortfolioCorrelation'
+import ExcessCurve from './components/ExcessCurve'
+import PnlCalendar from './components/PnlCalendar'
 // 我的·配置建议
 import AllocationAdvisor from './components/AllocationAdvisor'
 import AShareSectorGap from './components/AShareSectorGap'
@@ -90,7 +92,8 @@ function CardShell({ title, sub, children }) {
 
 export default function App() {
   const [holdings, setHoldings] = useState([])
-  const [marketOpen, setMarketOpen] = useState(false)
+  // 顶栏三市场状态: {A, HK, US} 各自 'open'(交易中) / 'closed'(已收盘) / 'rest'(休息)
+  const [marketStatus, setMarketStatus] = useState({ A: 'closed', HK: 'closed', US: 'closed' })
   const [editTarget, setEditTarget] = useState(null)
   const [historyTarget, setHistoryTarget] = useState(null)
   const [lastUpdate, setLastUpdate] = useState(null)
@@ -168,6 +171,21 @@ export default function App() {
     if (user) { loadPortfolio(); setDataVersion(v => v + 1) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.user_id])
+  // 顶栏三市场状态徽章: 登录后拉一次 + 每 60s 轮询。不走 WS 推送 —— price_update
+  // 只发给有持仓可推的用户(无持仓的循环里直接 continue), 旧版单个"已收盘"徽章就是
+  // 因为只靠它更新, 没持仓/推送前永远停在初始值。端点纯本地日历计算, 轮询零负担;
+  // 时段边界(开盘/收盘/跨日)最迟 60s 内翻转。
+  useEffect(() => {
+    if (!user) return
+    let alive = true
+    const pull = async () => {
+      try { const r = await fetchJSON('/api/market/status'); if (alive) setMarketStatus(r.statuses) } catch {}
+    }
+    pull()
+    const t = setInterval(pull, 60_000)
+    return () => { alive = false; clearInterval(t) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.user_id])
   // 港美股的 today_valid(今日涨跌算不算今天)只在 /api/portfolio 里按「港交所交易日 / 美股那场收盘距今」
   // 判, WebSocket 推价不带它(带了就直接用, 见下)。它只在开收盘/跨日这类时段边界翻转, 所以有港美股
   // 持仓时每 10 分钟整体重拉一次就够, 不在前端复刻两地交易日历。
@@ -185,7 +203,6 @@ export default function App() {
     }
     if (msg.type === 'price_update') {
       quotesRef.current = msg.data
-      setMarketOpen(msg.market_open || false)
       setLastUpdate(new Date())
       setHoldings(prev => prev.map(h => {
         const q = msg.data[h.stock_code]
@@ -259,6 +276,13 @@ export default function App() {
       </div>
     ),
 
+    // AI记账: 多品种统一记账入口 —— AI 解析(文本/截图/短信)预览入账 + 下拉切换复用持仓页的各表单
+    ailedger: () => (
+      <div className={`${PAD} space-y-3 md:space-y-4`}>
+        <AILedger onMutated={handleHoldingChange} />
+      </div>
+    ),
+
     cashflow: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
         <Cashflow />
@@ -267,15 +291,19 @@ export default function App() {
 
     performance: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
-        <BenchmarkCompare />
+        {/* 跑赢基准对照 + 盈亏日历 并列(窄屏堆叠) */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 md:gap-4 items-start">
+          <BenchmarkCompare />
+          <PnlCalendar />
+        </div>
         <SectorRadar />
         {/* 这两张卡原先住在 AI 复盘卡内部, 自身没有卡壳 —— 外壳见上面的 CardShell */}
         <CardShell title="盈亏曲线" sub="时间加权 · 对照沪深300">
           <PortfolioCurve />
         </CardShell>
 
-        <CardShell title="同源风险" sub="在持标的两两相关性 · 分散是否名义">
-          <PortfolioCorrelation />
+        <CardShell title="超额收益" sub="当前收益 − 基准收益 · 基准可切换">
+          <ExcessCurve />
         </CardShell>
       </div>
     ),
@@ -374,7 +402,7 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <Header
-        marketOpen={marketOpen}
+        marketStatus={marketStatus}
         lastUpdate={lastUpdate}
         onRefresh={handleManualRefresh}
         refreshing={refreshing}

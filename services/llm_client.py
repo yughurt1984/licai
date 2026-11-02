@@ -30,6 +30,7 @@ import os
 import random
 import re
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -319,7 +320,9 @@ def _resolve_auth() -> tuple[str, bool]:
     if _cached_token:
         return _cached_token, True
 
-    if os.uname().sysname == "Darwin":
+    # 用 sys.platform 而不是 os.uname(): Windows 没有 os.uname, 走到这里会抛
+    # AttributeError, 把下面那句"请配置 key"的用户提示顶掉。
+    if sys.platform == "darwin":
         try:
             result = subprocess.run(
                 ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],

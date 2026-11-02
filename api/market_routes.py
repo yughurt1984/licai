@@ -62,6 +62,16 @@ async def market_refresh(body: MarketRefreshReq):
             "quotes": quotes, "sectors": sectors}
 
 
+@router.get("/status")
+async def market_status_route():
+    """顶栏三市场状态徽章: {A, HK, US} 各自 open(交易中) / closed(已收盘, 交易日但
+    非连续时段) / rest(休息, 非交易日)。纯本地日历计算零联网(A股 chinese_calendar,
+    港美股 exchange_calendars)。前端轮询它而不是读 WS 推送 —— price_update 只推给
+    有持仓可推的用户, 没持仓时徽章会永远停在初始值。"""
+    from services.market_data import markets_status
+    return {"statuses": markets_status()}
+
+
 @router.get("/trading-day")
 async def trading_day_status():
     """Whether today (CST) is an A-share trading day. Excludes weekends + 法定假日.

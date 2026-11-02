@@ -22,6 +22,7 @@ from api.assets_routes import router as assets_router
 from api.briefing_routes import router as briefing_router
 from api.broker_routes import router as broker_router
 from api.auth_routes import router as auth_router
+from api.ledger_routes import router as ledger_router
 from api.ws import router as ws_router, price_monitor_loop, backup_loop, briefing_loop
 
 # macOS 系统 Python 3.9 用 LibreSSL 2.8.3, urllib3 v2 会嗷嗷叫。无害, 屏蔽
@@ -160,6 +161,7 @@ app.include_router(assets_router)
 app.include_router(briefing_router)
 app.include_router(broker_router)
 app.include_router(auth_router)
+app.include_router(ledger_router)
 app.include_router(ws_router)
 
 

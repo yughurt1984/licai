@@ -128,7 +128,7 @@ async def price_monitor_loop():
                     await broadcast({
                         "type": "price_update",
                         "data": quotes,
-                        "market_open": is_trading_day_active(),    # A 股口径(含午休), 前端沿用
+                        "market_open": is_trading_day_active(),    # A 股口径(含午休), 兼容保留(徽章已改走 /api/market/status 轮询)
                         "markets_open": opened,                    # {A, HK, US} 各自是否在连续交易时段
                     }, user_id=uid)
                     any_pushed = True
