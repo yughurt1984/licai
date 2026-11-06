@@ -1,8 +1,11 @@
+import { isDerivSub, typeOfSub } from './portfolio/constants'
 import { useState } from 'react'
 import { api } from '../hooks/useApi'
 
 export default function EditModal({ holding, onClose, onChange }) {
-  const isDeriv = (holding.asset_kind || 'stock') !== 'stock'   // 期货/期权行: 只改手数/成本/最新价, 不支持换合约
+  const isDeriv = isDerivSub(holding.sub_assets_type)   // 期货/期权行: 只改手数/成本/最新价, 不支持换合约
+  // 做空的股票行同样锁定代码: "换代码"走删旧建新, 会把它挪成普通多头行
+  const lockCode = isDeriv || holding.direction === 'SHORT'
   const [code, setCode] = useState(holding.stock_code)
   const [shares, setShares] = useState(holding.shares)
   const [cost, setCost] = useState(holding.cost_price)
@@ -16,9 +19,9 @@ export default function EditModal({ holding, onClose, onChange }) {
     if (!code || !code.trim()) return alert('请输入代码')
     setSaving(true)
     try {
-      if (isDeriv) {
+      if (lockCode) {
         const body = { shares: parseFloat(shares), cost_price: parseFloat(cost) }
-        if (holding.asset_kind === 'opt' && lastPrice !== '') body.last_price = parseFloat(lastPrice)
+        if (typeOfSub(holding.sub_assets_type) === 'O' && lastPrice !== '') body.last_price = parseFloat(lastPrice)
         await api.updateHolding(code.trim().toUpperCase(), body, holding.direction)
       } else {
         const nextCode = code.trim().toUpperCase()
@@ -55,8 +58,10 @@ export default function EditModal({ holding, onClose, onChange }) {
         <div className="space-y-3">
           <div>
             <label className="text-[12px] text-text-dim block mb-1">股票代码</label>
-            <input className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
-              placeholder="600362 / HK.00700 / US.AAPL"
+            <input className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent disabled:opacity-60"
+              placeholder="600362 / 00700.HK / SNDK.US"
+              disabled={lockCode}
+              title={lockCode ? '空头/衍生品行不支持换代码' : undefined}
               value={code} onChange={e => setCode(e.target.value)} />
           </div>
           <div>
@@ -77,7 +82,7 @@ export default function EditModal({ holding, onClose, onChange }) {
                 value={holding.contract_multiplier || 1} />
             </div>
           )}
-          {holding.asset_kind === 'opt' && (
+          {typeOfSub(holding.sub_assets_type) === 'O' && (
             <div>
               <label className="text-[12px] text-text-dim block mb-1">最新价 <span className="text-text-muted text-[11px]">行情不可达时手填</span></label>
               <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"

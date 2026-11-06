@@ -131,9 +131,13 @@ async def _compute() -> dict:
 
     # ---------- A 股 ----------
     all_holdings = await get_all_holdings()
-    # 期货/期权(双向)单独走 涨跌幅×方向 口径, 不进股票现金流账本; 同合约多空两行都要计
-    fut_holdings = [h for h in all_holdings if h.get("asset_kind") in ("fut", "opt")]
-    holdings = {h["stock_code"]: h for h in all_holdings if h.get("asset_kind") not in ("fut", "opt")}
+    # 期货/期权(双向)与股票空头单独走 涨跌幅×方向 口径, 不进股票现金流账本
+    # (现金流口径假设"开仓=买入市值", 对空头不成立); 同代码多空两行都必须计,
+    # 且不能进下面按代码键的 holdings 字典 —— 会互相覆盖。
+    dir_holdings = [h for h in all_holdings
+                    if h.get("asset_kind") in ("fut", "opt") or (h.get("direction") or "") == "SHORT"]
+    holdings = {h["stock_code"]: h for h in all_holdings
+                if not (h.get("asset_kind") in ("fut", "opt") or (h.get("direction") or "") == "SHORT")}
     acts_all = await get_position_actions(limit=5000)
     by_code: dict[str, list] = {}
     for a in acts_all:
@@ -144,16 +148,17 @@ async def _compute() -> dict:
     yday = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
     a_codes = set(holdings) | {c for c, arr in by_code.items()
                                if any(_flow(arr, d)["bought_shares"] or _flow(arr, d)["sold_shares"] for d in (day, yday))}
-    fut_codes = [h["stock_code"] for h in fut_holdings]
-    quotes = await get_realtime_quotes(list(a_codes) + fut_codes) if (a_codes or fut_codes) else {}
+    dir_codes = [h["stock_code"] for h in dir_holdings]
+    quotes = await get_realtime_quotes(list(a_codes) + dir_codes) if (a_codes or dir_codes) else {}
     from database import get_config
     from services.position_ledger import attach_auto_fees, broker_fee_resolver
     resolve = await broker_fee_resolver()
     fee_overrides = await get_config("fee_schedules")
-    # ── 期货/期权(双向): 现金流口径不适用(开仓不是"买入市值"), 按 涨跌幅×方向×名义市值 ──
+    # ── 期货/期权(双向) + 股票空头: 现金流口径不适用(开仓不是"买入市值"), 按 涨跌幅×方向×名义市值 ──
     # 今天开的仓不能套昨收涨跌幅(昨收与刚开的仓无关): 拆两段算 ——
     #   隔夜段 (现价−昨收)×乘数×昨日已有手数×方向; 今日段 (现价−开仓均价)×乘数×今日开仓手数×方向
-    for hrow in fut_holdings:
+    # 股票空头乘数=1, 港美股按行情里的汇率折人民币(期货恒 CNY)。
+    for hrow in dir_holdings:
         q = quotes.get(hrow["stock_code"]) or {}
         price, pct = q.get("price"), q.get("change_pct")
         if price is None:
@@ -179,9 +184,14 @@ async def _compute() -> dict:
             pnl += price * mult * overnight * float(pct) / 100 * sign
         if opened_sh > 1e-9 and opened_amt > 0:
             pnl += (price - opened_amt / opened_sh) * mult * opened_sh * sign
+        is_fut_row = hrow.get("asset_kind") in ("fut", "opt")
+        fx = 1.0 if is_fut_row else float(q.get("fx_rate") or 1.0)
+        if pnl:
+            pnl *= fx
         items.append({
-            "code": hrow["stock_code"], "type": hrow["asset_kind"].upper(), "market": "FUT",
-            "currency": "CNY", "fx_rate": 1.0,
+            "code": hrow["stock_code"], "type": hrow["asset_kind"].upper(),
+            "market": "FUT" if is_fut_row else split_stock_code(hrow["stock_code"])[0],
+            "currency": "CNY" if is_fut_row else (q.get("currency") or "CNY"), "fx_rate": fx,
             "name": hrow.get("stock_name") or hrow["stock_code"],
             "today_pnl": round(pnl, 2),
             "shares": lots, "bought": opened_sh, "sold": 0,

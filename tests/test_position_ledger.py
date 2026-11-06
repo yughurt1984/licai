@@ -169,3 +169,59 @@ def test_out_of_order_input_sorted_by_trade_date():
     assert s["shares"] == 50
     assert s["cost_price"] == 8.0
     assert s["fifo_cost_price"] == 10.0
+
+
+# ---------- 股票做空(参考期货模式): OPEN/CLOSE + direction=SHORT, 负价技巧 ----------
+
+def _short_actions():
+    return [
+        {"action_type": "OPEN", "price": 10.0, "shares": 100, "trade_date": "2026-01-05",
+         "direction": "SHORT", "stock_code": "600000"},
+    ]
+
+
+def test_short_open_then_full_close_profit():
+    # 开空 100@10 → 平 100@8: 盈亏 = (10−8)×100 = +200
+    acts = _short_actions() + [
+        {"action_type": "CLOSE", "price": 8.0, "shares": 100, "trade_date": "2026-01-10",
+         "direction": "SHORT", "stock_code": "600000"},
+    ]
+    s = compute_position_state(acts, today=date(2026, 11, 3), stock_code="600000")
+    assert s["shares"] == 0
+    assert s["realized_pnl"] == 200.0
+    assert s["realized_carry"] == 200.0
+
+
+def test_short_partial_close_cost_price_positive():
+    # 部分平仓: 剩 50 股, 开仓均价(成本价)必须还原为正的 10.0。
+    # 曾因 max(0,·) 非负钳位把负价成本打成 -0.0(期货空头同样中招)。
+    acts = _short_actions() + [
+        {"action_type": "CLOSE", "price": 8.0, "shares": 50, "trade_date": "2026-01-10",
+         "direction": "SHORT", "stock_code": "600000"},
+    ]
+    s = compute_position_state(acts, today=date(2026, 11, 3), stock_code="600000")
+    assert s["shares"] == 50
+    assert s["cost_price"] == 10.0          # 开仓均价还原为正(负价技巧取负还原)
+    assert s["realized_pnl"] == 100.0       # (10−8)×50 已落袋
+    assert s["cost_value_cny"] == 500.0     # 剩余空头名义成本 50×10
+
+
+def test_short_open_then_full_close_loss():
+    # 开空 100@10 → 平 100@11: 亏 (10−11)×100 = −100
+    acts = _short_actions() + [
+        {"action_type": "CLOSE", "price": 11.0, "shares": 100, "trade_date": "2026-01-10",
+         "direction": "SHORT", "stock_code": "600000"},
+    ]
+    s = compute_position_state(acts, today=date(2026, 11, 3), stock_code="600000")
+    assert s["realized_pnl"] == -100.0
+
+
+def test_long_book_ignores_open_close_remap():
+    # 多头账(无 direction 标签)不受负价映射影响: BUY/SELL 原样走 FIFO (stock_code="" 免计费用)
+    acts = [
+        {"action_type": "BUY", "price": 10.0, "shares": 100, "trade_date": "2026-01-05",
+         "stock_code": ""},
+    ]
+    s = compute_position_state(acts, today=date(2026, 11, 3), stock_code="")
+    assert s["shares"] == 100
+    assert s["cost_price"] == 10.0

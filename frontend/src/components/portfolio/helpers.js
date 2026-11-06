@@ -3,8 +3,9 @@ import { A_SECTORS, FUND_CATEGORIES, MIN_HOLDER_PCT } from './constants'
 
 export function stockMarketOfCode(code = '') {
   const c = String(code).toUpperCase()
-  if (c.startsWith('HK.')) return 'HK'
-  if (c.startsWith('US.')) return 'US'
+  // 标准码「代码.市场」(00700.HK / SNDK.US); 前缀形态是迁移前存量, 兼容读
+  if (c.endsWith('.HK') || c.startsWith('HK.')) return 'HK'
+  if (c.endsWith('.US') || c.startsWith('US.')) return 'US'
   return 'A'
 }
 
@@ -14,16 +15,40 @@ export function currencyOfCode(code = '') {
   return m === 'HK' ? 'HKD' : m === 'US' ? 'USD' : 'CNY'
 }
 
+// 期货/期权 thscode 的交易所后缀 → 短名(徽标用, 与股票行的 沪/深/北 市场徽标同一排)。
+// 同花顺后缀: SHF 上期所 / DCE 大商所 / CZC 郑商所 / CFE 中金所 / INE 上能源 / GFE 广期所;
+// 认不出的外盘后缀原样展示(SGE/NYM/...); 股票/港美代码返回 null(交给 MarketChip)。
+const FUT_EXCHANGES = {
+  SHF: '上期', DCE: '大商', CZC: '郑商', CFE: '中金', INE: '上能', GFE: '广期',
+}
+export function exchangeOf(code = '') {
+  const c = String(code).toUpperCase()
+  if (c.endsWith('.HK') || c.endsWith('.US') || c.startsWith('HK.') || c.startsWith('US.')) return null
+  const m = c.match(/^[A-Z0-9]{1,16}\.([A-Z]{2,5})$/)
+  if (!m) return null
+  const suf = m[1]
+  if (suf === 'SH' || suf === 'SZ' || suf === 'BJ') return null
+  return FUT_EXCHANGES[suf] || suf
+}
+
 export function stockCodeForMarket(market, code) {
+  // 统一标准「代码.市场」: 00700.HK / SNDK.US(futu 的「市场.代码」只在后端 futu 模块内转换)
   const raw = String(code || '').trim().toUpperCase()
-  if (market === 'HK') return `HK.${raw.replace(/^HK\.?/, '').padStart(5, '0')}`
-  if (market === 'US') return `US.${raw.replace(/^US\.?/, '')}`
+  if (market === 'HK') {
+    const body = raw.replace(/^HK\./, '').replace(/\.HK$/, '')
+    return `${body.padStart(5, '0')}.HK`
+  }
+  if (market === 'US') {
+    const body = raw.replace(/^US\./, '').replace(/\.US$/, '')
+    return `${body}.US`
+  }
   return raw.replace(/^A\./, '')
 }
 
 export function currencySymbol(currency = 'CNY') {
   if (currency === 'USD') return 'US$'
   if (currency === 'HKD') return 'HK$'
+  if (currency === 'U' || currency === 'USDT') return '$'   // 加密(assets_classify 里 USDT 记 'U')
   return '¥'
 }
 

@@ -291,40 +291,78 @@ async def save_ths_key(data: ThsApiKey):
     return {"message": "保存成功"}
 
 
-# ── futu OpenD 网关(港/美股行情源) ──────────────────────────
-class FutuConfig(BaseModel):
-    host: str = ""
-    port: Optional[int] = None
+# ── TickFlow 行情源(A股/ETF/港/美股实时行情 + REITs; https://docs.tickflow.org) ──
+class TickFlowKey(BaseModel):
+    api_key: str
 
-    @field_validator("host")
-    @classmethod
-    def _vh(cls, v: str) -> str:
-        return (v or "").strip()
+
+@router.get("/tickflow")
+async def get_tickflow_key():
+    """TickFlow API key: 只回掩码, 不回明文。"""
+    key = await get_config("tickflow_api_key") or ""
+    masked = (key[:4] + "****" + key[-2:]) if len(key) > 6 else ("****" if key else "")
+    return {"has_key": bool(key), "key_masked": masked}
+
+
+@router.post("/tickflow")
+async def save_tickflow_key(data: TickFlowKey):
+    key = (data.api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "API key 不能为空")
+    await set_config("tickflow_api_key", key)
+    from services.tickflow import invalidate_key_cache
+    invalidate_key_cache()
+    return {"message": "保存成功"}
+
+
+# ── futu OpenAPI REST(港/美股行情源; https://open.futunn.com) ────────────────
+class FutuConfig(BaseModel):
+    api_host: str = ""
+    app_key: str = ""
+    private_key: str = ""      # PEM 全文(Ed25519/RSA); 空 = 不改动已存的
+    sign_algo: str = ""        # ed25519 | rsa
+    clear_key: bool = False    # True = 清空已存 AppKey/私钥
 
 
 @router.get("/futu")
 async def get_futu_config():
-    """futu OpenD 网关地址: 本地进程, 非凭证, 直接回明文。DB 优先, 其次 config.py/.env。"""
+    """futu REST 凭证状态: 私钥/AppKey 只回掩码, 不回明文。DB 优先, 其次 .env/config.py。"""
     from services import futu_quote
-    host, port = await futu_quote.futu_config()
-    db_host = await get_config("futu_host") or ""
-    db_port = await get_config("futu_port") or ""
-    return {"host": host, "port": port,
-            "db_host": db_host, "db_port": db_port,
+    cfg = await futu_quote.futu_config()
+    db_app_key = await get_config("futu_app_key") or ""
+    masked = (cfg["app_key"][:4] + "****" + cfg["app_key"][-2:]) if len(cfg["app_key"]) > 6 else ("****" if cfg["app_key"] else "")
+    return {"api_host": cfg["host"], "app_key_masked": masked,
+            "has_key_in_db": bool(db_app_key),
+            "sign_algo": cfg["algo"],
+            "configured": bool(cfg["app_key"] and cfg["private_key"]),
             "last_error": futu_quote.last_error()}
 
 
 @router.post("/futu")
 async def save_futu_config(data: FutuConfig):
-    """保存 OpenD host/port 到 DB 并立刻重建连接上下文(下次快照用新地址)。"""
-    if data.host:
-        await set_config("futu_host", data.host)
-    if data.port:
-        await set_config("futu_port", str(data.port))
+    """保存 futu REST 凭证到 DB(app_config 全局键)并清模块缓存。"""
+    if data.api_host.strip():
+        await set_config("futu_api_host", data.api_host.strip().rstrip("/"))
+    if data.app_key.strip():
+        await set_config("futu_app_key", data.app_key.strip())
+    if data.sign_algo.strip().lower() in ("ed25519", "rsa"):
+        await set_config("futu_sign_algo", data.sign_algo.strip().lower())
+    if data.clear_key:
+        await set_config("futu_app_key", "")
+        await set_config("futu_private_key", "")
+    elif data.private_key.strip():
+        await set_config("futu_private_key", data.private_key.strip())
     from services import futu_quote
     futu_quote.invalidate_ctx()
-    host, port = await futu_quote.futu_config()
-    return {"message": "保存成功", "host": host, "port": port}
+    cfg = await futu_quote.futu_config()
+    return {"message": "保存成功", "configured": bool(cfg["app_key"] and cfg["private_key"])}
+
+
+@router.post("/futu/test")
+async def test_futu_config():
+    """探活: 打 server-time 验证连通性(未配置凭证也能测网络通不通)。"""
+    from services import futu_quote
+    return await futu_quote.futu_probe()
 
 
 # --- Risk Config ---

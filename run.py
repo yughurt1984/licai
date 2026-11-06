@@ -23,7 +23,7 @@ from api.briefing_routes import router as briefing_router
 from api.broker_routes import router as broker_router
 from api.auth_routes import router as auth_router
 from api.ledger_routes import router as ledger_router
-from api.ws import router as ws_router, price_monitor_loop, backup_loop, briefing_loop
+from api.ws import router as ws_router, price_monitor_loop, backup_loop, briefing_loop, dividend_sync_loop
 
 # macOS 系统 Python 3.9 用 LibreSSL 2.8.3, urllib3 v2 会嗷嗷叫。无害, 屏蔽
 warnings.filterwarnings("ignore", message=".*OpenSSL.*", module="urllib3")
@@ -83,8 +83,9 @@ async def lifespan(app: FastAPI):
     # 早报循环依赖 news/fundamental_score(暂留), 仍按 quote_auto_fetch 门控
     if quote_auto_fetch():
         _tasks.append(asyncio.create_task(briefing_loop()))
+        _tasks.append(asyncio.create_task(dividend_sync_loop()))   # 派息全自动落账(6h 一轮)
     else:
-        print("[startup] 纯 PG 模式(quote_auto_fetch=false): 跳过联网后台任务(早报)")
+        print("[startup] 纯 PG 模式(quote_auto_fetch=false): 跳过联网后台任务(早报/派息同步)")
     print(f"全资产看板已启动: http://localhost:{config.port}")
     yield
     for _t in _tasks:

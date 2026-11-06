@@ -1,6 +1,7 @@
 // AI 记账 · 草稿入账: 把 LLM 解析出的交易草稿写到**现有**端点上。
 // 没有任何新端点 —— 股票/期货/期权走 portfolio 路由, 其余走 assets 路由,
 // 和持仓页各表单的提交目标是同一批。
+import { isDerivSub } from '../portfolio/constants'
 import { fetchJSON, api } from '../../hooks/useApi'
 import { isOnchainEtf } from '../../helpers'
 import { stockCodeForMarket } from '../portfolio/helpers'
@@ -33,7 +34,7 @@ async function saveStock(d, ctx) {
   if (!(price > 0)) throw new Error('价格必须大于 0')
   if (!(shares > 0)) throw new Error('数量必须大于 0')
   const holding = (ctx.holdings || []).find(
-    h => h.stock_code === code && (h.asset_kind || 'stock') === 'stock')
+    h => h.stock_code === code && !isDerivSub(h.sub_assets_type))
   const body = { price, shares }
   if (d.tradeDate) body.trade_date = d.tradeDate
   if (d.tradeTime) body.trade_time = d.tradeTime

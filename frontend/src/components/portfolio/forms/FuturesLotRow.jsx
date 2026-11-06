@@ -5,7 +5,7 @@ import { fetchJSON } from '../../../hooks/useApi'
 // 复用持仓流水端点 POST /api/portfolio/{code}/actions (OPEN/CLOSE + direction + 乘数)。
 export function FuturesLotRow({ holding, mode, onDone, onCancel }) {
   const isClose = mode === 'close'
-  const deriv = holding.asset_kind === 'opt' ? 'opt' : 'fut'
+  const deriv = typeOfSub(holding.sub_assets_type) === 'O' ? 'opt' : 'fut'
   const direction = holding.direction || 'LONG'
   const [price, setPrice] = useState('')
   const [lots, setLots] = useState(isClose ? String(holding.shares || '') : '1')

@@ -31,12 +31,12 @@ def test_overrides_merge():
 
 def test_allocate_merges_one_order():
     # 同一委托分两笔成交(同一分钟, 价差 1 跳板 = 0.2 港元): 平台费只收一次, 按成交额分摊
-    acts = [{"stock_code": "HK.00700", "action_type": "BUY", "price": 411.8, "shares": 200, "trade_date": "2026-10-08", "trade_time": "10:01"},
-            {"stock_code": "HK.00700", "action_type": "BUY", "price": 412.0, "shares": 200, "trade_date": "2026-10-08", "trade_time": "10:01"}]
+    acts = [{"stock_code": "00700.HK", "action_type": "BUY", "price": 411.8, "shares": 200, "trade_date": "2026-10-08", "trade_time": "10:01"},
+            {"stock_code": "00700.HK", "action_type": "BUY", "price": 412.0, "shares": 200, "trade_date": "2026-10-08", "trade_time": "10:01"}]
     fees = allocate_trade_fees(acts)
     total = order_fee("HK", "buy", 411.8 * 200 + 412.0 * 200, 400, "2026-10-08")
     assert abs(sum(fees) - total) < 0.02
-    assert tick_for_code("HK.00700", 411.8) == 0.2
+    assert tick_for_code("00700.HK", 411.8) == 0.2
 
 
 def test_a_share_unchanged():

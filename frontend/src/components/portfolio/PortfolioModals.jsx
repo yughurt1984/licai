@@ -2,10 +2,10 @@ import StockKlineModal from '../StockKlineModal'
 import { QualityModal } from './QualityModal'
 import { ThesisModal } from './ThesisModal'
 import { AssetActionsModal } from './actions'
-import { TYPE_META } from './constants'
 import { AddAShareForm } from './forms/AddAShareForm'
 import { AddFundForm } from './forms/AddFundForm'
 import { AddFuturesForm } from './forms/AddFuturesForm'
+import { AssetEntryMenu } from './forms/AssetEntryMenu'
 import { FuturesLotRow } from './forms/FuturesLotRow'
 import { EditAssetRow } from './forms/EditAssetRow'
 import { AddLotRow, CashAdjustRow, ReduceLotRow } from './forms/lots'
@@ -23,51 +23,41 @@ export function PortfolioModals({
   onThesisSaved,         // 买入逻辑存好: 重拉有逻辑的代码集合
 }) {
   const addTarget = open.add
+  // addTarget 编码: 'menu' = 分类菜单; '<大类>::<小类>' = 菜单级联选中小类后直达;
+  // 仅 '<大类>' = 快速添加(按筛选桶直达, 表单内再选中类/币种)。大类即 assets_classify.assets_class。
+  const [addCls, addSub] = String(addTarget || '').split('::')
+
   return (
     <>
       {addTarget === 'menu' && (
-        <div className="px-3 md:px-6 py-3 border-b border-border bg-surface-2/60 flex flex-wrap gap-2 items-center">
-          <span className="text-[11px] text-text-dim mr-2">添加到哪一类?</span>
-          {[
-            ['A:A', 'A股'],
-            ['A:HK', '港股'],
-            ['A:US', '美股'],
-            ['F', '基金'],
-            ['T', '期货'],
-            ['O', '期权'],
-            ...['C', 'R', 'W', 'M'].map(t => [t, TYPE_META[t].label]),
-          ].map(([target, label]) => (
-            <button key={target} onClick={() => show('add', target)}
-              className="px-3 py-1 rounded border border-border-med text-[12px] text-text hover:border-accent hover:text-accent transition-colors cursor-pointer">
-              + {label}
-            </button>
-          ))}
-          <button onClick={() => hide('add')}
-            className="ml-auto text-[11px] text-text-dim hover:text-text cursor-pointer">取消</button>
-        </div>
+        <AssetEntryMenu
+          onPick={(cls, sub) => show('add', `${cls}::${sub}`)}
+          onCancel={() => hide('add')} />
       )}
 
-      {String(addTarget || '').startsWith('A:') && (
-        <AddAShareForm initialMarket={addTarget.split(':')[1]}
+      {/* 股票: 口径同股票(份额/单价/券商), 走 holdings */}
+      {addCls && addCls !== 'menu' && addCls === 'stock' && (
+        <AddAShareForm sub={addSub || undefined}
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {/* 期货/期权: 开仓表单(fuyao 合约搜索), 走 holdings 管线 */}
-      {['T', 'O'].includes(addTarget) && (
-        <AddFuturesForm kind={addTarget}
-          brokers={brokers}
-          onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
-      )}
-      {/* AddFundForm 仅处理基金(F); 加密/机器人/理财/现金入口保留, 表单待单独开发 */}
-      {addTarget === 'F' && (
-        <AddFundForm typeKey={addTarget}
+      {/* 基金: ETF/LOF/REITs/货基(场内) 或 场外开放式; 按小类 trade 决定账本 */}
+      {addCls === 'fund' && (
+        <AddFundForm sub={addSub || undefined}
           brokers={brokers}
           onDone={() => { hide('add'); onAssetsChanged() }}
           onCancel={() => hide('add')} />
       )}
-      {['C', 'R', 'W', 'M'].includes(addTarget) && (
+      {/* 衍生品(期货/期权): futures/options/warrant 中类决定 fut/opt, 一个入口覆盖 */}
+      {addCls === 'derivatives' && (
+        <AddFuturesForm sub={addSub || undefined}
+          brokers={brokers}
+          onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
+      )}
+      {/* 其余大类(理财/现金/加密/机器人/商品/外汇/保险…): 表单待单独开发 */}
+      {addCls && addCls !== 'menu' && !['stock', 'fund', 'derivatives'].includes(addCls) && (
         <div className="px-6 py-4 bg-surface-2/50 border-b border-border text-[12.5px] text-text-muted">
-          「{TYPE_META[addTarget]?.label || addTarget}」添加表单待单独开发。
+          「{addCls}」添加表单待单独开发。
         </div>
       )}
 

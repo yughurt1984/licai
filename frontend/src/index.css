@@ -144,14 +144,15 @@ body::after {
  * Desktop (≥768): full 8-column with cost / weight / days / type-info
  * ======================================================== */
 
-/* UnifiedPortfolio: holdings table */
+/* UnifiedPortfolio: holdings table
+   方向列(名称·代码 与 市值之间): 期货/期权双向行、做空的股票行显示 多/空 徽标 */
 .licai-row {
   display: grid;
-  grid-template-columns: 30% 18% 22% 12% 18%;
+  grid-template-columns: 26% 9% 17% 22% 12% 14%;
 }
 @media (min-width: 768px) {
   .licai-row {
-    grid-template-columns: 22% 10% 9% 14% 14% 13% 18%;
+    grid-template-columns: 21% 5% 9% 9% 13.5% 13.5% 12% 17%;
   }
 }
 /* Cells visible only on desktop (cost / weight / days / type-info) */

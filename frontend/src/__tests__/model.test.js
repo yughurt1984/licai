@@ -140,19 +140,44 @@ describe('normalizeHolding — 原始持仓 → 统一行', () => {
 
   it('id 带 A- 前缀, 行业取后端一级行业的第一段', () => {
     const r = normalizeHolding(base)
-    expect(r.id).toBe('A-600519')
+    // id 尾段是方向: 多头(无 direction)为空尾杠, 做空行 = 同码 + '-SHORT' —— 同代码多空两行 id 不冲突
+    expect(r.id).toBe('A-600519-')
+    const sh = normalizeHolding({ ...base, direction: 'SHORT' })
+    expect(sh.id).toBe('A-600519-SHORT')
     expect(r.type).toBe('A')
     expect(r.category).toEqual({ id: '食品饮料', label: '食品饮料' })
   })
 
-  it('港股/美股按代码前缀识别市场, 分类走市场而不是行业', () => {
-    const hk = normalizeHolding({ ...base, stock_code: 'HK.00700', stock_name: '腾讯控股' })
+  it('展示分类唯一标准 = assets_classify.sub_assets_type(ETF 归基金, 期货归期货)', () => {
+    const etf = normalizeHolding({ ...base, stock_code: '513310.SH', stock_name: '中韩半导体ETF华泰柏瑞', sub_assets_type: 'cn_etf_fund' })
+    expect(etf.type).toBe('F')
+    expect(etf.category.id).toBeTruthy()
+
+    const fut = normalizeHolding({ ...base, stock_code: 'CU2601.SHF', stock_name: '沪铜2601', sub_assets_type: 'cn_futures', asset_kind: 'fut' })
+    expect(fut.type).toBe('T')
+
+    const stock = normalizeHolding({ ...base, stock_code: '600406.SH', stock_name: '三友化工', sub_assets_type: 'a_comm_stock' })
+    expect(stock.type).toBe('A')
+  })
+
+  it('场内货币基金按 assets_classify 大类归基金(不再回落股票)', () => {
+    const mm = normalizeHolding({ ...base, stock_code: '511880.SH', stock_name: '银华日利ETF', sub_assets_type: 'cn_mm_fund', assets_class: 'fund', main_assets_type: 'mm_fund' })
+    expect(mm.type).toBe('F')
+    // 缺 assets_class 字段(老数据/未联表)才回落 A —— 印证 catalog 路径已生效
+    const mmLegacy = normalizeHolding({ ...base, stock_code: '511880.SH', stock_name: '银华日利ETF', sub_assets_type: 'cn_mm_fund' })
+    expect(mmLegacy.type).toBe('A')
+  })
+
+  it('港股/美股按标准「代码.市场」后缀识别市场(旧前缀形态兼容), 分类走市场而不是行业', () => {
+    const hk = normalizeHolding({ ...base, stock_code: '00700.HK', stock_name: '腾讯控股' })
     expect(hk.extra.market).toBe('HK')
     expect(hk.category).toEqual({ id: 'hk', label: '港股' })
+    expect(normalizeHolding({ ...base, stock_code: 'HK.00700' }).extra.market).toBe('HK')   // 迁移前存量
 
-    const us = normalizeHolding({ ...base, stock_code: 'US.AAPL', stock_name: '苹果' })
+    const us = normalizeHolding({ ...base, stock_code: 'SNDK.US', stock_name: '闪迪' })
     expect(us.extra.market).toBe('US')
     expect(us.category).toEqual({ id: 'us', label: '美股' })
+    expect(normalizeHolding({ ...base, stock_code: 'US.AAPL' }).extra.market).toBe('US')   // 迁移前存量
   })
 
   it('币种默认人民币, 汇率默认 1', () => {

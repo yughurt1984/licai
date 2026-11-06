@@ -74,9 +74,8 @@ async def register_user(username: str, password: str, display_name: str = "") ->
         await db.commit()
     finally:
         await db.close()
-    # 新用户券商档案: 复制 user_id=0 的默认券商模板到自己名下(独立可改), 否则费率下拉是空的
-    from database import init_user_brokers
-    await init_user_brokers(new_id)
+    # 券商: 纯用户私有, 注册用户各自在个人中心按需添加(add_broker 落自己 user_id 名下);
+    # 无默认券商概念, 新用户券商列表为空, 费率估算回退内置默认。
     return {"user_id": new_id, "username": u}
 
 

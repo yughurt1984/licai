@@ -206,7 +206,10 @@ export default function Settings({ onClose }) {
         {/* 同花顺 fuyao 数据源(期货/期权合约与行情) */}
         <ThsKeySection />
 
-        {/* futu OpenD 网关(港/美股行情快照) */}
+        {/* TickFlow 行情源(A股/ETF/港/美股实时行情 + REITs) */}
+        <TickFlowKeySection />
+
+        {/* futu OpenAPI REST(港/美股行情快照) */}
         <FutuSection />
 
         {/* 知识星球(可选, 只读) */}
@@ -298,31 +301,24 @@ function ThsKeySection() {
   )
 }
 
-/* ── futu OpenD 网关(港/美股行情快照) ─────────────────────── */
-function FutuSection() {
-  const [cfg, setCfg] = useState(null)          // {host, port, last_error}
-  const [host, setHost] = useState('')
-  const [port, setPort] = useState('')
+/* ── TickFlow 行情源 Key ─────────────────────────────────── */
+function TickFlowKeySection() {
+  const [saved, setSaved] = useState(null)      // {has_key, key_masked}
+  const [key, setKey] = useState('')
   const [status, setStatus] = useState({ text: '', ok: null })
   const [saving, setSaving] = useState(false)
 
   const load = async () => {
-    try {
-      const d = await fetchJSON('/api/settings/futu')
-      setCfg(d)
-      setHost(d.db_host || '')
-      setPort(d.db_port || '')
-    } catch {}
+    try { setSaved(await fetchJSON('/api/settings/tickflow')) } catch {}
   }
   useEffect(() => { load() }, [])
 
   const save = async () => {
+    if (!key.trim()) return setStatus({ text: '请填 API key', ok: false })
     setSaving(true)
     try {
-      await fetchJSON('/api/settings/futu', {
-        method: 'POST',
-        body: JSON.stringify({ host: host.trim(), port: port.trim() ? parseInt(port.trim(), 10) : null }),
-      })
+      await fetchJSON('/api/settings/tickflow', { method: 'POST', body: JSON.stringify({ api_key: key.trim() }) })
+      setKey('')
       setStatus({ text: '已保存', ok: true })
       await load()
     } catch (e) {
@@ -333,32 +329,132 @@ function FutuSection() {
   return (
     <div className="mt-2 pt-4 border-t border-border">
       <div className="flex items-center justify-between mb-2">
-        <label className="text-[12px] text-text-dim font-semibold">futu OpenD 网关（港/美股行情）</label>
-        {cfg?.host && (
-          <span className="text-[11px] text-text-muted font-mono">
-            {cfg.host}:{cfg.port}
+        <label className="text-[12px] text-text-dim font-semibold">TickFlow 行情源 Key</label>
+        {saved?.has_key && <span className="text-[11px] text-bull">已配置 · {saved.key_masked}</span>}
+      </div>
+      <p className="text-[11px] text-text-muted mb-2 leading-relaxed">
+        A股/ETF/港/美股实时行情(REITs 也走它; api.tickflow.org, x-api-key 鉴权)。主源失败时二段兜底, 未配置则跳过。
+        在{' '}
+        <a href="https://tickflow.org" target="_blank" rel="noreferrer" className="text-accent hover:underline">tickflow.org</a>{' '}
+        控制台生成 key, 存全局配置, 所有用户共用。
+      </p>
+      <div className="flex items-center gap-2">
+        <input type="password"
+          className="flex-1 bg-bg border border-border rounded px-3 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent"
+          placeholder={saved?.has_key ? '留空则不修改' : '粘贴 TickFlow API key'}
+          value={key} onChange={e => setKey(e.target.value)} />
+        <button onClick={save} disabled={saving}
+          className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[12px] hover:opacity-90 disabled:opacity-50 cursor-pointer">
+          {saving ? '保存中...' : '保存'}
+        </button>
+        {status.text && (
+          <span className={`text-[12px] ${status.ok === true ? 'text-bull' : status.ok === false ? 'text-bear' : 'text-text-dim'}`}>
+            {status.text}
           </span>
         )}
       </div>
+    </div>
+  )
+}
+
+/* ── futu OpenAPI REST(港/美股行情快照; https://open.futunn.com) ─────── */
+function FutuSection() {
+  const [cfg, setCfg] = useState(null)          // {api_host, app_key_masked, sign_algo, configured, last_error}
+  const [apiHost, setApiHost] = useState('')
+  const [appKey, setAppKey] = useState('')
+  const [privateKey, setPrivateKey] = useState('')
+  const [algo, setAlgo] = useState('ed25519')
+  const [status, setStatus] = useState({ text: '', ok: null })
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+
+  const load = async () => {
+    try {
+      const d = await fetchJSON('/api/settings/futu')
+      setCfg(d)
+      setAlgo(d.sign_algo || 'ed25519')
+    } catch {}
+  }
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const d = await fetchJSON('/api/settings/futu', {
+        method: 'POST',
+        body: JSON.stringify({
+          api_host: apiHost.trim(),
+          app_key: appKey.trim(),
+          private_key: privateKey,
+          sign_algo: algo,
+        }),
+      })
+      setStatus({ text: d.configured ? '已保存(已配置)' : '已保存(凭证不完整)', ok: true })
+      setAppKey(''); setPrivateKey('')
+      await load()
+    } catch (e) {
+      setStatus({ text: '保存失败：' + (e.message || e), ok: false })
+    } finally { setSaving(false) }
+  }
+
+  const test = async () => {
+    setTesting(true)
+    try {
+      const d = await fetchJSON('/api/settings/futu/test', { method: 'POST' })
+      if (d.valid === true) setStatus({ text: `接口可达${d.configured ? '' : '（凭证未配置）'}`, ok: true })
+      else if (d.valid === false) setStatus({ text: '不可达：' + (d.note || ''), ok: false })
+      else setStatus({ text: d.note || '响应异常', ok: null })
+    } catch (e) {
+      setStatus({ text: '测试失败：' + (e.message || e), ok: false })
+    } finally { setTesting(false) }
+  }
+
+  const inp = 'bg-bg border border-border rounded px-3 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent'
+  return (
+    <div className="mt-2 pt-4 border-t border-border">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-[12px] text-text-dim font-semibold">futu OpenAPI（港/美股行情）</label>
+        {cfg?.app_key_masked && (
+          <span className="text-[11px] text-text-muted font-mono">AppKey {cfg.app_key_masked}</span>
+        )}
+      </div>
       <p className="text-[11px] text-text-muted mb-2 leading-relaxed">
-        港/美股行情快照走本地 FutuOpenD 网关（需先启动 OpenD 并登录，依赖 pip install futu-api）。
-        网关没开或未装 SDK 时自动回退免费源。
+        港/美股(含 ETF)行情快照走富途 OpenAPI REST。在{' '}
+        <a href="https://open.futunn.com/dashboard" target="_blank" rel="noreferrer" className="text-accent hover:underline">open.futunn.com/dashboard</a>{' '}
+        创建 AppKey 并上传公钥(Ed25519/RSA-SHA256), 私钥 PEM 粘到下面 —— 只存本地库, 不回显。
+        未配置或接口失败时自动回退免费源。
       </p>
       {cfg?.last_error && (
         <p className="text-[11px] text-bear mb-2">最近错误：{cfg.last_error}</p>
       )}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input
-          className="flex-1 bg-bg border border-border rounded px-3 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent"
-          placeholder={cfg?.host ? `host（当前 ${cfg.host}）` : 'host（默认 127.0.0.1）'}
-          value={host} onChange={e => setHost(e.target.value)} />
+          className={`${inp} w-64`}
+          placeholder={cfg?.api_host ? `API Host（当前 ${cfg.api_host}）` : 'API Host（默认 webapi.futunn.com）'}
+          value={apiHost} onChange={e => setApiHost(e.target.value)} />
+        <select className={`${inp} w-28`} value={algo} onChange={e => setAlgo(e.target.value)}>
+          <option value="ed25519">Ed25519</option>
+          <option value="rsa">RSA-SHA256</option>
+        </select>
         <input
-          className="w-24 bg-bg border border-border rounded px-3 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent"
-          placeholder={cfg?.port ? String(cfg.port) : '11111'}
-          value={port} onChange={e => setPort(e.target.value)} />
+          className={`${inp} flex-1 min-w-[180px]`}
+          placeholder={cfg?.app_key_masked ? `AppKey（当前 ${cfg.app_key_masked}）` : 'AppKey'}
+          value={appKey} onChange={e => setAppKey(e.target.value)} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mt-2">
+        <textarea
+          className={`${inp} flex-1 min-w-[260px] h-16`}
+          placeholder={cfg?.configured ? '私钥 PEM（已存，粘贴新值覆盖；留空不变）' : '私钥 PEM 全文（-----BEGIN PRIVATE KEY-----…）'}
+          value={privateKey} onChange={e => setPrivateKey(e.target.value)} />
+      </div>
+      <div className="flex items-center gap-2 mt-2">
         <button onClick={save} disabled={saving}
           className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[12px] hover:opacity-90 disabled:opacity-50 cursor-pointer">
           {saving ? '保存中...' : '保存'}
+        </button>
+        <button onClick={test} disabled={testing}
+          className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[12px] hover:text-text cursor-pointer">
+          {testing ? '测试中...' : '测试连接'}
         </button>
         {status.text && (
           <span className={`text-[12px] ${status.ok === true ? 'text-bull' : status.ok === false ? 'text-bear' : 'text-text-dim'}`}>

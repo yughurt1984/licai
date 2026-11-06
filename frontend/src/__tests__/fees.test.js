@@ -19,15 +19,15 @@ describe('resolveFee — 挑哪一档费率', () => {
     expect(resolveFee(BROKERS, '招商证券', 'stock')).toEqual({ rate: 0.00025, min: 5 })
   })
 
-  it('名字给了但券商表里没有 → 回落到默认券商(不是报错, 也不是内置兜底)', () => {
+  it('名字给了但券商表里没有 → 回退内置兜底(万2.5+5元)', () => {
     expect(resolveFee(BROKERS, '不存在证券', 'stock')).toEqual({ rate: 0.00025, min: 5 })
   })
 
-  it('没给名字 → 默认券商', () => {
+  it('没给名字 → 内置兜底', () => {
     expect(resolveFee(BROKERS, null, 'stock')).toEqual({ rate: 0.00025, min: 5 })
   })
 
-  it('没有默认券商 → 用列表第一个', () => {
+  it('没有默认券商 → 内置兜底', () => {
     const noDefault = BROKERS.map(b => ({ ...b, is_default: false }))
     expect(resolveFee(noDefault, null, 'stock')).toEqual({ rate: 0.00025, min: 5 })
   })

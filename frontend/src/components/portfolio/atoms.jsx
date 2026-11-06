@@ -1,7 +1,7 @@
 import { fmtMoney, fmtPrice, fundKindOf, isOnchainFundKind, priceColor } from '../../helpers'
 import Tooltip from '../Tooltip'
 import { TYPE_COLOR, TYPE_META, TYPE_ORDER } from './constants'
-import { currencySymbol, fxSourceLabel } from './helpers'
+import { currencySymbol, exchangeOf, fxSourceLabel } from './helpers'
 
 export function FxHint({ extra, children }) {
   if (!extra?.currency || extra.currency === 'CNY') return children
@@ -62,6 +62,22 @@ export function MarketChip({ market, code }) {
       style={{ color, background: `${color}18`, border: `1px solid ${color}40` }}>
       {label}
     </span>
+  )
+}
+
+export function ExchangeChip({ code }) {
+  // 期货/期权的交易所徽标(上期/大商/郑商/中金/上能/广期; 外盘后缀原样), 位置与股票行的
+  // 沪/深/北 市场徽标统一 —— 多空方向有自己的独立列, 不再挤在名称行。
+  const ex = exchangeOf(code)
+  if (!ex) return null
+  const color = '#7e93a8'
+  return (
+    <Tooltip content={`交易所 ${ex}`}>
+      <span className="inline-flex items-center rounded font-semibold shrink-0 px-1 py-[1px] text-[10.5]px"
+        style={{ color, background: `${color}18`, border: `1px solid ${color}40` }}>
+        {ex}
+      </span>
+    </Tooltip>
   )
 }
 
@@ -194,11 +210,6 @@ export function TypeMiniInfo({ row }) {
     return (
       <span className="text-[11.5]px text-text-muted font-mono">
         {extra.shares} 股 · {currencySymbol(extra.currency)}{fmtPrice(extra.avgCost, row.code)}
-        {extra.divPerShare > 0 && (
-          <span className="text-accent/80 ml-1" title={`持有期已收每股现金分红 ${currencySymbol(extra.currency)}${extra.divPerShare}，已按券商摊薄成本口径从成本中扣减`}>
-            含红{currencySymbol(extra.currency)}{extra.divPerShare}
-          </span>
-        )}
       </span>
     )
   }
@@ -287,9 +298,15 @@ export function RowActions({ row, visible, onEdit, onHistory, onRemove, onAddLot
     actions.push({ short: '改', label: '编辑', fn: () => onEdit?.(row) })
     actions.push({ short: '删', label: '删除', fn: () => onRemove?.(row), danger: true })
   } else if (row.type === 'A') {
-    // A股: 买入/卖出 = 打开流水弹窗并预选 BUY/SELL
-    actions.push({ short: '买', label: '买入', fn: () => onHistory?.(row._raw, 'BUY') })
-    actions.push({ short: '卖', label: '卖出', fn: () => onHistory?.(row._raw, 'SELL') })
+    if (row.extra?.direction === 'SHORT') {
+      // 做空的股票行(参考期货模式): 开仓(卖出开仓) / 平仓(买入平仓) — 预选 OPEN/CLOSE
+      actions.push({ short: '开', label: '开仓', fn: () => onHistory?.(row._raw, 'OPEN') })
+      actions.push({ short: '平', label: '平仓', fn: () => onHistory?.(row._raw, 'CLOSE') })
+    } else {
+      // A股: 买入/卖出 = 打开流水弹窗并预选 BUY/SELL
+      actions.push({ short: '买', label: '买入', fn: () => onHistory?.(row._raw, 'BUY') })
+      actions.push({ short: '卖', label: '卖出', fn: () => onHistory?.(row._raw, 'SELL') })
+    }
     actions.push({ short: '史', label: '流水', fn: () => onHistory?.(row._raw) })
     actions.push({ short: '删', label: '删除', fn: () => onRemove?.(row), danger: true })
   } else if (row.type === 'T' || row.type === 'O') {

@@ -11,17 +11,6 @@ def fresh_db(temp_db):
     yield
 
 
-def test_seed_creates_zhaoshang_yinhe(fresh_db):
-    rows = asyncio.run(db.list_brokers())
-    names = {r["name"] for r in rows}
-    assert "招商证券" in names and "银河证券" in names
-    zs = next(r for r in rows if r["name"] == "招商证券")
-    assert abs(zs["stock_rate"] - 0.00025) < 1e-9
-    assert zs["stock_min"] == 5 and zs["is_default"] == 1
-    yh = next(r for r in rows if r["name"] == "银河证券")
-    assert abs(yh["etf_rate"] - 0.0001) < 1e-9 and yh["etf_min"] == 0.1
-
-
 from datetime import date
 from services.position_ledger import (estimate_trade_fee, compute_position_state,
                                       allocate_trade_fees)
@@ -157,12 +146,3 @@ def test_compute_state_default_is_zhaoshang():
     b = compute_position_state(actions, today=date(2026, 6, 1), stock_code="000001",
                                commission_rate=0.00025, commission_min=5)
     assert abs(a["cost_price"] - b["cost_price"]) < 1e-9
-
-
-def test_set_default_is_exclusive(fresh_db):
-    rows = asyncio.run(db.list_brokers())
-    yh = next(r for r in rows if r["name"] == "银河证券")
-    asyncio.run(db.update_broker(yh["id"], is_default=1))
-    rows2 = asyncio.run(db.list_brokers())
-    defaults = [r for r in rows2 if r["is_default"]]
-    assert len(defaults) == 1 and defaults[0]["name"] == "银河证券"

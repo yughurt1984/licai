@@ -80,11 +80,11 @@ async def snapshot(code: str) -> dict:
 
 
 def _full_code(code: str) -> str:
-    """带市场的完整代码。修订表历史上按裸码存(港股 HK.00700 存成 00700), 5 位纯数字只可能是港股
-    (A 股 6 位), 这里补回 HK. 前缀, 否则会被当 A 股去取行情。"""
+    """带市场的完整代码(标准「代码.市场」)。修订表历史上按裸码存(港股 00700.HK 存成 00700),
+    5 位纯数字只可能是港股(A 股 6 位), normalize 会补成 00700.HK, 否则会被当 A 股去取行情。"""
     from services.market_data import normalize_stock_code
     c = normalize_stock_code(code or "")
-    return f"HK.{c}" if c.isdigit() and len(c) == 5 else c
+    return f"{c.zfill(5)}.HK" if c.isdigit() and len(c) == 5 else c
 
 
 async def _fundamentals(code: str) -> dict | None:

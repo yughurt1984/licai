@@ -1,3 +1,4 @@
+import { isDerivSub } from './components/portfolio/constants'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { api, fetchJSON, AUTH_EVENT } from './hooks/useApi'
@@ -209,26 +210,34 @@ export default function App() {
         if (!q) return h
         const currentPrice = q.price
         const fxRate = q.fx_rate || h.fx_rate || 1
-        // 期货/期权: 市值=价×乘数×手数; 浮动按方向(空头 = 成本−市值); 今日%由后端按方向折好
-        if ((h.asset_kind || 'stock') !== 'stock') {
+        // 期货/期权/股票空头: 市值=价×乘数×手数(股票空头乘数=1); 浮动按方向(空头 = 成本−市值, 价跌=赚);
+        // price_change_pct 与后端同一约定 —— 已按方向折算, 空头翻号。
+        // 股票空头(港美股)按原币算浮动再折人民币; 期货/期权恒 CNY。
+        const isFut = isDerivSub(h.sub_assets_type)   // 期货/期权(assets_classify 小类)用乘数估值
+        if (isFut || h.direction === 'SHORT') {
           const mult = h.contract_multiplier || 1
           const lots = h.shares
           const short = h.direction === 'SHORT'
           const costV = h.cost_price * mult * lots
           const mv = currentPrice * mult * lots
+          const fx = isFut ? 1 : (h.currency && h.currency !== 'CNY' ? fxRate : 1)
+          const r2 = (x) => Math.round(x * 100) / 100
+          const pnl = (short ? costV - mv : mv - costV) * fx
           return {
             ...h,
             current_price: currentPrice,
-            price_change_pct: q.change_pct,
-            original_cost_value: Math.round(costV * 100) / 100,
-            original_market_value: Math.round(mv * 100) / 100,
-            cost_value: Math.round(costV * 100) / 100,
-            market_value: Math.round(mv * 100) / 100,
-            unrealized_pnl: Math.round((short ? costV - mv : mv - costV) * 100) / 100,
+            price_change_pct: q.change_pct == null ? null : (short ? -q.change_pct : q.change_pct),
+            original_cost_value: r2(costV),
+            original_market_value: r2(mv),
+            cost_value: r2(costV * fx),
+            market_value: r2(mv * fx),
+            unrealized_pnl: r2(pnl),
             pnl_pct: h.cost_price > 0
               ? Math.round((short ? (h.cost_price - currentPrice) / h.cost_price
                                  : (currentPrice - h.cost_price) / h.cost_price) * 10000) / 100
               : h.pnl_pct,
+            // 股票空头资产贡献 = 成本 + 浮动(与后端 margin_value 同口径); 期货的 margin 保持后端算的
+            ...(isFut ? {} : { margin_value: r2(costV * fx + pnl) }),
           }
         }
         const originalCostValue = h.cost_price * h.shares

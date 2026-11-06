@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from database import (
-    list_brokers, add_broker, update_broker, delete_broker, get_default_broker,
+    list_brokers, add_broker, update_broker, delete_broker,
 )
 
 router = APIRouter(prefix="/api/brokers", tags=["brokers"])
@@ -48,12 +48,20 @@ class BrokerUpdate(BaseModel):
     platform_min: Optional[float] = None
     fut_rate: Optional[float] = None
     fut_min: Optional[float] = None
-    is_default: Optional[bool] = None
 
 
 @router.get("")
 async def get_brokers():
     return await list_brokers()
+
+
+async def _find_target(broker_id: int) -> dict:
+    """在「当前用户自有」清单里找目标行; 找不到→404。券商已改为纯用户私有, 自己的都能改/删。"""
+    rows = await list_brokers()
+    target = next((b for b in rows if b["id"] == broker_id), None)
+    if not target:
+        raise HTTPException(404, "券商不存在")
+    return target
 
 
 @router.post("")
@@ -74,17 +82,13 @@ async def create_broker(data: BrokerCreate):
 
 @router.put("/{broker_id}")
 async def modify_broker(broker_id: int, data: BrokerUpdate):
+    await _find_target(broker_id)
     payload = data.model_dump(exclude_unset=True)
     if "type" in payload and payload["type"] not in BROKER_TYPES:
         raise HTTPException(400, f"券商类型必须是 {'/'.join(BROKER_TYPES)}")
     for k in ("stock_unit", "etf_unit", "opt_unit"):
         if k in payload and payload[k] not in BROKER_UNITS:
             raise HTTPException(400, f"计价单位必须是 {'/'.join(BROKER_UNITS)}")
-    if "is_default" in payload:
-        if payload["is_default"]:
-            payload["is_default"] = 1
-        else:
-            payload.pop("is_default")   # 不允许直接取消默认(会变成0个默认); 改默认请对另一家设 true
     if not payload:
         raise HTTPException(400, "无可改字段")
     await update_broker(broker_id, **payload)
@@ -93,11 +97,6 @@ async def modify_broker(broker_id: int, data: BrokerUpdate):
 
 @router.delete("/{broker_id}")
 async def remove_broker(broker_id: int):
-    rows = await list_brokers()
-    target = next((b for b in rows if b["id"] == broker_id), None)
-    if not target:
-        raise HTTPException(404, "券商不存在")
-    if target["is_default"]:
-        raise HTTPException(400, "默认券商不可删, 请先把别的设为默认")
+    await _find_target(broker_id)
     await delete_broker(broker_id)
     return {"message": "deleted"}

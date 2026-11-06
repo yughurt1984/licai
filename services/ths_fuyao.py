@@ -55,8 +55,11 @@ def is_thscode(code: str) -> bool:
     m = _THS_RE.match(c)
     if not m:
         return False
-    # A股/ETF 数据源标准格式(600406.SH / 510300.SZ)是 6 位数字主体 —— 不是期货合约
-    body = c.split(".", 1)[0]
+    body, _, suffix = c.partition(".")
+    suffix = suffix.upper()
+    # 港/美股标准码(00700.HK / SNDK.US)与 A股/ETF(600406.SH 6位主体)都不是期货合约
+    if suffix in ("HK", "US"):
+        return False
     if len(body) == 6 and body.isdigit():
         return False
     return True
@@ -100,6 +103,26 @@ def _get_sync(path: str, params: dict, key: str) -> Optional[dict]:
     if d.get("code") != 0:
         raise RuntimeError(f"api code={d.get('code')}: {d.get('message', '')[:120]}")
     return d.get("data")
+
+
+async def corp_actions_sync(thscode: str) -> Optional[list[dict]]:
+    """A 股公司行为(除权除息事件, fuyao corporate-actions):
+    [{ex_date, per_share_cash(税前), per_share_bonus(送股比例)}], 除权日降序。拉不到 → None。"""
+    d = await _get("/api/a-share/corporate-actions/adjustment-factors", {"thscode": thscode})
+    if not d:
+        return None
+    out = []
+    for it in d.get("item") or []:
+        ms = it.get("ex_date_ms")
+        if not ms:
+            continue
+        # ex_date_ms = Asia/Shanghai 00:00 的毫秒时间戳, 直接按 +08:00 取日
+        ex = datetime.datetime.fromtimestamp(int(ms) / 1000,
+                                             tz=datetime.timezone(datetime.timedelta(hours=8))).date().isoformat()
+        out.append({"ex_date": ex,
+                    "per_share_cash": float(it.get("dividend_per_share") or 0),
+                    "per_share_bonus": float(it.get("per_share_bonus") or 0)})
+    return out
 
 
 async def _get(path: str, params: dict) -> Optional[dict]:
@@ -239,12 +262,14 @@ async def quote(thscode: str) -> Optional[dict]:
         try:
             from services import market_store
             await market_store.save_quotes([{
-                "symbol": thscode, "asset_type": ths_kind(thscode),
+                "code": thscode,
+                "ticker": thscode.split(".")[0],
+                "sub_assets_type": "cn_futures" if kind == "futures" else "cn_options",
                 "name": out.get("name") or "", "price": out["price"],
                 "open": out.get("open"), "high": out.get("high"), "low": out.get("low"),
                 "prev_close": out.get("prev_close"), "change_pct": out.get("change_pct"),
                 "volume": out.get("volume"), "amount": out.get("amount"),
-                "currency": "CNY", "source": "ths",
+                "currency": "CNY", "data_source": "ths",
             }])
         except Exception:
             pass
@@ -338,45 +363,72 @@ def fund_thscode(code: str) -> str:
 
 
 async def fund_snapshot(code: str) -> Optional[dict]:
-    """场内基金(ETF/LOF)行情快照(GET /api/fund/market/snapshot, 单只)。
+    """场内基金(ETF/LOF)行情快照(单只) —— fund_snapshots 批量版薄壳, 形状不变。
 
     返回 {price, prev_close, change_pct, open, high, low, volume, turnover, quote_time};
     接口不返回名称(name 由资产行/天天基金兜底)。REITs 不支持(上游 code=3004)。
     """
+    rows = await fund_snapshots([code])
+    if not rows:
+        return None
+    r = rows[0]
+    return {k: r.get(k) for k in ("price", "prev_close", "change_pct", "open", "high",
+                                  "low", "volume", "turnover", "quote_time")}
+
+
+async def fund_snapshots(codes: list[str]) -> Optional[list[dict]]:
+    """场内基金(ETF/LOF)行情快照(GET /api/fund/market/snapshot, 批量逗号分隔, 上限 100/次)。
+
+    codes 为标准码(510300.SH / 161725.SZ), 自动分块。返回
+    [{code, price, prev_close, change_pct, open, high, low, volume, turnover, quote_time}];
+    quote_time 取 data.timestamp(毫秒, 上游已是北京时间)秒级文本。接口不返回名称。
+    best-effort: 失败返回 None。
+    """
+    clean: list[str] = []
+    for c in codes or []:
+        c = fund_thscode(str(c or "").strip().upper())
+        if c and c not in clean:
+            clean.append(c)
+    if not clean:
+        return None
+    out: list[dict] = []
     try:
-        d = await _get("/api/fund/market/snapshot", {"thscode": fund_thscode(code)})
-        items = (d or {}).get("item") or []
-        it = items[0] if items else None
-        if not it:
-            return None
-        last = float(it.get("last_price") or 0)
-        if not last:
-            return None
-        prev = float(it.get("prev_price") or 0)
-        chg = it.get("price_change_ratio_pct")
-        ts = (d or {}).get("timestamp")
-        quote_time = ""
-        if ts:
-            try:
-                from datetime import datetime, timedelta, timezone
-                quote_time = (datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
-                              + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                pass
-        return {
-            "price": last,
-            "prev_close": prev or None,
-            "change_pct": float(chg) if chg is not None else (
-                round((last - prev) / prev * 100, 3) if prev else None),
-            "open": float(it.get("open_price") or 0) or None,
-            "high": float(it.get("high_price") or 0) or None,
-            "low": float(it.get("low_price") or 0) or None,
-            "volume": float(it.get("volume") or 0),
-            "turnover": float(it.get("turnover") or 0),
-            "quote_time": quote_time,
-        }
+        for i in range(0, len(clean), 100):
+            d = await _get("/api/fund/market/snapshot", {"thscode": ",".join(clean[i:i + 100])})
+            ts = (d or {}).get("timestamp")
+            quote_time = ""
+            if ts:
+                try:
+                    from datetime import datetime, timedelta, timezone
+                    quote_time = (datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
+                                  + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass
+            for it in (d or {}).get("item") or []:
+                try:
+                    last = float(it.get("last_price") or 0)
+                    if not last:
+                        continue
+                    prev = float(it.get("prev_price") or 0)
+                    chg = it.get("price_change_ratio_pct")
+                    out.append({
+                        "code": str(it.get("thscode") or "").upper(),
+                        "price": last,
+                        "prev_close": prev or None,
+                        "change_pct": float(chg) if chg is not None else (
+                            round((last - prev) / prev * 100, 3) if prev else None),
+                        "open": float(it.get("open_price") or 0) or None,
+                        "high": float(it.get("high_price") or 0) or None,
+                        "low": float(it.get("low_price") or 0) or None,
+                        "volume": float(it.get("volume") or 0),
+                        "turnover": float(it.get("turnover") or 0),
+                        "quote_time": quote_time,
+                    })
+                except Exception:
+                    continue
+        return out or None
     except Exception as e:
-        print(f"[ths_fuyao] fund snapshot {code} 失败: {str(e)[:120]}")
+        print(f"[ths_fuyao] fund snapshot 失败: {str(e)[:120]}")
         return None
 
 
@@ -418,19 +470,38 @@ async def fund_nav(code: str) -> Optional[dict]:
 
 
 # ── 源适配器(规范层, 见 services/quote_source.py) ──────────────────────
+# 场内基金(ETF/LOF)判定: 6 位主体 + 深 1[56]xxxx(159 ETF/16x LOF) + 沪 5[0-8]xxxx
+# (50x/51x/56x/58x) —— 与 market_data._is_etf_lof 同规则(就地实现, 免循环导入)。
+# 这类码上游不走 A股快照端点(/api/a-share/prices/snapshot 对基金返回 3001 Target not
+# found), 走基金快照端点(/api/fund/market/snapshot, 见 docs fund-market)。
+_ETF_LOF_RE = re.compile(r"^(1[56]|5[0-8])\d{4}$")
+
+
+def is_etf_lof(code: str) -> bool:
+    body = (code or "").strip().upper().split(".")[0]
+    return bool(len(body) == 6 and body.isdigit() and _ETF_LOF_RE.match(body))
+
+
 async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
     """fuyao 源适配器: 标准码 → 规范 QuoteRow(翻译在此完成, 不再散在派发层)。
 
-    期货/期权(thscode)逐只走 quote()(fuyao 无批量快照接口); A股走批量 snapshot。
+    三路分流: 期货/期权(thscode)逐只走 quote()(fuyao 无批量快照接口); 场内基金
+    (ETF/LOF)走批量 fund_snapshots; 其余 A股走批量 a_share_snapshot。
     契约: 不抛异常 —— 失败/无数据的码不出现在返回里, 派发层据此按码兜底。
     """
     fut_opt: list[str] = []
+    etf_lof: list[str] = []
     ashare: list[str] = []
     for c in codes:
         c = str(c or "").strip().upper()
         if not c:
             continue
-        (fut_opt if is_thscode(c) else ashare).append(c)
+        if is_thscode(c):
+            fut_opt.append(c)
+        elif is_etf_lof(c):
+            etf_lof.append(c)
+        else:
+            ashare.append(c)
 
     async def _one_ths(code: str) -> Optional["QuoteRow"]:
         try:
@@ -449,6 +520,25 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
     out: list[QuoteRow] = []
     ths_rows = await asyncio.gather(*(_one_ths(c) for c in fut_opt))
     out.extend(r for r in ths_rows if r)
+
+    if etf_lof:
+        try:
+            for it in await fund_snapshots(etf_lof) or []:
+                try:
+                    if not it.get("price"):
+                        continue
+                    out.append(QuoteRow(
+                        code=str(it.get("code") or "").upper(), market="A",
+                        name=it.get("name") or "", price=float(it["price"]),
+                        open=it.get("open"), high=it.get("high"), low=it.get("low"),
+                        prev_close=it.get("prev_close"),
+                        volume=it.get("volume") or 0, amount=it.get("turnover") or 0,
+                        change_pct=it.get("change_pct"), currency="CNY",
+                        quote_time=it.get("quote_time") or "", source="fuyao"))
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"[ths_fuyao] fund snapshot 批量失败: {str(e)[:120]}")
 
     if ashare:
         try:

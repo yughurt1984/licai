@@ -1,10 +1,13 @@
-import { ASSET_TYPE_TO_KEY } from './constants'
+import { ASSET_TYPE_TO_KEY, typeOfSub } from './constants'
 import { currencyOfCode, fundCategoryOf, stockCategoryOf, stockMarketOfCode } from './helpers'
 
 // Normalize raw holding → unified row (股票 / 期货 T / 期权 O 同一管线)
 export function normalizeHolding(h) {
-  const kind = h.asset_kind || 'stock'
-  const rowType = kind === 'fut' ? 'T' : kind === 'opt' ? 'O' : 'A'
+  // 展示分类唯一标准: assets_classify.sub_assets_type → 大类/中类派生(后端透传), 不看 asset_kind(引擎列)
+  const rowType = typeOfSub(h.sub_assets_type, { assets_class: h.assets_class, main_assets_type: h.main_assets_type }) || 'A'
+  const isShort = h.direction === 'SHORT'
+  // 期货/期权/股票 都是双向(做多/做空), 没带方向时按做多兜底 —— 交易方向列统一展示
+  const direction = h.direction || (rowType === 'A' || rowType === 'T' || rowType === 'O' ? 'LONG' : null)
   const mv = h.market_value || (h.current_price * h.shares) || 0
   const cost = h.cost_value ?? (h.cost_price * h.shares)
   const originalMarketValue = h.original_market_value ?? (h.current_price ? h.current_price * h.shares : null)
@@ -12,24 +15,24 @@ export function normalizeHolding(h) {
   return {
     id: `${rowType}-${h.stock_code}-${h.direction || ''}`,
     type: rowType,
-    category: rowType === 'A' ? stockCategoryOf(h) : null,
+    category: rowType === 'A' ? stockCategoryOf(h) : rowType === 'F' ? fundCategoryOf(h.stock_name) : null,
     code: h.stock_code,
     name: h.stock_name,
     broker: h.broker || null,
     mv,
     cost,
     // 后端无行情时 unrealized_pnl=null 且 mv=0 —— 不能退到 mv−cost(那会显示成 -成本),
-    // 置 null 让行内显示 -- 并被浮动合计排除, 等行情 bootstrap 补上后自然恢复
-    pnl: h.unrealized_pnl ?? (mv > 0 ? mv - cost : null),
+    // 置 null 让行内显示 -- 并被浮动合计排除, 等行情 bootstrap 补上后自然恢复。
+    // 空头镜像: 浮动 = 成本 − 市值(价跌=赚)。
+    pnl: h.unrealized_pnl ?? (mv > 0 ? (isShort ? cost - mv : mv - cost) : null),
     pnlPct: h.pnl_pct,
-    // 期货/期权: 今日涨跌按方向折算 —— 空头在价格上涨时是亏的(change_pct 本身不带方向)
-    today: h.price_change_pct == null ? null
-      : h.price_change_pct * (h.direction === 'SHORT' ? -1 : 1),
+    // 今日涨跌: 后端已按方向折算好(空头已翻号, 期货/股票空头同一约定), 这里不再反转
+    today: h.price_change_pct == null ? null : h.price_change_pct,
     _raw: h,
     extra: {
-      direction: h.direction || null,
+      direction,
       multiplier: h.contract_multiplier || 1,
-      // 期货: 总资产的资产贡献 = 名义市值 × 保证金率(后端算好); 期权/股票为 null(按 mv 计)
+      // 期货: 总资产的资产贡献 = 名义市值 × 保证金率(后端算好); 股票空头 = 成本+浮动; 其余为 null(按 mv 计)
       marginValue: h.margin_value ?? null,
       market: rowType === 'T' ? 'FUT' : rowType === 'O' ? 'OPT' : (h.market || stockMarketOfCode(h.stock_code)),
       currency: h.currency || currencyOfCode(h.stock_code),
@@ -41,7 +44,6 @@ export function normalizeHolding(h) {
       shares: h.shares,
       price: h.current_price,
       avgCost: h.cost_price,
-      divPerShare: h.div_per_share,
     },
   }
 }
@@ -127,9 +129,13 @@ export function normalizeAsset(a) {
 // Crypto/Bot are 24/7 so they always contribute.
 export function aggregate(rows, aShareTradingDay = true) {
   // 资产贡献口径: 期货是杠杆交易, 计入总资产的是保证金占用(名义市值×保证金率),
-  // 不是名义市值(那会把 10 倍杠杆的名义敞口全算成资产); 其余类型 = 市值。
+  // 不是名义市值(那会把 10 倍杠杆的名义敞口全算成资产); 股票空头 = 成本+浮动
+  // (开空收到的现金趴在这注仓里, 后端算好放 margin_value); 其余类型 = 市值。
+  // 仅期货/期权(type=T)用保证金口径(成本+浮动); 股票空头与普通多头一律用市值口径,
+  // 与顶栏「总资产」(Dashboard 只对有 fut 用 margin_value)保持一致, 否则空头会被算成 成本+浮动 虚高
   const assetVal = (r) =>
-    r.type === 'T' && r.extra?.marginValue != null ? r.extra.marginValue : (r.mv || 0)
+    r.extra?.marginValue != null && r.type === 'T'
+      ? r.extra.marginValue : (r.mv || 0)
   const totalMv = rows.reduce((s, r) => s + assetVal(r), 0)
   const groups = {}
   const fxExposure = {}

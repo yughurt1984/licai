@@ -95,7 +95,9 @@ async def _positions_now() -> tuple[list, list, float, dict]:
             mkt = split_stock_code(h["stock_code"])[0]              # holdings 行里没有 market/fx_rate, 按代码判
             fx = float(q.get("fx_rate") or 1.0) if mkt in ("HK", "US") else 1.0   # 港美股原币 → 人民币
             mv = float(px) * float(h.get("shares") or 0) * fx
-            if mv > 0:
+            if (h.get("direction") or "") == "SHORT":
+                mv = -mv        # 空头是反向敞口(价涨=亏): 行业净敞口里抵扣同源的多头
+            if mv:
                 stocks.append({"code": h["stock_code"], "name": h.get("stock_name") or h["stock_code"],
                                "market": "CN" if mkt == "A" else mkt, "mv": mv})
 
@@ -133,11 +135,19 @@ async def _positions_as_of(day: str) -> tuple[list, list, float, dict]:
     stocks, missing_px = [], []
     for code, rows in acts.items():
         try:
-            st = compute_position_state(rows, stock_code=code)
+            # 多空两本账分开重放(期货/期权双向、股票做空): 混喂一个 FIFO 会把两本账搅在一起。
+            # 空头记负敞口(价涨=亏), 与多头净额对冲。
+            sh_net = 0.0
+            by_dir: dict = {}
+            for r in rows:
+                by_dir.setdefault(r.get("direction") or "LONG", []).append(r)
+            for d, grows in by_dir.items():
+                st = compute_position_state(grows, stock_code=code)
+                sh = float(st.get("shares") or 0)
+                sh_net += -sh if d == "SHORT" else sh
         except Exception:
             continue
-        sh = float(st.get("shares") or 0)
-        if sh <= 0:
+        if abs(sh_net) <= 1e-9:
             continue
         px = closes.get(code)
         if not px:
@@ -150,7 +160,7 @@ async def _positions_as_of(day: str) -> tuple[list, list, float, dict]:
         from services.market_data import code_fx, code_fx_on, split_stock_code
         mkt = split_stock_code(code)[0]
         fx = ((await asyncio.to_thread(code_fx_on, code, day)) or await asyncio.to_thread(code_fx, code)) if mkt in ("HK", "US") else 1.0   # 回看按当天的历史汇率
-        stocks.append({"code": code, "name": nm, "market": "CN" if mkt == "A" else mkt, "mv": sh * px * fx})
+        stocks.append({"code": code, "name": nm, "market": "CN" if mkt == "A" else mkt, "mv": sh_net * px * fx})
 
     snap = await get_snapshot_on_or_before(day)
     funds, total_other, snap_date = [], 0.0, None

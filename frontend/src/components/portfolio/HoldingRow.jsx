@@ -1,8 +1,19 @@
 import Tooltip from '../Tooltip'
 import { fmtMoney, fmtPct, priceColor } from '../../helpers'
-import { FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './atoms'
+import { ExchangeChip, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './atoms'
 import { TYPE_COLOR } from './constants'
 import { formatCurrencyMoney } from './helpers'
+
+// 交易方向徽标(做多红/做空绿, A股习惯涨=红): 期货/期权双向行 + 股票双向行(做多/做空)
+function DirectionBadge({ direction }) {
+  return (
+    <span className={`text-[10]px px-1 py-[1px] rounded border font-semibold
+      ${direction === 'LONG'
+        ? 'bg-bull/15 text-bull border-bull/40' : 'bg-bear/15 text-bear border-bear/40'}`}>
+      {direction === 'LONG' ? '做多' : '做空'}
+    </span>
+  )
+}
 
 // 持仓列表的一行。原来是主组件里一个 256 行的 renderRow 闭包 —— 它捕获了
 // hoverId / insights / carryByCode / thesisCodes 和六个 handle* , 所以整段
@@ -26,14 +37,9 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="text-[14]px font-semibold text-text-bright truncate">{row.name}</span>
         <TypeChip type={row.type} compact />
-        {/* 期货/期权: 方向徽标(多红/空绿, A股习惯涨=红) */}
-        {(row.type === 'T' || row.type === 'O') && row.extra?.direction && (
-          <span className={`text-[9.5]px px-1 py-[1px] rounded border shrink-0 font-semibold
-            ${row.extra.direction === 'LONG'
-              ? 'bg-bull/15 text-bull border-bull/40' : 'bg-bear/15 text-bear border-bear/40'}`}>
-            {row.extra.direction === 'LONG' ? '多' : '空'}
-          </span>
-        )}
+        {/* 期货/期权: 交易所徽标(上期/大商/…, 外盘后缀原样) — 与股票行的 沪/深/北 市场徽标同一位置;
+            多空方向(做多/做空)在后面"交易方向"列统一展示, 不挤在这里 */}
+        {(row.type === 'T' || row.type === 'O') && <ExchangeChip code={row.code} />}
         {row.type === 'A' && <MarketChip market={row.extra?.market} code={row.code} />}
         {row.broker && (
           <span className="text-[10]px px-1 py-[1px] rounded bg-info/15 text-info border border-info/40 shrink-0 whitespace-nowrap font-medium">
@@ -97,6 +103,11 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
         )}
       </div>
       <span className="font-mono text-[11]px text-text-muted truncate">{row.code}</span>
+    </div>
+    {/* 交易方向(统一列, 名称·代码 与 市值之间): 期货/期权/股票 双向行均显示 做多/做空;
+        交易所徽标在名称区, 不挤在这 */}
+    <div className="flex items-center">
+      {row.extra?.direction ? <DirectionBadge direction={row.extra.direction} /> : null}
     </div>
     <div className="text-right flex flex-col items-end">
       <span className="font-mono text-[13.5]px text-text-bright tabular-nums">

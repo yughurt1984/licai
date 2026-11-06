@@ -120,8 +120,8 @@ export default function AllocationAdvisor() {
       const v = h.market_value != null ? h.market_value : (h.current_price || 0) * h.shares
       const code = String(h.stock_code || '').toUpperCase()
       let k
-      if (code.startsWith('HK.')) k = 'H'
-      else if (code.startsWith('US.')) k = 'U'
+      if (code.endsWith('.HK') || code.startsWith('HK.')) k = 'H'
+      else if (code.endsWith('.US') || code.startsWith('US.')) k = 'U'
       else k = 'A'
       buckets[k] += v
       passthrough[k] += v

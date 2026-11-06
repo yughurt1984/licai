@@ -4,8 +4,8 @@ export function fmtPrice(v, code) {
   if (v == null || v === 0) return '--'
   const n = parseFloat(v)
   const c = String(code || '').toUpperCase()
-  if (c.startsWith('HK.') && Math.abs(n) < 10) return n.toFixed(3)
-  if (c.startsWith('US.') && Math.abs(n) < 1) return n.toFixed(4)
+  if ((c.endsWith('.HK') || c.startsWith('HK.')) && Math.abs(n) < 10) return n.toFixed(3)
+  if ((c.endsWith('.US') || c.startsWith('US.')) && Math.abs(n) < 1) return n.toFixed(4)
   return n.toFixed(2)
 }
 
@@ -193,9 +193,10 @@ export function fundKindOf(asset = {}) {
   return isOnchainEtf(asset.code) ? 'etf' : 'open'
 }
 
-// 场内口径(etf/reits): 按市价成交、股票式记账, 不走净值 T+1/申购赎回
+// 场内口径(etf/reits/mm): 按市价/净值成交、股票式记账, 不走净值 T+1/申购赎回
+//   mm = 场内货币基金(assets_classify 标记 trade=t → 持仓账本 holdings/position_actions)
 export function isOnchainFundKind(k) {
-  return k === 'etf' || k === 'reits'
+  return k === 'etf' || k === 'reits' || k === 'mm'
 }
 
 // 券商费率: 拉一次缓存. resolveFee 按 (券商名, kind) 给 {rate, min}
@@ -224,7 +225,7 @@ export function brokersOfType(brokers, t) {
 }
 
 // kind: 'stock' | 'etf'. typeHint: 资产类别(同名券商按类型区分时优先取对应类型那条).
-// 找不到券商→默认券商→内置兜底. 费率原值存储: 单位 % 按百分数(0.025 = 0.025%)折成小数,
+// 找不到券商→内置兜底. 费率原值存储: 单位 % 按百分数(0.025 = 0.025%)折成小数,
 // 其余单位(笔/股/张)按金额口径原样返回.
 export function resolveFee(brokers, brokerName, kind, typeHint) {
   const list = brokers || []
@@ -235,7 +236,7 @@ export function resolveFee(brokers, brokerName, kind, typeHint) {
     if (hit) matches = [hit]
   }
   let b = matches[0] || null
-  if (!b) b = list.find(x => x.is_default) || list[0]
+  if (!b) b = null
   if (!b) return { rate: 0.00025, min: 5 }
   const conv = (rate, unit) => (unit === '%' ? rate / 100 : rate)
   return kind === 'etf'

@@ -206,6 +206,35 @@ async def backup_loop():
             await asyncio.sleep(300)
 
 
+# --- Dividend auto-sync loop ---
+async def dividend_sync_loop():
+    """派息全自动落账循环: 每 6 小时逐用户跑一次 services.dividends.sync_dividends。
+
+    三市场统一: 数据源事件直接写 DIVIDEND 流水(幂等去重), 分红全额进已实现、不摊成本。
+    启动后先跑一遍(补历史), 之后按节奏增量。
+    """
+    from database import list_user_ids
+    from services.context import run_as_user
+    from services.dividends import sync_dividends
+    from services.market_data import quote_auto_fetch
+
+    while True:
+        try:
+            if quote_auto_fetch():
+                for uid in await list_user_ids():
+                    with run_as_user(uid):
+                        try:
+                            r = await sync_dividends()
+                            if r["written"] or r["errors"]:
+                                print(f"[dividends] user {uid}: 写入 {len(r['written'])} 条, "
+                                      f"跳过 {r['skipped']}, 错误 {r['errors'][:3]}")
+                        except Exception as e:
+                            print(f"[dividends] user {uid} 同步失败: {e}")
+        except Exception as e:
+            print(f"[dividends] loop error: {e}")
+        await asyncio.sleep(6 * 3600)
+
+
 # --- Morning briefing daily loop ---
 _briefing_done: dict[int, str] = {}   # {uid: 最后生成日}
 

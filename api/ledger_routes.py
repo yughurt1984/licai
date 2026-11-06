@@ -147,9 +147,9 @@ def _norm_code(tk: str, market: str, code: str) -> str:
     if tk == "A":
         if market == "HK":
             digits = re.sub(r"\D", "", c)
-            return f"HK.{int(digits):05d}" if digits else c.upper()
+            return f"{int(digits):05d}.HK" if digits else c.upper()   # 标准「代码.市场」
         if market == "US":
-            return "US." + re.sub(r"^US\.?", "", c, flags=re.I).upper()
+            return re.sub(r"^US\.?", "", c, flags=re.I).upper() + ".US"
         m = re.search(r"(\d{6})", c)     # sh600362 / 600362.SH / SZ000001 → 裸 6 位
         return m.group(1) if m else c.upper()
     if tk == "F":

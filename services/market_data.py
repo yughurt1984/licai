@@ -1,9 +1,9 @@
 """Multi-market stock data via Sina Finance.
 
-Supported direct holdings:
-- A-share: bare 6-digit code, e.g. 600362
-- HK stock: HK.00700
-- US stock: US.AAPL
+Supported direct holdings (canonical「代码+市场」, 与 symbol_dict/ths 同构):
+- A-share: 600406.SH / 000001.SZ / 920001.BJ
+- HK stock: 00700.HK
+- US stock: SNDK.US
 """
 from __future__ import annotations
 import asyncio
@@ -62,12 +62,19 @@ def quote_auto_fetch() -> bool:
 
 # ---- 行情库 read-through: 成功即落 PG, 失败回退最后快照(见 services/market_store.py) ----
 from services import market_store  # noqa: E402  (只依赖 config, 无循环导入)
-from services.quote_source import QuoteRow  # noqa: E402  (规范层: 只依赖 pydantic, 无循环导入)
+from services.quote_source import QuoteRow, _quote_ticker  # noqa: E402  (规范层: 只依赖 pydantic, 无循环导入)
 
 _MARKET_BY_ATYPE = {"a_stock": "A", "hk_stock": "HK", "us_stock": "US", "fut": "FUT", "opt": "OPT"}
 _MACRO_ATYPE = {"fx": "fx", "metal_base": "commodity", "metal_minor": "commodity",
                 "metal_precious": "commodity", "energy_new_black": "commodity",
                 "energy_chem": "commodity"}
+
+
+def _dt_text(v):
+    """datetime → 'YYYY-MM-DD HH:MM:SS'(与历史文本同形态); 其余原样。
+    quote_latest 的 quote_time/fetched_at 现为 TIMESTAMP, market_store 直连池读出 datetime,
+    出口(quote dict/JSON)统一转回文本, 前端与调用方零感知。"""
+    return v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v
 
 
 def _store_rows_to_quotes(rows: dict[str, dict], fx_map: dict[str, float] | None = None) -> dict[str, dict]:
@@ -89,7 +96,7 @@ def _store_rows_to_quotes(rows: dict[str, dict], fx_map: dict[str, float] | None
         out[sym] = {
             "stock_code": sym,
             "stock_name": r.get("name") or "",
-            "market": _MARKET_BY_ATYPE.get(r.get("asset_type") or "", ""),
+            "market": split_stock_code(sym)[0],
             "currency": cur,
             "fx_rate": fx_rate,
             "fx_time": fx_time,
@@ -98,10 +105,10 @@ def _store_rows_to_quotes(rows: dict[str, dict], fx_map: dict[str, float] | None
             "low": r.get("low"), "prev_close": r.get("prev_close"),
             "volume": r.get("volume"), "amount": r.get("amount"),
             "change_pct": r.get("change_pct"), "turnover_rate": r.get("turnover_rate") or 0,
-            "quote_time": r.get("quote_time") or "",
+            "quote_time": _dt_text(r.get("quote_time")) or "",
             "source": "db",
             "stale": not _stored_fresh(r),     # 标注: PG 快照是否已过期(非实时)
-            "fetched_at": r.get("fetched_at"),
+            "fetched_at": _dt_text(r.get("fetched_at")),
         }
     return out
 
@@ -112,36 +119,176 @@ def _quote_chains() -> dict[str, tuple]:
     """品种分组 → 源适配器链(有序, 主源在前, 见 services/quote_source.py)。
 
     sina(sina_quote.py) 只兜底股票(A/HK/US); 期货/期权没有兜底源(sina 没有这些数据),
-    失败就空, 等每日维护任务补。新增品种/源 = 适配器实现 QuoteSource 协议 + 这里加一行。
+    失败就空, 等每日维护任务补。tickflow(需 key, 设置页/TICKFLOW_API_KEY)在主源之后
+    二段兜底 A/港美股; 未配置 key 时它静默空返回, 链为直落到 sina, 行为不变。
+    新增品种/源 = 适配器实现 QuoteSource 协议 + 这里加一行。
     """
-    from services import ths_fuyao, futu_quote, sina_quote
+    from services import ths_fuyao, futu_quote, sina_quote, tickflow
     return {
-        "A": (ths_fuyao.SOURCE, sina_quote.SOURCE),
-        "HK": (futu_quote.SOURCE, sina_quote.SOURCE),
-        "US": (futu_quote.SOURCE, sina_quote.SOURCE),
+        "A": (ths_fuyao.SOURCE, tickflow.SOURCE, sina_quote.SOURCE),
+        "HK": (futu_quote.SOURCE, tickflow.SOURCE, sina_quote.SOURCE),
+        "US": (futu_quote.SOURCE, tickflow.SOURCE, sina_quote.SOURCE),
         "FUT": (ths_fuyao.SOURCE,),
         "OPT": (ths_fuyao.SOURCE,),
     }
 
 
-async def _fetch_group_rows(group: str, codes: list[str]) -> list[QuoteRow]:
-    """沿品种→源链抓行情。每个源只喂上一源没拿到的缺码(按码兜底)。"""
-    remaining = list(dict.fromkeys(codes))
+async def _fetch_group_rows(group: str, codes: list[str], stored: dict | None = None) -> list[QuoteRow]:
+    """沿品种→源链抓行情。assets_classify.data_source 人工指派源优先, 每个源只喂缺码(按码兜底)。
+
+    路由: code → 小类(symbol_dict 主查, quote_latest 已存行兜底) → assets_classify.data_source
+    (如 hk_comm_stock→tickflow) → 先走指派源; 指派源没拿到的码落回标准链(_quote_chains),
+    链上跳过该码已经试过的源 —— 指派源不在兜底链里重试, 免得同一源对同一码打两遍。
+    """
     rows: list[QuoteRow] = []
-    for src in _quote_chains().get(group, ()):
-        if not remaining:
-            break
-        try:
-            got = await src.snapshot(remaining)   # 协议契约: 适配器不抛, 这里再兜一层
-        except Exception as e:
-            print(f"[market_data] {getattr(src, 'name', src)} snapshot 异常: {e}")
-            got = []
-        got = [r for r in got if r.code and r.price]
+    remaining = list(dict.fromkeys(codes))
+    if not remaining:
+        return rows
+
+    # ① 人工指派源优先: 小类在 assets_classify.data_source 指了源 → 先走指派源
+    registry = _source_registry()
+    pinned: dict[str, list[str]] = {}
+    unpinned: list[str] = []
+    tried: dict[str, set[str]] = {}          # code → 已试过的源名(指派源), 兜底链里跳过
+    sub_map = await _code_sub_map(remaining, stored)
+    src_map = await _classify_sources()
+    for c in remaining:
+        name = src_map.get(sub_map.get(c, "") or "", "")
+        if name and name in registry:
+            pinned.setdefault(name, []).append(c)
+            tried.setdefault(c, set()).add(name)
+        else:
+            if name:
+                _warn_unknown_source(name)
+            unpinned.append(c)
+    for name, cs in pinned.items():
+        got = await _snapshot_safe(registry[name], cs)
         have = {r.code for r in rows}
         rows.extend(r for r in got if r.code not in have)
         got_codes = {r.code for r in got}
-        remaining = [c for c in remaining if c not in got_codes]
+        unpinned.extend(c for c in cs if c not in got_codes)
+
+    # ② 标准链兜底: 只喂指派源/链上前源没拿到的缺码; 该码已试过的源不重试
+    for src in _quote_chains().get(group, ()):
+        batch = [c for c in unpinned if src.name not in tried.get(c, ())]
+        if not batch:
+            continue
+        got = await _snapshot_safe(src, batch)
+        have = {r.code for r in rows}
+        rows.extend(r for r in got if r.code not in have)
+        got_codes = {r.code for r in got}
+        for c in got_codes:
+            tried.setdefault(c, set()).add(getattr(src, "name", ""))
+        unpinned = [c for c in unpinned if c not in got_codes]
     return rows
+
+
+# ── 数据源路由: assets_classify.data_source(人工维护)按小类指源 ─────────────
+# 用法: UPDATE assets_classify SET data_source='tickflow' WHERE sub_assets_type='hk_comm_stock';
+# 之后该小类的行情(如 00700.HK)优先走 tickflow, 指派源拿不到的码自动落标准链兜底。
+_cls_source_cache: list = [None, 0.0]      # ({sub_assets_type: 源名}, ts)
+_unknown_src_warned: set[str] = set()
+
+
+def invalidate_data_source_cache():
+    """assets_classify.data_source 改动后清路由缓存(60s TTL 之外的主动失效位)。"""
+    _cls_source_cache[0] = None
+    _cls_source_cache[1] = 0.0
+
+
+def _source_registry() -> dict:
+    """assets_classify.data_source 名 → QuoteSource 适配器(小写键; ths=fuyao 的历史别名)。"""
+    from services import ths_fuyao, futu_quote, sina_quote, tickflow
+    return {
+        "ths": ths_fuyao.SOURCE, "fuyao": ths_fuyao.SOURCE,
+        "tickflow": tickflow.SOURCE,
+        "futu": futu_quote.SOURCE,
+        "sina": sina_quote.SOURCE,
+    }
+
+
+def _warn_unknown_source(name: str):
+    if name not in _unknown_src_warned:
+        _unknown_src_warned.add(name)
+        print(f"[market_data] assets_classify.data_source=「{name}」没有注册的行情源, 相关码落标准链")
+
+
+async def _classify_sources() -> dict[str, str]:
+    """assets_classify 里指了 data_source 的小类 → {sub_assets_type: 源名(小写)}。缓存 60s。"""
+    if _cls_source_cache[0] is not None and time.time() - _cls_source_cache[1] < 60:
+        return _cls_source_cache[0]
+    out: dict[str, str] = {}
+    try:
+        from database import get_db
+        db = await get_db()
+        try:
+            cur = await db.execute(
+                "SELECT sub_assets_type, data_source FROM assets_classify "
+                "WHERE data_source IS NOT NULL AND btrim(data_source) <> ''")
+            for r in await cur.fetchall():
+                sub = str(r[0] or "").strip()
+                src = str(r[1]).strip().lower()
+                if sub and src:
+                    out[sub] = src
+        finally:
+            await db.close()
+    except Exception as e:
+        print(f"[market_data] assets_classify.data_source 读取失败: {e}")
+    _cls_source_cache[0], _cls_source_cache[1] = out, time.time()
+    return out
+
+
+def _dict_code_probes(code: str) -> list[str]:
+    """标准码 → symbol_dict 候选码。全库统一「代码.市场」后底稿与内部同构, 单形态即可。"""
+    c = (code or "").strip().upper()
+    return [c] if c else []
+
+
+async def _code_sub_map(codes: list[str], stored: dict | None = None) -> dict[str, str]:
+    """codes → {code: sub_assets_type}。
+
+    symbol_dict 为主注册表(导入脚本/行情自动登记都在这); quote_latest 已存行的小类兜底
+    (冷启动新码两边都还没有 → 不指派, 走标准链)。"""
+    out: dict[str, str] = {}
+    for sym, r in (stored or {}).items():
+        st = (r.get("sub_assets_type") or "").strip() if isinstance(r, dict) else ""
+        if st:
+            out[sym] = st
+    probes: dict[str, str] = {}      # symbol_dict 码 → 内部标准码
+    for c in codes:
+        if c in out:
+            continue
+        for dc in _dict_code_probes(c):
+            probes.setdefault(dc, c)
+    if probes:
+        try:
+            from database import get_db
+            db = await get_db()
+            try:
+                cur = await db.execute(
+                    "SELECT code, sub_assets_type FROM symbol_dict "
+                    f"WHERE code IN ({','.join('?' * len(probes))})",
+                    tuple(probes))
+                for r in await cur.fetchall():
+                    internal = probes.get(str(r[0] or "").upper())
+                    st = (str(r[1]).strip() if r[1] else "")
+                    if internal and st:
+                        out.setdefault(internal, st)
+            finally:
+                await db.close()
+        except Exception as e:
+            print(f"[market_data] symbol_dict 小类查询失败: {e}")
+    return out
+
+
+async def _snapshot_safe(src, codes: list[str]) -> list[QuoteRow]:
+    """单源抓取(协议契约: 适配器不抛, 这里再兜一层), 过滤无效行。"""
+    try:
+        got = await src.snapshot(codes)
+    except Exception as e:
+        print(f"[market_data] {getattr(src, 'name', src)} snapshot 异常: {e}")
+        got = []
+    return [r for r in got if r.code and r.price]
 
 
 def _row_to_quote(r: QuoteRow, fx_map: dict[str, float] | None = None) -> dict:
@@ -188,7 +335,7 @@ async def _get_group_quotes(group: str, codes: list[str], force: bool = False) -
     targets = codes if force else missing
     if not targets:
         return out
-    rows = await _fetch_group_rows(group, targets)
+    rows = await _fetch_group_rows(group, targets, stored=stored)
     if rows:
         fx_map = await _fx_map_from_store()
         out.update({r.code: _row_to_quote(r, fx_map) for r in rows})
@@ -211,13 +358,19 @@ async def _fx_map_from_store() -> dict[str, float]:
 
 
 def _stored_fresh(row: dict) -> bool:
-    """PG 快照是否算新鲜: 盘中 ≤60s; 非交易时段 ≤6h(昨收即新)。解析不了 fetched_at 按旧。"""
+    """PG 快照是否算新鲜: 盘中 ≤60s; 非交易时段 ≤6h(昨收即新)。
+    fetched_at 现为 TIMESTAMP 列, market_store 直连池读出 datetime(naive 北京时间);
+    解析不了按旧。以北京当前钟对照(写入方 _bj_now 同钟)。"""
     from datetime import datetime as _dt
-    try:
-        ts = _dt.strptime(str(row.get("fetched_at") or ""), "%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return False
-    age = (_dt.utcnow() - ts).total_seconds()
+    ts = row.get("fetched_at")
+    if isinstance(ts, _dt):
+        dt = ts
+    else:
+        try:
+            dt = _dt.strptime(str(ts or ""), "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return False
+    age = (_dt.utcnow() + timedelta(hours=8) - dt).total_seconds()
     if age < 0:
         return True
     return age <= (60 if market_open("A") else 6 * 3600)
@@ -227,21 +380,22 @@ def _macro_groups_to_store_rows(groups: dict) -> list[dict]:
     """get_macro_quotes 的产物 → quote_latest 行(指数/汇率/商品期货)。"""
     rows = []
     for grp, items in (groups or {}).items():
-        atype = _MACRO_ATYPE.get(grp, "index")
         for it in items:
+            sym = it.get("symbol") or ""
             rows.append({
-                "symbol": it.get("symbol") or "",
-                "asset_type": atype,
+                "code": sym,
+                "ticker": _quote_ticker(sym),
                 "name": it.get("name") or "",
+                "sub_assets_type": "",  # 指数/汇率/商品期货不在 quote_latest 记小类(精确小类另有归属)
                 "price": it.get("price"), "open": it.get("open"), "high": it.get("high"),
                 "low": it.get("low"), "prev_close": it.get("prev_close"),
                 "volume": it.get("volume"), "amount": it.get("amount"),
                 "change_pct": it.get("change_pct"), "turnover_rate": None,
                 "currency": "CNY" if grp != "fx" else "",
                 "quote_time": "",
-                "source": "sina",
+                "data_source": "sina",
             })
-    return [r for r in rows if r["symbol"]]
+    return [r for r in rows if r["code"]]
 
 
 async def _macro_from_store() -> dict:
@@ -262,7 +416,7 @@ async def _macro_from_store() -> dict:
             "low": r.get("low"), "prev_close": r.get("prev_close"),
             "volume": r.get("volume"), "amount": r.get("amount"),
             "change_pct": r.get("change_pct"),
-            "stale": True, "fetched_at": r.get("fetched_at"),
+            "stale": True, "fetched_at": _dt_text(r.get("fetched_at")),
         })
     return groups
 
@@ -318,8 +472,9 @@ def get_fx_info(currency: str, allow_network: bool | None = None) -> dict:
                 market_store.spawn(market_store.save_fx_day(
                     symbol, _cst_now().date().isoformat(), rate, "sina"))
                 market_store.spawn(market_store.save_quotes([{
-                    "symbol": symbol, "asset_type": "fx", "name": f"{currency}/CNY",
-                    "price": rate, "currency": "CNY", "source": "sina"}]))
+                    "code": symbol, "ticker": _quote_ticker(symbol),
+                    "sub_assets_type": "", "name": f"{currency}/CNY",
+                    "price": rate, "currency": "CNY", "data_source": "sina"}]))
                 return data
     except Exception:
         pass
@@ -555,23 +710,32 @@ def _a_share_market_suffix(symbol: str) -> str:
 def normalize_stock_code(stock_code: str) -> str:
     """Return the canonical holding code used across DB/API/UI.
 
-    A股/ETF/北交: 数据源 API 标准格式「代码+市场」(如 600406.SH / 000001.SZ / 920001.BJ),
-    入库(holdings/position_actions/market.quote_latest)统一此格式; 港美股维持 HK.x / US.x。
+    全市场统一「代码+市场」: A股/ETF/北交 600406.SH / 000001.SZ / 920001.BJ,
+    港股 00700.HK, 美股 SNDK.US —— 与 symbol_dict 底稿、ths 数据源同构。
+    futu 的「市场.代码」(HK.00700) 只在 futu 模块内部转换, 绝不落库(见 futu_quote)。
+    兼容旧形态输入: HK.00700 / US.AAPL 原样翻成标准形态(老库存量数据/用户手贴都能吃)。
     """
     raw = (stock_code or "").strip().upper()
-    if raw.startswith("HK."):
-        return f"HK.{raw[3:].zfill(5)}"
+    # 旧形态(HK.00700 / US.AAPL)→ 标准形态(00700.HK / AAPL.US)
+    if raw.startswith("HK.") and raw[3:].isdigit():
+        return f"{raw[3:].zfill(5)}.HK"
+    if raw.startswith("US.") and raw[3:].strip():
+        return f"{raw[3:].strip()}.US"
+    # HK 前缀无点老写法(HK00700)
     if raw.startswith("HK") and raw[2:].isdigit():
-        return f"HK.{raw[2:].zfill(5)}"
-    if raw.startswith("US."):
-        return f"US.{raw[3:].strip().upper()}"
-    if raw.startswith("US") and not raw.startswith("USD"):
-        rest = raw[2:].strip()
-        if rest:
-            return f"US.{rest.upper()}"
-    # 裸美股 ticker(纯字母 1-5 位, 如 AAPL/NVDA) → US. 前缀; A股/港股代码都是数字, 不冲突
+        return f"{raw[2:].zfill(5)}.HK"
+    # 标准/裸码
+    if re.fullmatch(r"\d{4,5}\.HK", raw):
+        body = raw.split(".", 1)[0]
+        return f"{body.zfill(5)}.HK"
+    if re.fullmatch(r"[A-Z0-9]{1,8}\.US", raw):
+        return raw
+    # 裸港股 1-5 位数字 → 00700.HK(用户常省前导零输 700; 纯 6 位是 A 股, 走下面的后缀规则)
+    if re.fullmatch(r"\d{1,5}", raw):
+        return f"{raw.zfill(5)}.HK"
+    # 裸美股 ticker(纯字母 1-5 位, 如 AAPL/NVDA) → AAPL.US; A股/港股代码都是数字, 不冲突
     if re.fullmatch(r"[A-Za-z]{1,5}", raw) and raw != "USD":
-        return f"US.{raw}"
+        return f"{raw}.US"
     # A股/ETF/北交 6 位裸码 → 补市场后缀; 已带 .SH/.SZ/.BJ 后缀的原样透传
     if re.fullmatch(r"\d{6}", raw):
         return raw + _a_share_market_suffix(raw)
@@ -579,12 +743,12 @@ def normalize_stock_code(stock_code: str) -> str:
 
 
 def split_stock_code(stock_code: str) -> tuple[str, str]:
-    """Return (market, symbol). market is A/HK/US; symbol 为裸码(600406 / 00700 / AAPL)。"""
+    """Return (market, symbol). market is A/HK/US; symbol 为裸码(600406 / 00700 / SNDK)。"""
     code = normalize_stock_code(stock_code)
-    if code.startswith("HK."):
-        return "HK", code[3:]
-    if code.startswith("US."):
-        return "US", code[3:]
+    if code.endswith(".HK"):
+        return "HK", code[:-3]
+    if code.endswith(".US"):
+        return "US", code[:-3]
     if "." in code:
         sym = code.split(".", 1)[0]
         if re.fullmatch(r"\d{6}", sym):
@@ -1374,7 +1538,7 @@ _hk_search_cache: dict[str, tuple[list, float]] = {}
 
 
 def search_hk_stocks(query: str, limit: int = 8) -> list[dict]:
-    """港股按名称/代码/拼音搜(腾讯 smartbox, t=hk) → [{code: HK.00700, name}]。
+    """港股按名称/代码/拼音搜(腾讯 smartbox, t=hk) → [{code: 00700.HK, name}]。
     只留正股/基金/REITs(类型以 GP 开头), 去掉窝轮牛熊(QZ)与人民币柜台(8xxxx, 名称尾随 r)。
     失败返回空表, 缓存 10 分钟。"""
     q = (query or "").strip()
@@ -1397,7 +1561,7 @@ def search_hk_stocks(query: str, limit: int = 8) -> list[dict]:
                 code, name, kind = f[1].zfill(5), f[2], f[4]
                 if not kind.startswith("GP") or (code.startswith("8") and name.lower().endswith("r")):
                     continue
-                out.append({"code": f"HK.{code}", "name": name})
+                out.append({"code": f"{code}.HK", "name": name})
     except Exception as e:
         print(f"[hk-search] {q} failed: {e}")
         return []

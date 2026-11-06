@@ -14,17 +14,46 @@ fetchone/fetchall、lastrowid、rowcount、commit/rollback、close —— 保持
   - bool 参数 → int (SQLite 里布尔就是 0/1 整数, PG 的 SMALLINT 列不吃 bool)
   - CURRENT_TIMESTAMP 的语义由 database.py 里的 utc_now_text() 函数承担(UTC 文本
     'YYYY-MM-DD HH:MM:SS', 与 SQLite 时代的存储格式逐字节一致)
+  - DATE/TIMESTAMP 列(见 database.py SCHEMA)的类型 codec: 读写边界把 date/datetime 值
+    还原成 'YYYY-MM-DD'/'YYYY-MM-DD HH:MM:SS' 文本, 入参字符串原样透传 —— 应用层照旧
+    消费/传递字符串, 对列型零感知
 
 库名不存在时自动 CREATE DATABASE (个人单机项目, 方便首启)。
 """
 from __future__ import annotations
 import asyncio
 import re
+from datetime import date as _date, datetime as _datetime
 from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
 
 from config import config
+
+
+def _encode_dt(v):
+    """date/datetime → PG 文本; str 原样透传(应用层继续传 'YYYY-MM-DD...' 字符串)。"""
+    if v is None or isinstance(v, str):
+        return v
+    if isinstance(v, _datetime):
+        return v.isoformat(sep=" ")
+    if isinstance(v, _date):
+        return v.isoformat()
+    return str(v)
+
+
+def _decode_dt(s):
+    """PG 文本 → 截到秒的 'YYYY-MM-DD [HH:MM:SS]', 与历史文本格式逐字节一致。"""
+    return s[:19] if isinstance(s, str) and len(s) > 19 else s
+
+
+async def _init_conn(conn: asyncpg.Connection):
+    """每个池连接注册 date/timestamp 文本 codec(见模块 docstring 末条)。
+    schema='pg_catalog' 必须显式: 连接的 search_path 是 'ledger,public', 不带 schema
+    asyncpg 会去 ledger/public 里找 date/timestamp 类型直接报 unknown type。"""
+    for typ in ("date", "timestamp"):
+        await conn.set_type_codec(typ, schema="pg_catalog",
+                                  encoder=_encode_dt, decoder=_decode_dt, format="text")
 
 
 class _PlaceholderError(ValueError):
@@ -407,6 +436,7 @@ async def get_pool() -> asyncpg.Pool:
         _pool = await asyncpg.create_pool(
             dsn, min_size=0, max_size=20,     # 12 个后台循环 + 并发请求, SQLite 时代无上限
             server_settings={"search_path": "ledger,public"},
+            init=_init_conn,
         )
         return _pool
 

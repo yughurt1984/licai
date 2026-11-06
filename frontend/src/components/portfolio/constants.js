@@ -25,6 +25,55 @@ export const TYPE_ORDER = ['A', 'F', 'W', 'M', 'C', 'R', 'T', 'O']
 
 export const ASSET_TYPE_TO_KEY = { FUND: 'F', CRYPTO: 'C', BOT: 'R', WEALTH: 'W', CASH: 'M' }
 
+// 持仓视图的展示桶(A/F/W/M/C/R/T/O) → 录入入口的大类(assets_class)。
+// 仅用于「快速添加」按钮按当前筛选桶直接打开对应大类表单; 期货/期权同属 derivatives。
+// 注意: 这是展示桶→大类的元映射, 不是资产清单硬编码; 资产种类/中类/小类本身全来自 assets_classify。
+export const BUCKET_TO_CLASS = {
+  A: 'stock', F: 'fund', W: 'wealth', M: 'cash',
+  C: 'crypto', R: 'bot', T: 'derivatives', O: 'derivatives',
+}
+
+// ── 资产类型唯一标准: assets_classify ──────────────────────────────────
+// 展示分组(A股票/F基金/T期货/O期权/C加密/W理财/M现金)由 assets_classify 的
+// 大类(assets_class) + 中类(main_assets_type) 派生, 不再逐个小类硬编码枚举:
+//   stock→A  fund→F  crypto→C  cash_equal→M  derivatives 按 main 拆 fut→T / opt→O。
+// 新增小类自动继承父类桶 —— 目录加行即生效, 前端零改动。
+// SUB_TO_TYPE 仅作「持仓行缺 assets_class 字段」时的兜底(老数据/未联表处)。
+export const SUB_TO_TYPE = {
+  a_comm_stock: 'A', hk_comm_stock: 'A', us_comm_stock: 'A', us_prio_stock: 'A',
+  cn_etf_fund: 'F', cn_lof_fund: 'F', hk_etf_fund: 'F', us_etf_fund: 'F',
+  cn_futures: 'T', hk_futures: 'T', us_futures: 'T',
+  cn_options: 'O', hk_options: 'O', us_options: 'O', hk_warrant: 'O',
+  crypto_perpetual: 'C', crypto_spot: 'C',
+}
+
+// 由 assets_classify 行(后端随持仓透传)推导展示类型 —— 单一事实来源。
+export function typeFromClassify(cls = {}) {
+  const ac = String(cls.assets_class || '').toLowerCase()
+  const mt = String(cls.main_assets_type || '').toLowerCase()
+  if (ac === 'stock') return 'A'
+  if (/fund/.test(mt)) return 'F'                 // 货基/ETF/LOF/REITS 等基金中类 → 基金桶
+  if (ac === 'fund') return 'F'                   // 兜底(中类未带 fund 字样)
+  if (ac === 'crypto') return 'C'
+  if (ac === 'cash_equal') return 'M'              // 纯现金等价物(非货基)
+  if (ac === 'derivatives') return /fut/.test(mt) ? 'T' : 'O'   // 期货/期权同属衍生品, 按中类拆
+  return null   // fix-income / commodity / forex / insurance: 暂无独立展示桶
+}
+
+export function typeOfSub(sub, cls) {
+  // cls = { assets_class, main_assets_type } 来自后端 holdings JOIN assets_classify;
+  // 有目录信息优先按目录派生, 否则回落 SUB_TO_TYPE(老数据/未联表)。
+  if (cls && (cls.assets_class || cls.main_assets_type)) {
+    const t = typeFromClassify(cls)
+    if (t) return t
+  }
+  return SUB_TO_TYPE[String(sub || '').trim()] || null
+}
+
+export function isDerivSub(sub) {
+  return ['T', 'O'].includes(typeOfSub(sub))
+}
+
 export const KEY_TO_ASSET_TYPE = { F: 'FUND', C: 'CRYPTO', R: 'BOT', W: 'WEALTH', M: 'CASH' }
 
 // 券商佣金率（默认万 2.5; 在 config.py 改为你自己的费率）。影响"按股买"模式的手续费自动估算.

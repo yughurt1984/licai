@@ -22,8 +22,11 @@ export default function RiskBanner({ holdings }) {
 
   const todayPnl = holdings.reduce((s, h) => {
     if (!h.current_price || !h.price_change_pct) return s
-    const prevPrice = h.current_price / (1 + h.price_change_pct / 100)
-    return s + (h.current_price - prevPrice) * h.shares * (h.fx_rate || 1)   // 港美股原币 → 人民币
+    // price_change_pct 已按方向折算(空头已翻号): 空头的昨收基准 = 现价/(1−p), 且盈亏反向
+    const p = h.price_change_pct / 100
+    const prevPrice = h.current_price / (h.direction === 'SHORT' ? 1 - p : 1 + p)
+    const diff = h.current_price - prevPrice
+    return s + (h.direction === 'SHORT' ? -diff : diff) * h.shares * (h.fx_rate || 1)   // 港美股原币 → 人民币
   }, 0)
 
   const threshold = maxDailyLoss || 500 // default 500 yuan

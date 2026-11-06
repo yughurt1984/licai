@@ -49,7 +49,7 @@ def test_mark_tranche_executed(temp_db):
 def test_position_action_log(temp_db):
     from database import log_position_action, get_position_actions
 
-    asyncio.run(log_position_action("601168", "ADD", price=7.82, shares=200, tranche_id=1))
+    asyncio.run(log_position_action("601168", "ADD", price=7.82, shares=200))
     asyncio.run(log_position_action("601168", "T_BUY", price=8.04, shares=100))
 
     actions = asyncio.run(get_position_actions("601168"))

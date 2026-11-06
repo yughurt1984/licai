@@ -4,12 +4,11 @@ import { api, fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 import Tooltip from './Tooltip'
 import { AllocationDonut, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './portfolio/atoms'
-import { FAMILY_LABEL, TYPE_COLOR, TYPE_META, TYPE_ORDER } from './portfolio/constants'
+import { BUCKET_TO_CLASS, FAMILY_LABEL, TYPE_COLOR, TYPE_META, TYPE_ORDER } from './portfolio/constants'
 import { buildFamilyIndex, formatCurrencyMoney, riskFamiliesOf } from './portfolio/helpers'
 import { aggregate, normalizeAsset, normalizeHolding } from './portfolio/model'
 import { HoldingRow } from './portfolio/HoldingRow'
 import { PortfolioModals } from './portfolio/PortfolioModals'
-import { PendingDividends } from './portfolio/PendingDividends'
 import { ClosedPositionsBlock, SummaryStrip } from './portfolio/summary'
 import { usePortfolioModals } from './portfolio/useModals'
 
@@ -348,9 +347,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         {!isEmpty && <AllocationDonut groups={agg.groups} totalMv={agg.totalMv} />}
       </div>
 
-      {/* 港美股分红待确认: 识别出的现金分红, 一键记入或忽略 */}
-      <PendingDividends dataVersion={dataVersion} />
-
       {/* 申购待确认 banner: 场外基金 T+1 净值出来后, 一键按当日净值自动结算所有 pending 申购 */}
       {(() => {
         const pendN = (assets || []).reduce((s, a) => s + (a.pending_actions_count || 0), 0)
@@ -426,9 +422,9 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
             className="px-2.5 py-[3px] rounded-md text-[12]px border border-border-med bg-transparent text-text-dim hover:text-text transition-colors cursor-pointer">
             排序 · {sortKey === 'mv' ? '市值' : '盈亏'}
           </button>
-          {/* 已选中具体类型时直接打开对应添加表单, 不再重复问"添加到哪一类";
-              股票(A)直接进添加表单(表单内可切 A股/港股/美股市场), 只有 ALL 才出类型菜单 */}
-          <button onClick={() => show('add', filter === 'ALL' ? 'menu' : filter === 'A' ? 'A:A' : filter)}
+          {/* 已选中具体类型时直接打开对应大类表单(表单内再选中类/币种); 只有 ALL 才出类型菜单。
+              展示桶 → 大类(assets_classify.assets_class): 期货/期权同归 derivatives。 */}
+          <button onClick={() => show('add', filter === 'ALL' ? 'menu' : (BUCKET_TO_CLASS[filter] || 'menu'))}
             title={filter !== 'ALL' ? `添加${TYPE_META[filter].label}` : undefined}
             className="px-2.5 py-[3px] rounded-md text-[12]px border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer">
             {filter !== 'ALL' ? `+ 添加${TYPE_META[filter].label}` : '+ 添加'}
@@ -448,6 +444,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       {!isEmpty && (
         <div className="licai-row px-3 md:px-6 py-2 text-[11.5]px text-text-dim tracking-wider font-medium border-b border-border bg-surface">
           <div className="text-left">名称 · 代码</div>
+          <div className="text-left">交易方向</div>
           <div className="text-right">市值</div>
           <div className="text-right licai-md-only">成本</div>
           <div className="text-right">浮动盈亏</div>
@@ -480,6 +477,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                 <span>{TYPE_META[type].label}</span>
                 <span className="text-text-dim font-normal text-[11.5]px">{items.length} 项</span>
               </div>
+              <div />
               <div className="text-right flex flex-col items-end">
                 <span className="font-mono text-text">¥{fmtMoney(g.mv)}</span>
                 {groupFxExposure.length > 0 && (
@@ -537,6 +535,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                             <span className="font-medium text-text">{cl.label}</span>
                             <span className="opacity-70">{cl.items.length} 项</span>
                           </div>
+                          <div />
                           <div className="text-right font-mono">¥{fmtMoney(cl.mv)}</div>
                           <div className="licai-md-only" />
                           <div className={`text-right font-mono ${priceColor(cl.pnl)}`}>
@@ -577,6 +576,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                             <span className="font-medium text-text">{cl.label}</span>
                             <span className="opacity-70">{cl.items.length} 项</span>
                           </div>
+                          <div />
                           <div className="text-right font-mono">¥{fmtMoney(cl.mv)}</div>
                           <div className="licai-md-only" />
                           <div className={`text-right font-mono ${priceColor(cl.pnl)}`}>

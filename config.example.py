@@ -76,11 +76,20 @@ class Config:
     # X-api-key 鉴权。优先设置页保存的(app_config 全局键 ths_api_key), 其次这里/.env(THS_API_KEY)。
     ths_api_key: str = os.environ.get("THS_API_KEY", "")
 
-    # --- futu OpenD 网关(港/美股行情快照) ---
-    # 需先启动本地 FutuOpenD 并登录(依赖 pip install futu-api)。
-    # 优先设置页保存的(app_config 全局键 futu_host/futu_port), 其次这里/.env(FUTU_HOST/FUTU_PORT)。
-    futu_host: str = os.environ.get("FUTU_HOST", "127.0.0.1")
-    futu_port: int = int(os.environ.get("FUTU_PORT", "11111"))
+    # --- TickFlow 行情源(A股/ETF/港/美股实时行情 + REITs; https://docs.tickflow.org/zh-Hans) ---
+    # x-api-key 鉴权, key 在 tickflow.org 控制台生成。优先设置页(app_config 全局键 tickflow_api_key),
+    # 其次这里/.env(TICKFLOW_API_KEY)。TICKFLOW_API_HOST 可换端点(默认 https://api.tickflow.org;
+    # 免费服务 free-api.tickflow.org 无实时行情, 不作为实时源)。
+    tickflow_api_key: str = os.environ.get("TICKFLOW_API_KEY", "")
+    tickflow_api_host: str = os.environ.get("TICKFLOW_API_HOST", "https://api.tickflow.org")
+
+    # --- futu OpenAPI REST(港/美股行情快照; https://open.futunn.com) ---
+    # 在 open.futunn.com/dashboard 创建 AppKey 并上传公钥, 私钥 PEM 本地保存。
+    # 优先设置页(app_config 全局键), 其次这里/.env(FUTU_API_HOST/FUTU_APP_KEY/FUTU_PRIVATE_KEY/FUTU_SIGN_ALGO)。
+    futu_api_host: str = os.environ.get("FUTU_API_HOST", "https://webapi.futunn.com")
+    futu_app_key: str = os.environ.get("FUTU_APP_KEY", "")
+    futu_private_key: str = os.environ.get("FUTU_PRIVATE_KEY", "")
+    futu_sign_algo: str = os.environ.get("FUTU_SIGN_ALGO", "ed25519")
 
     # --- 行情数据源频控策略(新) ---
     # ths/futu API 有访问上限: 只有「手动刷新按钮」和「新增持仓冷启动(quote_latest 无行)」联网,

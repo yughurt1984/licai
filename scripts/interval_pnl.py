@@ -56,7 +56,7 @@ async def main(start: str) -> None:
     db = await get_conn()
     try:
         cur = await db.execute(
-            "SELECT stock_code,action_type,price,shares,COALESCE(fee,0) fee,stock_code "
+            "SELECT code AS stock_code,action_type,price,shares,COALESCE(fee,0) fee,code AS stock_code "
             "FROM position_actions WHERE trade_date > ?", (start,))
         for r in await cur.fetchall():
             k = f"A:{r['stock_code']}"

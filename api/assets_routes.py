@@ -49,6 +49,7 @@ class AssetCreate(BaseModel):
     broker: Optional[str] = None               # 托管券商/平台, e.g. "招商证券"
     contract_multiplier: Optional[float] = None  # FUT/OPT 每手乘数(沪铜 5; 期权合约单位 10000)
     fund_kind: Optional[str] = None            # FUND 细分: 'etf'(场内, 股票式) | 'open'(场外开放式, NAV T+1) | 'reits'
+    sub_assets_type: Optional[str] = None      # 资产小类(assets_classify 键): 路由 trade 路由 + 统一分类命名
 
 
 class AssetUpdate(BaseModel):
@@ -361,9 +362,10 @@ async def _enrich(asset: dict) -> dict:
             try:
                 from services import market_store
                 await market_store.save_quotes([{
-                    "symbol": sym, "asset_type": "fut", "name": q.get("name") or asset.get("name") or sym,
+                    "code": sym, "ticker": sym, "sub_assets_type": "",
+                    "name": q.get("name") or asset.get("name") or sym,
                     "price": px, "change_pct": q.get("change_pct"),
-                    "currency": ccy, "source": "sina_futures",
+                    "currency": ccy, "data_source": "sina_futures",
                 }])
             except Exception:
                 pass
@@ -449,14 +451,7 @@ async def list_assets():
     rows = await list_external_assets()
     enriched = await asyncio.gather(*[_enrich(r) for r in rows])
 
-    # 场内 ETF 未设券商时, 显示回退到配置默认券商(与 A股 一致, 让默认也有 tag)
-    from database import list_brokers
-    _brokers = await list_brokers()
-    _default_broker = next((b["name"] for b in _brokers if b.get("is_default")),
-                           (_brokers[0]["name"] if _brokers else None))
-    for a in enriched:
-        if a.get("asset_type") == "FUND" and _is_etf_code(a.get("code") or "") and not a.get("broker"):
-            a["broker"] = _default_broker
+    # 场内 ETF 未设券商时不强行回退某家(已无默认券商概念), 显示为「无」。
 
     # Summary
     # NOTE: total_pnl 必须等于 Σ a["pnl"] (= 每个资产 (current_value - pending) - cost).
@@ -564,6 +559,17 @@ async def create_asset(data: AssetCreate):
     if data.asset_type not in {"FUND", "CRYPTO", "BOT", "WEALTH", "CASH", "FUT", "OPT"}:
         raise HTTPException(400, "asset_type must be FUND / CRYPTO / BOT / WEALTH / CASH / FUT / OPT")
 
+    # 分类路由(assets_classify.trade): true=交易资产 → 持仓账本(holdings/position_actions);
+    # false=非交易资产 → 场外账本(本表)。规则来自目录数据, 不按大类写死 —— 传了小类就按它校验,
+    # 没传小类的老调用方(CRYPTO/BOT/WEALTH/CASH 手填流程)不受影响。
+    if data.sub_assets_type:
+        from database import get_assets_classify_row
+        _cls = await get_assets_classify_row(data.sub_assets_type)
+        if _cls is not None and _cls.get("trade"):
+            raise HTTPException(
+                400, f"「{_cls.get('sub_assets_type_name') or data.sub_assets_type}」在分类目录中标记为交易资产(trade=t)，"
+                     f"应记入持仓账本(holdings)，请走对应录入入口")
+
     # FUND/CRYPTO 且只填了金额没填份额 → 走 pending 模式 (T+1 未确认).
     # cost_amount 暂记 0, 实际金额放 pending_amount; seed action 写 status=pending.
     # 场内 ETF 按市价即时成交, 没有份额就是没填 —— 不进 pending。
@@ -614,6 +620,7 @@ async def create_asset(data: AssetCreate):
             broker=data.broker,
             contract_multiplier=data.contract_multiplier,
             fund_kind=fund_kind or None,
+            sub_assets_type=data.sub_assets_type,
         )
     # 写购买 action 进 ledger (BOT 不入账, 走 OKX 同步); 合并时标 add-lot, 新建标 initial
     if data.asset_type != "BOT" and data.cost_amount and data.cost_amount > 0:
@@ -654,6 +661,9 @@ async def create_asset(data: AssetCreate):
         # 老记录没记基金类型而这次选了 → 补上
         if data.asset_type == "FUND" and not (merge_target.get("fund_kind") or "").strip() and fund_kind:
             upd["fund_kind"] = fund_kind
+        # 老记录没记资产小类而这次带了 → 补上(统一分类命名归口 assets_classify)
+        if not (merge_target.get("sub_assets_type") or "").strip() and data.sub_assets_type:
+            upd["sub_assets_type"] = data.sub_assets_type
         await update_external_asset(aid, **upd)
 
     return {

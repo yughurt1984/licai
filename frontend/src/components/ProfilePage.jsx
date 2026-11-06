@@ -58,19 +58,11 @@ function BrokerSection() {
   }
 
   const remove = async (b) => {
-    if (!confirm(`删除券商「${b.name}」？相关持仓的手续费估算将回退默认券商。`)) return
+    if (!confirm(`删除券商「${b.name}」？相关持仓的手续费估算将回退内置默认费率。`)) return
     setBusy(`del-${b.id}`)
     try {
       await fetchJSON(`/api/brokers/${b.id}`, { method: 'DELETE' })
       done('已删除')
-    } catch (e) { setStatus({ text: e.message, ok: false }); setBusy('') }
-  }
-
-  const setDefault = async (b) => {
-    setBusy(`def-${b.id}`)
-    try {
-      await fetchJSON(`/api/brokers/${b.id}`, { method: 'PUT', body: JSON.stringify({ is_default: true }) })
-      done(`已把「${b.name}」设为默认`)
     } catch (e) { setStatus({ text: e.message, ok: false }); setBusy('') }
   }
 
@@ -116,7 +108,6 @@ function BrokerSection() {
                   <th className="text-right py-1.5 px-3 font-medium">最低平台费</th>
                   <th className="text-right py-1.5 px-3 font-medium">期货费/手</th>
                   <th className="text-right py-1.5 px-3 font-medium">期货最低</th>
-                  <th className="text-center py-1.5 px-3 font-medium">默认</th>
                   <th className="text-right py-1.5 font-medium">操作</th>
                 </tr>
               </thead>
@@ -135,24 +126,13 @@ function BrokerSection() {
                     <td className="py-1.5 px-3 text-right font-mono">{money(b.platform_min, CCY_OF[b.type || 'A股'])}</td>
                     <td className="py-1.5 px-3 text-right font-mono">{b.fut_rate ? money(b.fut_rate, CCY_OF[b.type || 'A股']) + '/手' : '—'}</td>
                     <td className="py-1.5 px-3 text-right font-mono">{money(b.fut_min, CCY_OF[b.type || 'A股'])}</td>
-                    <td className="py-1.5 px-3 text-center">
-                      {b.is_default ? <span className="text-accent">★ 默认</span> : ''}
-                    </td>
                     <td className="py-1.5 text-right whitespace-nowrap">
                       <button onClick={() => setEditing(b)} disabled={busy !== ''}
                         className="text-text-dim hover:text-accent transition-colors cursor-pointer px-1.5">编辑</button>
-                      {!b.is_default && (
-                        <button onClick={() => setDefault(b)} disabled={busy !== ''}
-                          className="text-text-dim hover:text-accent transition-colors cursor-pointer px-1.5">
-                          {busy === `def-${b.id}` ? '…' : '设默认'}
-                        </button>
-                      )}
-                      {!b.is_default && (
-                        <button onClick={() => remove(b)} disabled={busy !== ''}
-                          className="text-text-dim hover:text-bear transition-colors cursor-pointer px-1.5">
-                          {busy === `del-${b.id}` ? '…' : '删除'}
-                        </button>
-                      )}
+                      <button onClick={() => remove(b)} disabled={busy !== ''}
+                        className="text-text-dim hover:text-bear transition-colors cursor-pointer px-1.5">
+                        {busy === `del-${b.id}` ? '…' : '删除'}
+                      </button>
                     </td>
                   </tr>
                 ))}

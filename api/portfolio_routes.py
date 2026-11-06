@@ -12,6 +12,7 @@ from database import (
     get_all_holdings, get_holding, add_holding, update_holding, delete_holding,
     get_position_actions, add_position_action, update_position_action, delete_position_action,
     list_brokers, get_futures_product,
+    get_assets_classify_row, kind_from_classify,
     get_thesis, list_theses, set_thesis, delete_thesis,
     save_portfolio_snapshot, list_snapshots_between,
 )
@@ -32,11 +33,11 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
 async def _broker_stock_fee(broker_name):
-    """按券商 name 返回 (股票佣金费率, 最低). 找不到→默认券商. 都没有→(None,None) 用模块默认。"""
+    """按券商 name 返回 (股票佣金费率, 最低); 找不到→(None, None) 用模块内置默认费率。"""
+    if not broker_name:
+        return (None, None)
     brokers = await list_brokers()
-    b = next((x for x in brokers if x["name"] == broker_name), None) if broker_name else None
-    if b is None:
-        b = next((x for x in brokers if x["is_default"]), None) or (brokers[0] if brokers else None)
+    b = next((x for x in brokers if x["name"] == broker_name), None)
     if b is None:
         return (None, None)
     return (b["stock_rate"], b["stock_min"])
@@ -50,7 +51,7 @@ class ActionCreate(BaseModel):
     trade_time: Optional[str] = None  # HH:MM 成交时刻(可选, 留空则用录入时间)
     note: Optional[str] = ""
     fee: Optional[float] = None    # 手续费覆盖(原币: A 股人民币、港股港元、美股美元); None 让后端按券商费率自动算
-    broker: Optional[str] = None   # 本笔券商(可选, 留空用持仓默认)
+    broker: Optional[str] = None   # 本笔券商(可选, 留空=无)
     fx_rate: Optional[float] = None  # 港美股成交日汇率(每 1 原币折人民币), 按结单填; 不填按成交日自动取
     direction: Optional[str] = None  # 期货/期权: LONG | SHORT (OPEN/CLOSE 必带)
     contract_multiplier: Optional[float] = None  # 期货/期权: 本笔乘数
@@ -65,15 +66,8 @@ class ActionUpdate(BaseModel):
     note: Optional[str] = None
     fee: Optional[float] = None
     fee_set: bool = False           # 显式标记"我要改 fee" (用于区分 fee=None=清空 还是 不动)
-    broker: Optional[str] = None    # 本笔券商; None=不动, ""=清空(回退持仓默认), 名称=设值
+    broker: Optional[str] = None    # 本笔券商; None=不动, ""=清空(无), 名称=设值
     fx_rate: Optional[float] = None  # 港美股成交日汇率; None=不动(改了日期则按新日期重取), 0=按日期重取, 正数=设值
-
-
-async def _default_broker_name():
-    """配置里的默认券商名(is_default), 没有则第一个。用于显示回退(选"默认券商"时也能打 tag)。"""
-    brokers = await list_brokers()
-    d = next((x for x in brokers if x.get("is_default")), None) or (brokers[0] if brokers else None)
-    return d["name"] if d else None
 
 
 async def _broker_fee_resolver():
@@ -93,7 +87,7 @@ async def _attach_auto_fees(actions: list, stock_code: str, holding_broker, reso
 
 async def _trade_fx(stock_code: str, trade_date, given=None):
     """港美股流水要记的成交日汇率: 手填为准, 否则按成交日取(今天=实时, 过去=当日中间价)。A 股返回 None。"""
-    if not str(stock_code or "").upper().startswith(("HK.", "US.")):
+    if not str(stock_code or "").upper().endswith((".HK", ".US")):   # 港/美股标准码「代码.市场」
         return None
     if given is not None and given > 0:
         return float(given)
@@ -129,17 +123,27 @@ def _current_segment_brokers(actions: list, default_broker) -> list:
     return out
 
 
+def _actions_for_direction(actions: list, direction: str | None) -> list:
+    """同代码多空两行的流水隔离: direction=None 只取无方向行(普通股票/多头),
+    带方向的行各看各的(期货/期权双向、股票做空)。整代码没有任何方向标签时
+    原样返回(旧数据兼容, 免得历史期货流水被过滤空)。"""
+    if not any(a.get("direction") for a in actions):
+        return actions
+    return [a for a in actions if (a.get("direction") or None) == direction]
+
+
 async def _recompute_holding(stock_code: str, direction: str | None = None):
     """Rebuild holding shares/cost_price from FIFO ledger.
 
     同合约多空各一行: direction 给定时只取该方向的流水重算该行(两本独立账)。
+    direction=None(无方向行)同理只取无方向流水 —— 否则同代码空头行的 OPEN/CLOSE
+    会混进 FIFO, 股数被算成"多头−空头"的净敞口。
     """
     actions = await get_position_actions(stock_code, limit=500)
-    if direction is not None:
-        actions = [a for a in actions if (a.get("direction") or None) == direction]
+    actions = _actions_for_direction(actions, direction)
     h = await get_holding(stock_code, direction=direction)
     hb = (h or {}).get("broker")
-    state = await ledger_state(stock_code, actions, hb, dilute=False)   # 每笔按各自券商费率
+    state = await ledger_state(stock_code, actions, hb)   # 每笔按各自券商费率
     if state["shares"] > 0:
         await update_holding(stock_code, shares=state["shares"], cost_price=state["cost_price"],
                              _direction=direction)
@@ -167,7 +171,6 @@ async def list_holdings() -> list[HoldingResponse]:
         sector_map[code] = sec if (isinstance(sec, str) and sec) else None
 
     fee_resolve = await _broker_fee_resolver()       # 券商费率解析器(一次性, 全持仓共用)
-    default_broker_name = await _default_broker_name()
     from database import get_config
     fee_overrides = await get_config("fee_schedules")
 
@@ -176,7 +179,7 @@ async def list_holdings() -> list[HoldingResponse]:
         code = h["stock_code"]
         # 现算 shares/cost_price (而非读 holdings 表存的值): 综合成本法按"持仓段"
         # 计算, 清仓后复活会重置成本, 存量值可能是旧算法写的, 现算保证一致。
-        hb = h.get("broker") or default_broker_name   # 持仓未设则回退配置默认, 让"默认券商"也有 tag
+        hb = h.get("broker")   # 持仓未设券商则 None(无); 费率估算回退内置默认
         broker_display = hb
         q = quotes.get(code)
         current_price = q["price"] if q else None
@@ -195,8 +198,7 @@ async def list_holdings() -> list[HoldingResponse]:
         _direction = h.get("direction")
         try:
             _acts = await get_position_actions(code, limit=500)
-            if _direction is not None:
-                _acts = [a for a in _acts if (a.get("direction") or None) == _direction]
+            _acts = _actions_for_direction(_acts, _direction)
             if _acts:
                 _st = await ledger_state(code, _acts, hb, resolve=fee_resolve, fee_overrides=fee_overrides,
                                          fx_now=fx_rate if currency != "CNY" else None)
@@ -204,8 +206,6 @@ async def list_holdings() -> list[HoldingResponse]:
                 h["cost_price"] = _st["cost_price"]
                 if currency != "CNY":
                     cost_value_cny = _st.get("cost_value_cny")
-                if _st.get("div_per_share"):
-                    h["div_per_share"] = _st["div_per_share"]
                 # 主行券商: 显示当前持仓段实际用的(单一→该券商, 多个→"多券商")
                 brs = _current_segment_brokers(_acts, hb)
                 if brs:
@@ -218,6 +218,8 @@ async def list_holdings() -> list[HoldingResponse]:
         fx_pnl = None
         original_cost_value = cost_value = None
         margin_value = None
+        is_short_stock = (not h.get("asset_kind") in ("fut", "opt")
+                          and (_direction or "").upper() == "SHORT")
 
         # ── 期货/期权估值: 市值=价×乘数×手数; 浮动按方向(空头翻号); 今日=涨跌幅×方向 ──
         # 算完直接定稿 —— 下面的股票通用估值块对 fut/opt 必须跳过, 否则乘数/方向会被
@@ -243,8 +245,9 @@ async def list_holdings() -> list[HoldingResponse]:
                                if h["cost_price"] else None)
                 if change_pct is not None:
                     change_pct = round(change_pct * (-1 if (_direction or "LONG") == "SHORT" else 1), 3)
-            # 期货是杠杆交易, 总资产里的资产贡献 = 成本×保证金率 + 浮动盈亏(symbol_dict 品种行);
-            # 期权是权利金全额(买方), 不走保证金口径。品种行没配 margin_rate → None, 前端退回名义市值。
+            # 期货是杠杆交易, 总资产里的资产贡献 = 成本×保证金率 + 浮动盈亏
+            # (保证金率来自 assets_classify 按 sub_assets_type 关联的品种分类行);
+            # 期权是权利金全额(买方), 不走保证金口径。分类行没配 margin_rate → None, 前端退回名义市值。
             if h.get("asset_kind") == "fut" and cost_v:
                 prod = re.match(r"^[A-Za-z]+", code)
                 p = await get_futures_product(prod.group(0)) if prod else None
@@ -252,13 +255,35 @@ async def list_holdings() -> list[HoldingResponse]:
                 if rate:
                     margin_value = round(cost_v * float(rate) + (unrealized_pnl or 0), 2)
 
+        # ── 股票空头估值: 无乘数, 浮动/涨跌按方向镜像(价跌=赚)。
+        # 汇兑对空头反向: 欠的是外币市值, 本币升值反而少亏 —— fx_pnl 取成本口径差的负号。
+        # 资产贡献(margin_value) = 成本 + 浮动: 开空时收到的现金就趴在这注仓里,
+        # 与期货「保证金 + 浮动」同型, day-over-day 变动与当日盈亏自洽。
+        if is_short_stock:
+            original_cost_value = round(h["cost_price"] * h["shares"], 2)
+            cost_value = round(original_cost_value * fx_rate, 2)
+            if cost_value_cny is not None and h["shares"]:
+                fx_pnl = round(cost_value_cny - cost_value, 2)
+                cost_value = round(cost_value_cny, 2)
+            if current_price and current_price > 0:
+                original_market_value = round(current_price * h["shares"], 2)
+                market_value = round(original_market_value * fx_rate, 2)
+                unrealized_pnl = (round(cost_value - market_value, 2) if cost_value_cny is not None
+                                  else round((original_cost_value - original_market_value) * fx_rate, 2))
+                if h["cost_price"] > 0:
+                    pnl_pct = round((h["cost_price"] - current_price) / h["cost_price"] * 100, 2)
+                if change_pct is not None:
+                    change_pct = round(change_pct * -1, 3)
+            if original_cost_value:
+                margin_value = round((cost_value or 0) + (unrealized_pnl or 0), 2)
+
         # Auto-fix empty stock name
         if not h["stock_name"] and q and q.get("stock_name"):
-            await update_holding(code, stock_name=q["stock_name"])
+            await update_holding(code, stock_name=q["stock_name"], _direction=h.get("direction"))
             h["stock_name"] = q["stock_name"]
 
-        # ── 股票通用估值(fut/opt 已在上面定稿, 跳过 —— 那套公式没有乘数/方向) ──
-        if not is_fut:
+        # ── 股票通用估值(fut/opt 与空头已在上面定稿, 跳过 —— 那两套公式带乘数/方向) ──
+        if not is_fut and not is_short_stock:
             original_cost_value = round(h["cost_price"] * h["shares"], 2)
             cost_value = round(original_cost_value * fx_rate, 2)
             if cost_value_cny is not None and h["shares"]:
@@ -285,6 +310,7 @@ async def list_holdings() -> list[HoldingResponse]:
             fx_time=fx_info.get("time") or "",
             fx_source=fx_info.get("source") or "",
             price_change_pct=change_pct,
+            today=change_pct,
             unrealized_pnl=unrealized_pnl,
             pnl_pct=pnl_pct,
             original_cost_value=original_cost_value,
@@ -295,10 +321,13 @@ async def list_holdings() -> list[HoldingResponse]:
             sector=sector_map.get(code),
             broker=broker_display,
             asset_kind=h.get("asset_kind") or "stock",
+            sub_assets_type=h.get("sub_assets_type"),
+            assets_class=h.get("assets_class"),
+            main_assets_type=h.get("main_assets_type"),
+            sub_assets_type_name=h.get("sub_assets_type_name"),
             direction=h.get("direction"),
             contract_multiplier=h.get("contract_multiplier"),
             margin_value=margin_value,
-            div_per_share=h.get("div_per_share"),
             today_valid=quote_today_valid(market, q),
         ))
 
@@ -316,7 +345,7 @@ async def realized_pnl():
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT DISTINCT stock_code FROM position_actions WHERE user_id = ? ORDER BY stock_code",
+            "SELECT DISTINCT code AS stock_code FROM position_actions WHERE user_id = ? ORDER BY stock_code",
             (_uid(),),
         )
         rows = await cursor.fetchall()
@@ -336,46 +365,37 @@ async def realized_pnl():
         all_acts = await get_position_actions(code, limit=500)
         if not all_acts:
             continue
-        # 同合约双向: 期货/期权按方向各算一本账再合并; 股票无 direction 单本。
+        # 按方向各算一本账再合并: 期货/期权双向、股票做空(同代码 多+空 两行)都适用。
+        # 无方向标签的流水全部落进 "LONG" 组(股票即普通多头账; 键名只是分组键)。
         h0 = holdings_map.get(code) or {}
-        if h0.get("asset_kind") in ("fut", "opt"):
-            dir_groups: dict = {}
-            for a in all_acts:
-                dir_groups.setdefault(a.get("direction") or "LONG", []).append(a)
-            mult = float(h0.get("contract_multiplier") or 1)
-            rp = carry = 0.0
-            still = False
-            for d, acts in dir_groups.items():
-                st = await ledger_state(code, acts, h0.get("broker"),
-                                        resolve=resolve, fee_overrides=fee_overrides, dilute=False)
-                rp += float(st.get("realized_pnl") or 0) * mult
-                carry += float(st.get("realized_carry") or 0) * mult
-                still = still or (st.get("shares") or 0) > 0
-            total += rp
-            total_carry += carry
-            items.append({
-                "stock_code": code,
-                "stock_name": h0.get("stock_name") or code,
-                "realized_pnl": round(rp, 2),
-                "realized_carry": round(carry, 2),
-                "currency": "CNY", "realized_pnl_native": round(rp, 2), "fx_rate": 1.0,
-                "fx_pnl": 0.0,
-                "still_holding": still,
-            })
-            continue
-        actions = all_acts
+        is_fut = h0.get("asset_kind") in ("fut", "opt")
+        mult = float(h0.get("contract_multiplier") or 1) if is_fut else 1.0
         # 账本按原币记(港股 HKD、美股 USD); 人民币口径每笔按自己的成交日汇率(fx_rate, 没记的按当前汇率),
         # 所以已实现里含本金的汇兑损益(fx_pnl 单列)。费用与看板同一口径(每笔券商 + fee_schedules 覆盖)。
-        foreign = code_currency(code) != "CNY"
+        foreign = (not is_fut) and code_currency(code) != "CNY"
         fx = await asyncio.to_thread(code_fx, code) if foreign else 1.0
-        state = await ledger_state(code, actions, (holdings_map.get(code) or {}).get("broker"),
-                                   resolve=resolve, fee_overrides=fee_overrides, dilute=False,
-                                   fx_now=fx if foreign else None)
-        rp_native = float(state.get("realized_pnl") or 0)
-        rp = float(state.get("realized_pnl_cny") or 0) if foreign else rp_native
-        # carry = 不在当前浮动里的已实现 (已平仓段 + 分红). 当前持仓段的已实现已被
-        # 综合成本法摊进浮动盈亏, 顶部总盈亏只能加 carry, 否则重复算。
-        carry = float(state.get("realized_carry_cny") or 0) if foreign else float(state.get("realized_carry") or 0)
+        dir_groups: dict = {}
+        for a in all_acts:
+            dir_groups.setdefault(a.get("direction") or "LONG", []).append(a)
+        rp = carry = rp_native = fx_pnl = 0.0
+        still = False
+        for d, acts in dir_groups.items():
+            st = await ledger_state(code, acts, h0.get("broker"),
+                                    resolve=resolve, fee_overrides=fee_overrides,
+                                    fx_now=fx if foreign else None)
+            if is_fut:
+                rp += float(st.get("realized_pnl") or 0) * mult
+                carry += float(st.get("realized_carry") or 0) * mult
+                rp_native = rp
+            else:
+                rn = float(st.get("realized_pnl") or 0)
+                rp_native += rn
+                rp += float(st.get("realized_pnl_cny") or 0) if foreign else rn
+                # carry = 不在当前浮动里的已实现 (已平仓段 + 分红). 当前持仓段的已实现已被
+                # 综合成本法摊进浮动盈亏, 顶部总盈亏只能加 carry, 否则重复算。
+                carry += float(st.get("realized_carry_cny") or 0) if foreign else float(st.get("realized_carry") or 0)
+                fx_pnl += float(st.get("realized_fx_pnl") or 0)
+            still = still or (st.get("shares") or 0) > 0
         total += rp
         total_carry += carry
         h = holdings_map.get(code) or {}
@@ -389,11 +409,12 @@ async def realized_pnl():
         items.append({
             "stock_code": code,
             "stock_name": name,
-            "realized_pnl": rp,
+            "realized_pnl": round(rp, 2),
             "realized_carry": round(carry, 2),
-            "currency": code_currency(code), "realized_pnl_native": rp_native, "fx_rate": fx,
-            "fx_pnl": float(state.get("realized_fx_pnl") or 0),
-            "still_holding": (state.get("shares") or 0) > 0,
+            "currency": "CNY" if is_fut else code_currency(code),
+            "realized_pnl_native": round(rp_native, 2), "fx_rate": fx,
+            "fx_pnl": round(fx_pnl, 2),
+            "still_holding": still,
         })
     items.sort(key=lambda x: x["realized_pnl"])
     return {
@@ -414,7 +435,7 @@ async def trade_review():
 
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT DISTINCT stock_code FROM position_actions WHERE user_id = ? ORDER BY stock_code", (_uid(),))
+        cursor = await db.execute("SELECT DISTINCT code AS stock_code FROM position_actions WHERE user_id = ? ORDER BY stock_code", (_uid(),))
         codes = [r[0] for r in await cursor.fetchall()]
     finally:
         await db.close()
@@ -426,43 +447,54 @@ async def trade_review():
     fee_overrides = await get_config("fee_schedules")
     stats = []
     for code in codes:
-        actions = await get_position_actions(code, limit=500)
-        if not actions:
+        all_acts = await get_position_actions(code, limit=500)
+        if not all_acts:
             continue
-        state = await ledger_state(code, actions, (holdings_map.get(code) or {}).get("broker"),
-                                   resolve=resolve, fee_overrides=fee_overrides, dilute=False)
-        foreign = _code_cur(code) != "CNY"
-        # 买卖次数按"决策"数而不是成交笔数: 一次委托分两笔成交(实测中国长城 200@34.93 +
-        # 100@34.94, 同一分钟)会把做T频率凭空翻倍, 复盘就据此说人家"反复操作"
         from services.trade_fills import merge_fills
-        _acts = []
-        for a in actions:
-            at = (a.get("action_type") or "").upper()
-            k = "buy" if at in ACQUIRE else ("sell" if at in RELEASE else None)
-            if not k or float(a.get("price") or 0) <= 0:
+        # 多空各一本账各出一行(期货/期权双向、股票做空): 混喂一个 FIFO 会把两本账
+        # 搅在一起(负价技巧会把多头腿的价格也取负)。
+        for d in ("LONG", "SHORT"):
+            acts = [a for a in all_acts if (a.get("direction") or "LONG") == d]
+            if not acts:
                 continue
-            _acts.append({"date": (a.get("trade_date") or "")[:10], "code": code, "kind": k,
-                          "price": float(a["price"]), "shares": float(a.get("shares") or 0),
-                          "time": a.get("trade_time"), "asset_class": "stock"})
-        _decisions = merge_fills(_acts)
-        n_buy = sum(1 for t in _decisions if t["kind"] == "buy")
-        n_sell = sum(1 for t in _decisions if t["kind"] == "sell")
-        name = (holdings_map.get(code) or {}).get("stock_name") or ""
-        if not name:
-            try:
-                name = await get_stock_name(code) or code
-            except Exception:
-                name = code
-        stats.append({
-            "code": code, "name": name,
-            # 港美股已实现直接用人民币口径(各笔成交日汇率), 浮动用人民币成本 —— 下面不再乘当前汇率
-            "realized": round(float(state.get("realized_pnl_cny" if foreign else "realized_pnl") or 0), 2),
-            "shares": float(state.get("shares") or 0),
-            "cost_price": float(state.get("cost_price") or 0),
-            "hold_days": int(state.get("weighted_days") or 0),
-            "n_buy": n_buy, "n_sell": n_sell,
-            "_cost_cny": float(state.get("cost_value_cny") or 0) if foreign else None,
-        })
+            state = await ledger_state(code, acts, (holdings_map.get(code) or {}).get("broker"),
+                                       resolve=resolve, fee_overrides=fee_overrides)
+            foreign = _code_cur(code) != "CNY"
+            # 买卖次数按"决策"数而不是成交笔数: 一次委托分两笔成交(实测中国长城 200@34.93 +
+            # 100@34.94, 同一分钟)会把做T频率凭空翻倍, 复盘就据此说人家"反复操作"
+            _acts = []
+            for a in acts:
+                at = (a.get("action_type") or "").upper()
+                if d == "SHORT":
+                    # 空头账本按真实交易方向数: 卖出开仓 / 买入平仓
+                    k = "sell" if at == "OPEN" else ("buy" if at == "CLOSE" else None)
+                else:
+                    k = "buy" if at in ACQUIRE else ("sell" if at in RELEASE else None)
+                if not k or float(a.get("price") or 0) <= 0:
+                    continue
+                _acts.append({"date": (a.get("trade_date") or "")[:10], "code": code, "kind": k,
+                              "price": float(a["price"]), "shares": float(a.get("shares") or 0),
+                              "time": a.get("trade_time"), "asset_class": "stock"})
+            _decisions = merge_fills(_acts)
+            n_buy = sum(1 for t in _decisions if t["kind"] == "buy")
+            n_sell = sum(1 for t in _decisions if t["kind"] == "sell")
+            name = (holdings_map.get(code) or {}).get("stock_name") or ""
+            if not name:
+                try:
+                    name = await get_stock_name(code) or code
+                except Exception:
+                    name = code
+            stats.append({
+                "code": code, "name": name + (" · 空" if d == "SHORT" else ""),
+                "direction": None if d == "LONG" else d,
+                # 港美股已实现直接用人民币口径(各笔成交日汇率), 浮动用人民币成本 —— 下面不再乘当前汇率
+                "realized": round(float(state.get("realized_pnl_cny" if foreign else "realized_pnl") or 0), 2),
+                "shares": float(state.get("shares") or 0),
+                "cost_price": float(state.get("cost_price") or 0),
+                "hold_days": int(state.get("weighted_days") or 0),
+                "n_buy": n_buy, "n_sell": n_sell,
+                "_cost_cny": float(state.get("cost_value_cny") or 0) if foreign else None,
+            })
 
     # 浮动 (在持仓的): 实时价 - 成本
     held = [s for s in stats if s["shares"] > 0]
@@ -474,7 +506,12 @@ async def trade_review():
         if s["shares"] > 0:
             price = (quotes.get(s["code"]) or {}).get("price") or 0
             if price:
-                if cost_cny is not None:      # 港美股: 现市值(当前汇率) − 人民币成本(成交日汇率)
+                if s.get("direction") == "SHORT":
+                    # 空头: 浮动 = 开仓成本 − 现市值(价跌=赚; 港美股成本按成交日汇率折 CNY)
+                    fx = await asyncio.to_thread(_code_fx, s["code"]) if cost_cny is not None else 1.0
+                    base = cost_cny if cost_cny is not None else s["cost_price"] * s["shares"]
+                    floating = base - price * s["shares"] * fx
+                elif cost_cny is not None:      # 港美股: 现市值(当前汇率) − 人民币成本(成交日汇率)
                     fx = await asyncio.to_thread(_code_fx, s["code"])
                     floating = price * s["shares"] * fx - cost_cny
                 else:
@@ -571,7 +608,7 @@ async def trade_journal(limit: int = 80):
 
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT DISTINCT stock_code FROM position_actions WHERE user_id = ?", (_uid(),))
+        cursor = await db.execute("SELECT DISTINCT code AS stock_code FROM position_actions WHERE user_id = ?", (_uid(),))
         codes = [r[0] for r in await cursor.fetchall()]
     finally:
         await db.close()
@@ -732,7 +769,7 @@ async def trade_review_ai(period: str = "all", force: int = 0):
     if period != "all":
         journal = await trade_journal(limit=1000)
         trades_all = journal.get("trades", [])
-        today = (_dt.datetime.utcnow() + _dt.timedelta(hours=8)).date()
+        today = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=8)).date()
         if period == "day":
             dates = [t["date"] for t in trades_all if t["date"]]
             anchor = max(dates) if dates else today.isoformat()
@@ -1213,7 +1250,7 @@ async def benchmark_compare(symbol: str = "sh000300", days: int = 0):
     from database import get_db
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT DISTINCT stock_code FROM position_actions")
+        cursor = await db.execute("SELECT DISTINCT code AS stock_code FROM position_actions")
         codes = [r[0] for r in await cursor.fetchall()]
     finally:
         await db.close()
@@ -1606,10 +1643,15 @@ async def contracts_search(q: str = "", asset_type: str = "futures"):
 
 
 @router.get("/products/search")
-async def products_search(q: str = "", kind: str = "fut"):
-    """期货/期权品种搜索(symbol_dict 品种行, 如 CU → 沪铜): 开仓表单选品种+月份拼合约。"""
+async def products_search(q: str = "", kind: str = "fut", sub: str = ""):
+    """期货/期权品种搜索(symbol_dict 品种行, 如 CU → 沪铜): 开仓表单选品种+月份拼合约。
+
+    sub = 表单「资产类型×币种」匹配到的唯一小类(cn_futures/hk_futures/us_futures/
+    cn_options...), 传了就精确锁定品种池; 不传退回按 kind(fut/opt) 包含式匹配。
+    """
     from database import search_futures_products
-    items = await search_futures_products(q, asset_type=kind if kind in ("fut", "opt") else "")
+    items = await search_futures_products(q, asset_type=kind if kind in ("fut", "opt") else "",
+                                          sub=sub)
     return {"items": items}
 
 
@@ -1618,13 +1660,13 @@ async def fee_estimate(stock_code: str, price: float, shares: float,
                        broker: str = "", action: str = "BUY", trade_date: str = "", kind: str = ""):
     """按费率配置预估一笔交易的手续费(CNY)。添加持仓页实时算默认税费, 个人中心试算也用它。
 
-    A股/ETF: 佣金按**所选券商**(个人中心配的费率档案; 未选→默认券商→再兜底 config 常量)
+    A股/ETF: 佣金按**所选券商**(个人中心配的费率档案; 未选→内置默认费率→再兜底 config 常量)
     + 过户费 + 经手费/证管费; 印花税只在卖出侧。kind=etf 用 ETF 费率档。
     港美股: 按券商收费方案(默认盈立)算。前端拿到后填进可编辑的税费框, 用户可覆盖。
     """
     from services.position_ledger import estimate_trade_fee
     from services.market_data import normalize_stock_code
-    from database import get_config, list_brokers, get_default_broker
+    from database import get_config, list_brokers
     fee_overrides = await get_config("fee_schedules")
     full = str(stock_code or "").upper()
     c_rate = c_min = None
@@ -1635,7 +1677,7 @@ async def fee_estimate(stock_code: str, price: float, shares: float,
         bare = split_stock_code(full)[1]
         use_etf = (kind or "").lower() == "etf" or stockCodeIsEtf(full)
         brokers = await list_brokers()
-        b = next((x for x in brokers if x["name"] == broker), None) if broker else await get_default_broker()
+        b = next((x for x in brokers if x["name"] == broker), None) if broker else None
         if b:
             if use_etf:
                 # 基金费率可空: 空 = 同股票费率
@@ -1680,11 +1722,46 @@ async def create_holding(data: HoldingCreate):
             raise HTTPException(400, "手数必须大于 0")
         direction = data.direction.upper()
         mult = float(data.contract_multiplier)
+        holding_mult = mult
     else:
         stock_code = normalize_stock_code(data.stock_code)
-        direction = mult = None
+        # 股票做多/做空(参考期货模式): SHORT = 空头行(direction=SHORT/0), LONG/不填 = 多头行
+        # (direction=LONG/1)。两者都走 OPEN/CLOSE + direction, 账本按 direction 镜像(空头负价技巧
+        # 自动算对空头盈亏), 同代码多空各一行、各算各的账。乘数是衍生品概念, 流水层股票落 NULL(=非衍生品);
+        # 持仓层每手乘数恒为 1, 呼应 holdings 表 contract_multiplier DEFAULT 1。
+        _dir = (data.direction or "").upper()
+        direction = "SHORT" if _dir == "SHORT" else "LONG"
+        mult = None                       # 流水层(position_actions): 股票非衍生品 → NULL
+        holding_mult = 1.0                # 持仓层(holdings): 股票每手乘数恒为 1
         _check_shares(stock_code, data.shares)
-    existing = await get_holding(stock_code, direction=direction)
+        if direction == "SHORT" and not (data.shares and float(data.shares) > 0):
+            raise HTTPException(400, "做空持仓数量必须大于 0")
+    # 分类归口 assets_classify: 表单所选小类落库; 引擎列 asset_kind 由小类推导钉住
+    # (futures→fut / options→opt / 其余→stock, 见 database.kind_from_classify)。
+    # 表单显式声明的 fut/opt 兜底(小类未传/目录没收录时), 保证期货/期权路径不断。
+    # 股票(A股/港股/美股)表单不传 sub_assets_type 时, 按代码市场推导 common stock 小类,
+    # 保证 holdings.sub_assets_type 始终有值(前端展示/费率/大类推导都依赖它)。
+    sat = data.sub_assets_type
+    if not sat and kind == "stock":
+        _c = (data.stock_code or "").upper()
+        if _c.startswith("HK."):
+            sat = "hk_comm_stock"
+        elif _c.startswith("US."):
+            sat = "us_comm_stock"
+        else:
+            sat = "a_comm_stock"
+    cls_row = await get_assets_classify_row(sat) if sat else None
+    if cls_row:
+        kind = kind_from_classify(cls_row, fallback=kind)
+        # 分类路由(assets_classify.trade): true=交易资产 → 持仓账本(holdings/position_actions);
+        # false=非交易资产 → 场外账本(external_assets/actions)。规则来自目录数据, 不按大类写死。
+        if not cls_row.get("trade"):
+            raise HTTPException(
+                400, f"「{cls_row.get('sub_assets_type_name') or sat}」在分类目录中标记为非交易资产(trade=f)，"
+                     f"应记入场外账本(external_assets)，请走对应录入入口")
+    # strict=True: 建仓查重只看本方向的行 —— 同代码另一方向(空头)的行不算重复,
+    # 且不能借 get_holding 的"任意第一行"兜底误判成已存在。
+    existing = await get_holding(stock_code, direction=direction, strict=True)
     # 还有持仓 → 真重复, 让用户走「加仓」。shares=0 的已清仓标的允许从这里重新建仓,
     # 复用原有交易历史 (FIFO 续上, 之前的已实现盈亏保留)。
     # 双向: 同合约另一方向的行不算重复 —— 多空各一行是本设计的前提。
@@ -1703,36 +1780,31 @@ async def create_holding(data: HoldingCreate):
             name = stock_code
 
     # 1) 建持仓行 (已清仓标的的行还在, 不重复 INSERT, 顺手更新名字)
+    #    sub_assets_type: 表单所选资产小类落库(分类统一命名归口 assets_classify)
     if existing:
-        await update_holding(stock_code, stock_name=name, direction=direction,
-                             contract_multiplier=mult, asset_kind=kind)
+        await update_holding(stock_code, _direction=direction, stock_name=name,
+                             contract_multiplier=holding_mult, asset_kind=kind,
+                             sub_assets_type=sat)
     else:
         await add_holding(stock_code, name, data.shares, data.cost_price,
-                          direction=direction, contract_multiplier=mult, asset_kind=kind)
+                          direction=direction, contract_multiplier=holding_mult, asset_kind=kind,
+                          sub_assets_type=sat, purchase_date=data.trade_date)
     # 1b) 如果前端传了券商, 在 recompute 之前写入, 这样 _recompute_holding 能用正确的费率
     if data.broker:
-        await update_holding(stock_code, broker=data.broker)
-    # 2) 股票写 BUY; 期货/期权写 OPEN(带方向+乘数)。种子流水后重算综合成本。
-    if kind in ("fut", "opt"):
-        await add_position_action(
-            stock_code, "OPEN", data.cost_price, data.shares,
-            note="initial (auto)", trade_date=data.trade_date,
-            trade_time=(data.trade_time or None), broker=(data.broker or None),
-            fee=data.fee, direction=direction, contract_multiplier=mult,
-        )
-        await _recompute_holding(stock_code)
-        return {"message": "开仓成功", "stock_code": stock_code, "stock_name": name}
+        await update_holding(stock_code, broker=data.broker, _direction=direction)
+    # 2) 建仓种子流水统一 OPEN + direction(LONG/SHORT): 期货/期权/股票空头/股票多头同款,
+    #    账本按 direction 镜像(空头负价技巧算盈亏)。必须带 direction, 同代码多空两行各算各的账。
+    note = "re-entry (auto)" if existing else "initial (auto)"
+    _fx = await _trade_fx(stock_code, data.trade_date, data.fx_rate) if kind == "stock" else None
     await add_position_action(
-        stock_code, "BUY", data.cost_price, data.shares,
-        note="re-entry (auto)" if existing else "initial (auto)",
-        trade_date=data.trade_date,
-        trade_time=(data.trade_time or None),
+        stock_code, "OPEN", data.cost_price, data.shares,
+        note=note, trade_date=data.trade_date,
         broker=(data.broker or None),
-        fx_rate=await _trade_fx(stock_code, data.trade_date, data.fx_rate),
-        fee=data.fee,
+        fx_rate=_fx, fee=data.fee,
+        direction=direction, contract_multiplier=mult,
     )
-    await _recompute_holding(stock_code)
-    return {"message": "添加成功", "stock_code": stock_code, "stock_name": name}
+    await _recompute_holding(stock_code, direction=direction)
+    return {"message": "开仓成功", "stock_code": stock_code, "stock_name": name}
 
 
 @router.put("/{stock_code}")
@@ -1757,7 +1829,7 @@ async def modify_holding(stock_code: str, data: HoldingUpdate, direction: str = 
     if data.last_price is not None:       # 期权: 手填最新价(浮动盈亏用)
         kwargs["last_price"] = data.last_price
 
-    await update_holding(stock_code, _direction=_direction, **kwargs)
+    await update_holding(stock_code, _direction=existing.get("direction"), **kwargs)
     return {"message": "更新成功"}
 
 
@@ -1801,7 +1873,10 @@ async def _portfolio_total_value() -> float:
     try:
         for h in await list_holdings():
             h = h if isinstance(h, dict) else h.model_dump()
-            total += float(h.get("market_value") or 0)
+            # 资产贡献口径: 期货 = 保证金占用+浮动(margin_value), 股票空头 = 成本+浮动(开空
+            # 所得现金趴在这注仓里), 都比"名义市值"更接近真实身家; 其余行 margin_value 为
+            # None 退回市值, 行为不变。
+            total += float(h.get("margin_value") or h.get("market_value") or 0)
     except Exception as e:
         print(f"[pnl-calendar] 持仓市值汇总失败: {e}")
     try:
@@ -1910,11 +1985,10 @@ async def list_actions(stock_code: str, direction: str = None):
     from database import resolve_action_time
     actions = await get_position_actions(stock_code, limit=500)
     _direction = (direction or "").upper() or None
-    if _direction is not None:
-        actions = [a for a in actions if (a.get("direction") or None) == _direction]
+    actions = _actions_for_direction(actions, _direction)
     is_a = stock_code and not stock_code.upper().startswith(("HK.", "US."))
     h = await get_holding(stock_code)
-    hb = (h or {}).get("broker") or await _default_broker_name()   # 未指定→持仓→配置默认, 让默认也有 tag
+    hb = (h or {}).get("broker")   # 持仓未设券商则 None(无); 费率估算回退内置默认
     resolve = await _broker_fee_resolver()
     # 估算费用走 _attach_auto_fees(内部按「委托单」合并 5 元最低佣金再分摊)。
     # 这里曾经自己逐笔调 estimate_trade_fee, 于是一张委托分两笔成交时列表显示
@@ -1952,6 +2026,11 @@ async def create_action(stock_code: str, data: ActionCreate):
     holding = await get_holding(stock_code, direction=_direction)
     if not holding:
         raise HTTPException(404, f"持仓 {stock_code} 不存在")
+    # 股票空头行: 只收 开仓/平仓(卖出开仓/买入平仓), 买卖(BUY/SELL)属于多头行
+    is_short_stock = ((holding.get("direction") or "").upper() == "SHORT"
+                      and (holding.get("asset_kind") or "stock") == "stock")
+    if is_short_stock and not is_fut:
+        raise HTTPException(400, "空头持仓请用 开仓/平仓 记录(卖出开仓、买入平仓)")
     if not is_fut:
         _check_shares(stock_code, data.shares)
     is_split = (data.action_type or "").upper() == "SPLIT"
@@ -1966,13 +2045,14 @@ async def create_action(stock_code: str, data: ActionCreate):
         shares=0 if is_split else data.shares,
         trade_date=data.trade_date,
         note=data.note or "",
-        tranche_id=None,
         fee=data.fee,
         trade_time=(data.trade_time or None),
         broker=(data.broker or None),
         fx_rate=None if is_split else await _trade_fx(stock_code, data.trade_date, data.fx_rate),
-        direction=_direction if is_fut else None,
-        contract_multiplier=mult if is_fut else None,
+        # 统一带方向落库: 多头=LONG/1, 空头=SHORT/0, 期货/期权双向。前端已按方向下发,
+        # 不再对普通多头特判成 NULL(否则新流水会被 流水列表/重算 的 direction 过滤漏掉)。
+        direction=_direction,
+        contract_multiplier=mult if (is_fut and not is_short_stock) else None,
     )
     await _recompute_holding(stock_code, direction=_direction)
     return {"message": "记录已添加"}
@@ -1986,7 +2066,7 @@ async def modify_action(action_id: int, data: ActionUpdate):
     from database import get_db
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
+        cursor = await db.execute("SELECT *, code AS stock_code FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
         old = await cursor.fetchone()
     finally:
         await db.close()
@@ -2025,7 +2105,7 @@ async def remove_action(action_id: int):
     from database import get_db
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT stock_code, direction FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
+        cursor = await db.execute("SELECT code AS stock_code, direction FROM position_actions WHERE id = ? AND user_id = ?", (action_id, _uid()))
         row = await cursor.fetchone()
     finally:
         await db.close()
@@ -2035,48 +2115,14 @@ async def remove_action(action_id: int):
     return {"message": "已删除"}
 
 
-# ── 港美股分红识别: 只出待确认建议, 用户一键记入(可改金额/税)或忽略; 结单为准, 不自动写流水 ──
-class DividendConfirm(BaseModel):
-    ex_date: str
-    per_share: Optional[float] = None   # 不填用识别值(原币: 港股港元、美股美元)
-    shares: Optional[float] = None      # 不填用除净前一日收盘持股
-    fee: Optional[float] = None         # 预扣税; 不填按收费方案默认税率估
-    trade_date: Optional[str] = None    # 到账日; 不填用派息日(没有则除净日)
-    fx_rate: Optional[float] = None
-
-
-@router.get("/dividends/pending")
-async def pending_dividends(code: str = ""):
-    """港美股持仓里除净日已过、还没记 DIVIDEND 的现金分红建议。"""
-    from services.dividends import scan_pending
-    return await scan_pending(normalize_stock_code(code) if code else None)
-
-
-@router.post("/{stock_code}/dividends/confirm")
-async def confirm_dividend(stock_code: str, data: DividendConfirm):
-    """把一条分红建议记成 DIVIDEND 流水(走 create_action, 汇率按到账日取)。已记过/不在建议里 → 409。"""
-    from services.dividends import scan_pending
-    stock_code = normalize_stock_code(stock_code)
-    items = (await scan_pending(stock_code))["items"]
-    it = next((x for x in items if x["ex_date"] == str(data.ex_date)[:10]), None)
-    if not it:
-        raise HTTPException(409, "这笔分红已记过, 或不在待确认列表里")
-    ps = data.per_share if data.per_share is not None else it["per_share"]
-    if not ps or ps <= 0:
-        raise HTTPException(400, "缺每股金额, 请按结单填写")
-    note = " ".join(x for x in ("分红识别", f"除净{it['ex_date']}", it.get("kind"), it.get("declared")) if x)
-    await create_action(stock_code, ActionCreate(
-        action_type="DIVIDEND", price=ps, shares=data.shares or it["shares"],
-        trade_date=data.trade_date or it["trade_date"], note=note[:200], fee=data.fee, fx_rate=data.fx_rate))
-    return {"message": "分红已记入"}
-
-
-@router.post("/{stock_code}/dividends/dismiss")
-async def dismiss_dividend(stock_code: str, data: DividendConfirm):
-    """忽略一条分红建议(如结单确认没收到 / 选了以股代息)。"""
-    from services.dividends import dismiss
-    await dismiss(normalize_stock_code(stock_code), data.ex_date)
-    return {"message": "已忽略"}
+# ── 派息全自动落账(三市场一套): 数据源事件直接写 DIVIDEND 流水, 幂等可重复跑 ──
+# 分红全部进已实现, 不摊薄成本; fee 默认 0(不建税模型), 金额/费在流水编辑里手改;
+# 去重键 = (code, ex_date 窗口匹配)已有 DIVIDEND 流水; 空头持仓跳过(借券分红是支出)。
+# 后台循环定时跑(run.py dividend_sync_loop), 这个路由是手动触发入口(测试/ impatient)。
+@router.post("/dividends/sync")
+async def sync_dividends_route(code: str = ""):
+    from services.dividends import sync_dividends
+    return await sync_dividends(normalize_stock_code(code) if code else None)
 
 
 # ── 持仓逻辑 (thesis-tracker) ──

@@ -21,8 +21,19 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-# 内部品种分组(market) → market.quote_latest 的 asset_type
-ATYPE_BY_MARKET = {"A": "a_stock", "HK": "hk_stock", "US": "us_stock", "FUT": "fut", "OPT": "opt"}
+# 内部品种分组(market) → market.quote_latest 的 sub_assets_type(关联 assets_classify 的键)
+# 仅 A/HK/US 能唯一落到 common stock 小类; FUT/OPT/fx/index 行情不在 quote_latest 记小类
+# (精确小类在持仓/外部资产/流水里另有归属)。
+SUBTYPE_BY_MARKET = {"A": "a_comm_stock", "HK": "hk_comm_stock", "US": "us_comm_stock"}
+
+
+def _quote_ticker(code: str) -> str:
+    """纯标的代码: 600406.SH→600406 / 00700.HK→00700 / SNDK.US→SNDK。
+    兼容旧形态(HK.00700→00700): 旧码只在迁移前的存量数据里出现。"""
+    c = (code or "").strip().upper()
+    if c.startswith(("HK.", "US.")):
+        return c.split(".", 1)[1]
+    return c.split(".")[0]
 
 
 class QuoteRow(BaseModel):
@@ -46,9 +57,10 @@ class QuoteRow(BaseModel):
     def to_store_row(self) -> dict:
         """QuoteRow → market.quote_latest 行(market_store.save_quotes 的入参形状)。"""
         return {
-            "symbol": self.code,
-            "asset_type": ATYPE_BY_MARKET.get(self.market, self.market.lower()),
+            "code": self.code,
+            "ticker": _quote_ticker(self.code),
             "name": self.name,
+            "sub_assets_type": SUBTYPE_BY_MARKET.get(self.market, ""),
             "price": self.price,
             "open": self.open, "high": self.high, "low": self.low,
             "prev_close": self.prev_close,
@@ -56,7 +68,7 @@ class QuoteRow(BaseModel):
             "change_pct": self.change_pct,
             "currency": self.currency,
             "quote_time": self.quote_time,
-            "source": self.source or "remote",
+            "data_source": self.source or "remote",
         }
 
 

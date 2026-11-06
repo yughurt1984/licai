@@ -31,6 +31,30 @@ async def symbol_name(code: str = ""):
         await db.close()
 
 
+@router.get("/asset-classes")
+async def asset_classes(assets_class: str = ""):
+    """资产分类目录(assets_classify, 人工维护): 录入表单的下拉选项与联动匹配数据源。
+
+    ?assets_class=stock 只取股票大类。前端用 main_assets_type × currency 匹配唯一
+    sub_assets_type —— 市场归属/币种/名称都以 PG 为准, 不在前端硬编码。
+    """
+    from database import get_db
+    db = await get_db()
+    try:
+        sql = ("SELECT assets_class, assets_class_name, main_assets_type, assets_type_name, "
+               "sub_assets_type, sub_assets_type_name, currency, trade, risk_level "
+               "FROM assets_classify")
+        params: list = []
+        if assets_class.strip():
+            sql += " WHERE assets_class = ?"
+            params.append(assets_class.strip())
+        sql += " ORDER BY main_assets_type, sub_assets_type"
+        cur = await db.execute(sql, params)
+        return {"items": [dict(r) for r in await cur.fetchall()]}
+    finally:
+        await db.close()
+
+
 class MarketRefreshReq(BaseModel):
     codes: list[str] = []        # 空 = 当前用户全部股票/ETF 持仓
 

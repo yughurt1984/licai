@@ -54,14 +54,14 @@ def tick_for_code(code: str, price: float | None = None) -> float:
     佣金那侧只有 stock_code(没有 asset_class), 所以单独给一个入口 —— 但用的还是同一套跳板数。
     """
     c = (code or "").upper()
-    if c.startswith("HK."):
+    if c.endswith(".HK") or c.startswith("HK."):
         if price:
             for hi, t in _HK_SPREADS:
                 if price < hi:
                     return t
             return 5.0
         return 0.01
-    if c.startswith("US."):
+    if c.endswith(".US") or c.startswith("US."):
         return 0.01
     from services.market_data import _is_etf_lof
     return _TICK_DEFAULT if _is_etf_lof(code or "") else 0.01

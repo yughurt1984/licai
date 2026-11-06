@@ -91,15 +91,15 @@ def test_attach_auto_fees_uses_holding_broker_schedule():
                                          "platform_per_share": 0.0, "platform_min": 9.0}}})
     acts = [{"stock_code": "US.AAPL", "action_type": "BUY", "price": 100.0, "shares": 10,
              "trade_date": "2026-06-01", "trade_time": "22:00"}]
-    asyncio.run(attach_auto_fees(acts, "US.AAPL", "某券商", resolve=lambda n: (None, None), fee_overrides=ovr))
+    asyncio.run(attach_auto_fees(acts, "US.AAPL", "某券商", resolve=lambda n, m=None: (None, None), fee_overrides=ovr))
     assert acts[0]["_auto_fee"] == 9.0
     # 本笔自己写了券商(盈立)就按本笔
     acts2 = [dict(acts[0], broker="盈立证券")]
-    asyncio.run(attach_auto_fees(acts2, "US.AAPL", "某券商", resolve=lambda n: (None, None), fee_overrides=ovr))
+    asyncio.run(attach_auto_fees(acts2, "US.AAPL", "某券商", resolve=lambda n, m=None: (None, None), fee_overrides=ovr))
     assert acts2[0]["_auto_fee"] == order_fee("US", "buy", 1000.0, 10, "2026-06-01")
     # 两个券商同一分钟的单不合并成一张委托
     acts3 = [dict(acts[0]), dict(acts[0], broker="盈立证券")]
-    asyncio.run(attach_auto_fees(acts3, "US.AAPL", "某券商", resolve=lambda n: (None, None), fee_overrides=ovr))
+    asyncio.run(attach_auto_fees(acts3, "US.AAPL", "某券商", resolve=lambda n, m=None: (None, None), fee_overrides=ovr))
     assert acts3[0]["_auto_fee"] == 9.0 and acts3[1]["_auto_fee"] == acts2[0]["_auto_fee"]
 
 

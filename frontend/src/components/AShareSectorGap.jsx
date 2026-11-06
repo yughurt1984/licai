@@ -101,7 +101,7 @@ export default function AShareSectorGap() {
       const code = String(h.stock_code || '').toUpperCase()
       const mv = h.market_value != null ? h.market_value : (h.current_price || 0) * h.shares
       total += mv
-      if (code.startsWith('HK.') || code.startsWith('US.')) continue
+      if (code.endsWith('.HK') || code.endsWith('.US') || code.startsWith('HK.') || code.startsWith('US.')) continue
       aStock += mv
       const sid = sectorIdOf(h.stock_name, h.sector)
       sec[sid] = (sec[sid] || 0) + mv

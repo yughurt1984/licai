@@ -354,14 +354,19 @@ async def _store_fund_quote(code: str, data: dict, source: str):
         from services import market_store
         price = data.get("price") or data.get("nav") or data.get("est_nav")
         prev = data.get("prev_close")
+        std_code = f"fund_{code}"
+        # 场内(沪5/深1开头)=ETF, 其余=场外; 与 assets_classify 小类对齐
+        sub = "cn_etf_fund" if code[:1] in ("1", "5") else "cn_otc_fund"
         await market_store.save_quotes([{
-            "symbol": f"fund_{code}", "asset_type": "fund",
+            "code": std_code,
+            "ticker": code,
+            "sub_assets_type": sub,
             "name": data.get("name") or "",
             "price": price, "prev_close": prev,
             "change_pct": data.get("change_pct"),
             "currency": "CNY",
             "quote_time": str(data.get("nav_date") or data.get("est_time") or ""),
-            "source": source,
+            "data_source": source,
         }])
     except Exception as e:
         print(f"[fund] quote 落库失败(不影响报价): {e}")
@@ -375,7 +380,7 @@ async def _fund_from_store(code: str) -> dict | None:
         return None
     q = {"code": code, "name": r.get("name") or "",
          "price": r["price"], "change_pct": r.get("change_pct"),
-         "stale": True, "fetched_at": r.get("fetched_at"), "source": "db"}
+         "stale": True, "fetched_at": str(r.get("fetched_at") or ""), "source": "db"}
     if r.get("prev_close"):
         q["prev_close"] = r["prev_close"]
     return q
@@ -478,13 +483,23 @@ async def get_crypto_quote(symbol: str) -> dict | None:
         # write-through: 币价落 PG(远端挂时兜底)
         try:
             from services import market_store
+            _ts = data.get("timestamp")
+            if isinstance(_ts, (int, float)) or (isinstance(_ts, str) and str(_ts).strip().isdigit()):
+                try:
+                    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                    _qt = (_dt.fromtimestamp(int(float(_ts)) / 1000, tz=_tz.utc) + _td(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    _qt = str(_ts)
+            else:
+                _qt = str(_ts or "")
             await market_store.save_quotes([{
-                "symbol": symbol, "asset_type": "crypto", "name": symbol,
+                "code": symbol, "ticker": symbol, "sub_assets_type": "crypto_spot",
+                "name": symbol,
                 "price": data.get("price"), "open": None,
                 "high": data.get("high24h"), "low": data.get("low24h"),
                 "change_pct": data.get("change_pct"),
-                "currency": "USD", "source": "okx",
-                "quote_time": str(data.get("timestamp") or ""),
+                "currency": "USD", "data_source": "okx",
+                "quote_time": _qt,
             }])
         except Exception as e:
             print(f"[crypto] quote 落库失败(不影响报价): {e}")
@@ -505,7 +520,7 @@ async def _crypto_from_store(symbol: str) -> dict | None:
                     "change_pct": r.get("change_pct"),
                     "high24h": r.get("high") or 0, "low24h": r.get("low") or 0,
                     "usdcny": rate, "price_cny": round((r["price"] or 0) * rate, 2),
-                    "stale": True, "fetched_at": r.get("fetched_at"), "source": "db"}
+                    "stale": True, "fetched_at": str(r.get("fetched_at") or ""), "source": "db"}
     except Exception as e:
         print(f"[crypto] PG 兜底失败: {e}")
     return None

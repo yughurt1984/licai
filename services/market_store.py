@@ -17,7 +17,7 @@ rule_forge/user_memory 相同的"内存缓存 + 后台预热"模式: 启动时 w
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import asyncpg
 
@@ -26,8 +26,26 @@ from config import config
 _pool: asyncpg.Pool | None = None
 
 
-def _utc_now_text() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+def _bj_now() -> datetime:
+    """当前北京时间(naive datetime)。quote_latest 的 quote_time/fetched_at 是 TIMESTAMP 列,
+    直连池不经 db.py 的文本 codec, 入参必须给 datetime 对象; 截到秒与老文本形态一致。"""
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).replace(tzinfo=None, microsecond=0)
+
+
+def _parse_quote_time(v) -> datetime | None:
+    """源给的行情时点 → datetime(北京时间墙钟)。支持 'YYYY-MM-DD [HH:MM[:SS]]';
+    解析不了返回 None(save_quotes 会用落库时刻兜底)。"""
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v
+    s = str(v)[:19].replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -47,49 +65,47 @@ async def close_pool():
         _pool = None
 
 
-QUOTE_COLS = ("symbol", "asset_type", "name", "price", "open", "high", "low", "prev_close",
+QUOTE_COLS = ("code", "ticker", "name", "sub_assets_type", "price", "open", "high", "low", "prev_close",
               "volume", "amount", "change_pct", "turnover_rate", "currency",
-              "quote_time", "source", "fetched_at")
-
-
-def _dict_code_of(symbol: str, asset_type: str) -> str | None:
-    """quote symbol → 底稿裸码。fx/index 不入底稿(非证券); 其余剥前缀取裸码。"""
-    s = (symbol or "").strip()
-    if not s or asset_type in ("fx", "index"):
-        return None
-    if asset_type == "fund" and s.startswith("fund_"):
-        return s[5:]
-    if s.startswith("HK."):
-        return s[3:]
-    if s.startswith("US."):
-        return s[3:]
-    return s          # a_stock/etf 裸 6 位; crypto(BTC-USDT); fut(CU0); opt 直接用
+              "quote_time", "data_source", "fetched_at")
 
 
 async def _register_symbols(rows: list[dict]) -> None:
-    """自动登记底稿: 报价落库的证券顺带 upsert 进 symbol_dict(裸码+名称+资产类型)。
+    """自动登记底稿: 报价落库的证券顺带 upsert 进 symbol_dict(标准代码+名称+分类小类)。
 
-    零联网 —— 名称来自报价本身, 底稿随实际使用的标的自动长全。
+    零联网 —— 名称来自报价本身, 底稿随实际使用的标的自动长全。已登记行的
+    sub_assets_type 不被覆盖(分类以人工/导入为准, 行情只补 name/ticker/exchange),
+    exchange(市场段位: SH/SZ/BJ/HK/US)只在为空时补 —— futu 拼接等按它取。
+    行情行已带 code / ticker / sub_assets_type / name, 直接取用即可。
     """
     out = []
     seen = set()
     for r in rows:
-        at = r.get("asset_type") or ""
-        code = _dict_code_of(r.get("symbol") or "", at)
+        code = (r.get("code") or "").strip()
+        sub = (r.get("sub_assets_type") or "").strip()
+        if not code or not sub or code in seen:
+            continue
         name = (r.get("name") or "").strip()
-        if not code or not name or code in seen:
+        ticker = (r.get("ticker") or "").strip()
+        # 只认带名字的(名称兜底在 save_quotes 里先补过); 没名字不污染底稿
+        if not name:
             continue
         seen.add(code)
-        out.append((code, name, at))
+        # exchange = 市场段位(600406.SH→SH / 00700.HK→HK / SNDK.US→US); 冲突时已有值优先
+        tail = code.rsplit(".", 1)[1] if "." in code else ""
+        ex = tail.upper() if tail.isalpha() and len(tail) <= 4 else ""
+        out.append((code, name, ticker, sub, ex))
     if not out:
         return
     try:
         pool = await get_pool()
         await pool.executemany(
-            "INSERT INTO ledger.symbol_dict (code, name, asset_type, updated_at) "
-            "VALUES ($1, $2, $3, to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS')) "
+            "INSERT INTO ledger.symbol_dict (code, name, ticker, sub_assets_type, exchange, updated_at) "
+            "VALUES ($1, $2, $3, $4, $5, now() AT TIME ZONE 'Asia/Shanghai') "
             "ON CONFLICT (code) DO UPDATE SET name = excluded.name, "
-            "asset_type = excluded.asset_type, updated_at = excluded.updated_at",
+            "ticker = excluded.ticker, sub_assets_type = excluded.sub_assets_type, "
+            "exchange = COALESCE(NULLIF(ledger.symbol_dict.exchange, ''), excluded.exchange), "
+            "updated_at = now() AT TIME ZONE 'Asia/Shanghai'",
             out)
     except Exception as e:
         print(f"[market_store] 底稿登记失败(不影响行情): {e}")
@@ -98,24 +114,37 @@ async def _register_symbols(rows: list[dict]) -> None:
 async def save_quotes(rows: list[dict]) -> int:
     """write-through 最新快照。rows: store 形状 dict(见 quote_to_store_row)。缺的列存 NULL。
 
-    fetched_at 一律写当前 UTC(快照新鲜度的判据, 调用方不许自己带); 同时把证券自动
+    fetched_at 一律写当前北京时间(快照新鲜度的判据, 调用方不许自己带); 同时把证券自动
     登记进底稿 symbol_dict。best-effort: 行情落库失败不该影响取价本身。
     """
-    rows = [r for r in rows or [] if r.get("symbol")]
+    rows = [r for r in rows or [] if r.get("code")]
     if not rows:
         return 0
+    # name 兜底: 行情源没给名字时, 用底稿 symbol_dict 的名字补, 保证 quote_latest.name 非空
+    need = [r for r in rows if not (r.get("name") or "").strip()]
+    if need:
+        try:
+            pool0 = await get_pool()
+            nrows = await pool0.fetch(
+                "SELECT code, name FROM ledger.symbol_dict WHERE code = ANY($1)",
+                list({r["code"] for r in need}))
+            nmap = {n["code"]: n["name"] for n in nrows}
+            for r in need:
+                if nmap.get(r["code"]):
+                    r["name"] = nmap[r["code"]]
+        except Exception as e:
+            print(f"[market_store] name 兜底失败: {e}")
     try:
         pool = await get_pool()
-        now = _utc_now_text()
+        now = _bj_now()
         for r in rows:
             r["fetched_at"] = now
-            if not r.get("quote_time"):
-                r["quote_time"] = now       # 源没给时点的(A股批量)用落库时刻兜底, 新鲜度判据更准
+            r["quote_time"] = _parse_quote_time(r.get("quote_time")) or now   # 源没给(或给不出)时点的(A股批量)用落库时刻兜底, 新鲜度判据更准
         cols = QUOTE_COLS
         ph = ",".join(f"${i+1}" for i in range(len(cols)))
-        updates = ",".join(f"{c} = excluded.{c}" for c in cols[1:])   # symbol 是冲突目标, 其余(含fetched_at/quote_time)全刷
+        updates = ",".join(f"{c} = excluded.{c}" for c in cols[1:])   # code 是冲突目标, 其余(含fetched_at/quote_time)全刷
         sql = (f"INSERT INTO quote_latest ({','.join(cols)}) VALUES ({ph}) "
-               f"ON CONFLICT (symbol) DO UPDATE SET {updates}")
+               f"ON CONFLICT (code) DO UPDATE SET {updates}")
         data = [tuple(r.get(c) for c in cols) for r in rows]
         for i in range(0, len(data), 500):
             await pool.executemany(sql, data[i:i + 500])
@@ -126,28 +155,31 @@ async def save_quotes(rows: list[dict]) -> int:
         return 0
 
 
-async def get_stored_quotes(symbols: list[str]) -> dict[str, dict]:
-    """读最后快照 → {symbol: store 形状 row(含 fetched_at)}。"""
-    if not symbols:
+async def get_stored_quotes(codes: list[str]) -> dict[str, dict]:
+    """读最后快照 → {code: store 形状 row(含 fetched_at)}。
+
+    数值列 NUMERIC 由数据库层(方案 A)统一转 float, 这里原样返回 Decimal/数值。
+    """
+    if not codes:
         return {}
     try:
         pool = await get_pool()
         rows = await pool.fetch(
-            f"SELECT {','.join(QUOTE_COLS)} FROM quote_latest WHERE symbol = ANY($1)",
-            list(symbols))
-        return {r["symbol"]: dict(r) for r in rows}
+            f"SELECT {','.join(QUOTE_COLS)} FROM quote_latest WHERE code = ANY($1)",
+            list(codes))
+        return {r["code"]: dict(r) for r in rows}
     except Exception as e:
         print(f"[market_store] get_stored_quotes 失败: {e}")
         return {}
 
 
-async def get_stored_by_type(asset_type: str) -> list[dict]:
-    """某个 asset_type 的全部快照(观测/诊断用)。"""
+async def get_stored_by_type(sub_assets_type: str) -> list[dict]:
+    """某个 sub_assets_type 的全部快照(观测/诊断用)。"""
     try:
         pool = await get_pool()
         rows = await pool.fetch(
-            f"SELECT {','.join(QUOTE_COLS)} FROM quote_latest WHERE asset_type = $1 "
-            "ORDER BY symbol", asset_type)
+            f"SELECT {','.join(QUOTE_COLS)} FROM quote_latest WHERE sub_assets_type = $1 "
+            "ORDER BY code", sub_assets_type)
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"[market_store] get_stored_by_type 失败: {e}")
@@ -239,20 +271,20 @@ async def db_status() -> dict:
     """行情库覆盖度/新鲜度(给 /api/market/db-status 用)。"""
     pool = await get_pool()
     by_type = await pool.fetch(
-        "SELECT asset_type, COUNT(*) n, MAX(fetched_at) latest, MIN(fetched_at) oldest "
-        "FROM quote_latest GROUP BY asset_type ORDER BY asset_type")
+        "SELECT sub_assets_type, COUNT(*) n, MAX(fetched_at) latest, MIN(fetched_at) oldest "
+        "FROM quote_latest GROUP BY sub_assets_type ORDER BY sub_assets_type")
     stale = await pool.fetch(
-        "SELECT symbol, asset_type, fetched_at FROM quote_latest "
+        "SELECT code, sub_assets_type, fetched_at FROM quote_latest "
         "WHERE fetched_at < to_char(now() AT TIME ZONE 'utc' - interval '3 days', 'YYYY-MM-DD HH24:MI:SS') "
         "ORDER BY fetched_at LIMIT 50")
     fx = await pool.fetch(
         "SELECT pair, COUNT(*) n, MIN(date) first, MAX(date) last FROM fx_daily "
         "GROUP BY pair ORDER BY pair")
     return {
-        "quote_by_type": [{"asset_type": r["asset_type"], "symbols": r["n"],
+        "quote_by_type": [{"asset_type": r["sub_assets_type"], "symbols": r["n"],
                            "latest_fetched_at": r["latest"], "oldest_fetched_at": r["oldest"]}
                           for r in by_type],
-        "stale_symbols": [{"symbol": r["symbol"], "asset_type": r["asset_type"],
+        "stale_symbols": [{"symbol": r["code"], "asset_type": r["sub_assets_type"],
                            "fetched_at": r["fetched_at"]} for r in stale],
         "fx_daily": [{"pair": r["pair"], "days": r["n"], "first": r["first"], "last": r["last"]}
                      for r in fx],

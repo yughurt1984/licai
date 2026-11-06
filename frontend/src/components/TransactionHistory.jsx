@@ -20,19 +20,21 @@ const FX_HINT = '成交汇率(1 外币 = ? 人民币), 可选; 留空按成交�
 // 期货/期权(同花顺 thscode, 如 CU2601.SHF): 流水只有 开仓/平仓, 每笔带方向
 const isDerivCode = (code) => {
   const c = String(code || '').toUpperCase()
-  if (!c || c.startsWith('HK.') || c.startsWith('US.')) return false
+  if (!c || c.endsWith('.HK') || c.endsWith('.US') || c.startsWith('HK.') || c.startsWith('US.')) return false
   if (!/^[A-Z0-9]{2,16}\.[A-Z]{2,5}$/.test(c)) return false
   const b = c.split('.')[0]
   return !(b.length === 6 && /^\d+$/.test(b))   // 6 位数字主体是 A股/ETF 新格式
 }
 const DERIV_TYPES = [{ value: 'OPEN', label: '开仓' }, { value: 'CLOSE', label: '平仓' }]
+// 做空的股票行(参考期货模式): 标明真实交易方向 —— 卖出开仓、买入平仓
+const SHORT_STOCK_TYPES = [{ value: 'OPEN', label: '开仓(卖出)' }, { value: 'CLOSE', label: '平仓(买入)' }]
 
 const ACQUIRE_TYPES = new Set(['BUY', 'ADD', 'BONUS'])
 
 // 港美股流水按原币记: 价格、手续费都是港元/美元; 股数没有 100 股一手的规则
 const marketOf = (code) => {
   const c = String(code || '').toUpperCase()
-  return c.startsWith('HK.') ? 'HK' : c.startsWith('US.') ? 'US' : 'A'
+  return (c.endsWith('.HK') || c.startsWith('HK.')) ? 'HK' : (c.endsWith('.US') || c.startsWith('US.')) ? 'US' : 'A'
 }
 const CCY = { A: '¥', HK: 'HK$', US: 'US$', FUT: '¥' }
 // 美股: 日期 = 美东交易日(券商成交记录上那天), 时刻按美东录入/展示; 后端 trade_time 统一存北京时间
@@ -62,7 +64,11 @@ const DirectionBadge = ({ d }) => d ? (
   </span>
 ) : null
 
-function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, brokers = [], market = 'A', code = '' }) {
+function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, brokers = [], market = 'A', code = '', direction = '' }) {
+  // 开平仓语义: 期货/期权代码, 或做空股票行(direction=SHORT)
+  const rowIsDeriv = isDerivCode(code)
+  const isOpenClose = rowIsDeriv || direction === 'SHORT'
+  const types = rowIsDeriv ? DERIV_TYPES : direction === 'SHORT' ? SHORT_STOCK_TYPES : typesOf(market)
   // 草稿里的 trade_time 是界面时区(美股=美东), 保存时再换回北京时间
   const toDraft = (a) => market === 'US' && a.trade_time
     ? { ...a, trade_time: localTime(market, a.trade_date, String(a.trade_time).slice(0, 5)) }
@@ -72,9 +78,8 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
   useEffect(() => { setDraft(toDraft(action)) }, [action, market])
 
   if (!editing) {
-    const isDeriv = isDerivCode(code)
-    const isAcquire = isDeriv ? action.action_type === 'OPEN' : ACQUIRE_TYPES.has(action.action_type)
-    const typeLabel = (isDeriv ? DERIV_TYPES : typesOf(market)).find(t => t.value === action.action_type)?.label || action.action_type
+    const isAcquire = isOpenClose ? action.action_type === 'OPEN' : ACQUIRE_TYPES.has(action.action_type)
+    const typeLabel = types.find(t => t.value === action.action_type)?.label || action.action_type
     const isSplit = action.action_type === 'SPLIT'
     const feeOverride = action.fee != null   // 用户手填了 override
     return (
@@ -84,7 +89,7 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
         </td>
         <td className={`py-1.5 px-2 text-[11px] ${isAcquire ? 'text-bull' : 'text-bear'}`}>{typeLabel}
           <DirectionBadge d={action.direction} />
-          {action.broker_effective && <span className="block text-[10px] text-text-dim">{action.broker_effective}{!action.broker && <span title="用持仓默认券商">~</span>}</span>}
+          {action.broker_effective && <span className="block text-[10px] text-text-dim">{action.broker_effective}{!action.broker && <span title="用持仓券商">~</span>}</span>}
         </td>
         <td className="py-1.5 px-2 text-right font-mono">{isSplit && market !== 'A' ? `×${action.price}` : fmtPrice(action.price, code)}
           {market !== 'A' && action.fx_rate > 0 && <span className="block text-[10px] text-text-dim" title="成交汇率(1 外币 = ? 人民币)">汇 {Number(action.fx_rate).toFixed(4)}</span>}
@@ -116,10 +121,10 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
       </td>
       <td className="py-1.5 px-2">
         <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px]" value={draft.action_type} onChange={e => setDraft({ ...draft, action_type: e.target.value })}>
-          {(isDerivCode(code) ? DERIV_TYPES : typesOf(market)).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          {types.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={draft.broker || ''} onChange={e => setDraft({ ...draft, broker: e.target.value })} title="本笔券商, 留空用持仓默认">
-          <option value="">默认券商</option>
+        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={draft.broker || ''} onChange={e => setDraft({ ...draft, broker: e.target.value })} title="本笔券商, 留空=无">
+          <option value="">无</option>
           {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
         </select>
       </td>
@@ -148,6 +153,9 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
 export default function TransactionHistory({ stockCode, stockName, direction, contractMultiplier, defaultActionType, onClose, onChange }) {
   const market = isDerivCode(stockCode) ? 'FUT' : marketOf(stockCode)
   const isDeriv = market === 'FUT'
+  // 开平仓语义: 期货/期权, 或做空股票行(参考期货模式)
+  const useOpenClose = isDeriv || direction === 'SHORT'
+  const addTypes = isDeriv ? DERIV_TYPES : direction === 'SHORT' ? SHORT_STOCK_TYPES : typesOf(market)
   const [actions, setActions] = useState([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState(null)
@@ -161,8 +169,8 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
     return () => window.removeEventListener('licai:brokers-changed', onChange)
   }, [])
   const [newAction, setNewAction] = useState({
-    action_type: isDeriv ? (defaultActionType || 'OPEN') : (defaultActionType || 'BUY'),
-    direction: direction || 'LONG',     // 期货/期权: 本行方向, 加/平仓都带
+    action_type: defaultActionType || (useOpenClose ? 'OPEN' : 'BUY'),
+    direction: direction || 'LONG',     // 期货/期权/空头股票: 本行方向, 开/平仓都带
     broker: '',
     price: '',
     shares: '',
@@ -174,7 +182,10 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
 
   const load = async () => {
     try {
-      const list = await fetchJSON(`/api/portfolio/${enc(stockCode)}/actions`)
+      // 同代码多空两行各看各的流水(期货/期权双向、股票做空): 后端按 direction 隔离。
+      // 多头行 direction=LONG、空头=SHORT、期货/期权双向, 都带 direction 过滤, 互不串账。
+      const list = await fetchJSON(`/api/portfolio/${enc(stockCode)}/actions` +
+        (direction ? `?direction=${enc(direction)}` : ''))
       // 按 日期+成交时刻 升序(同一天也要按时分排, 之前只按 trade_date 天粒度 → 同日乱序)
       // at_time 缺失时退 created_at 的时间, 再退 id, 保证稳定的时间顺序
       // 美股: at_time 是北京时间, 一个美东交易日跨北京午夜, 要换成美东再排
@@ -203,7 +214,12 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
       body.direction = newAction.direction || direction || 'LONG'
       body.contract_multiplier = parseFloat(contractMultiplier) || 1
       delete body.fx_rate
+    } else if (direction === 'SHORT') {
+      // 做空股票行: 开仓/平仓必带方向(本行固定 SHORT); 乘数是衍生品概念, 不传
+      body.direction = 'SHORT'
     }
+    // 普通多头股票: newAction 经 {...newAction} 带入 direction:'LONG', 与后端多头行
+    // direction=LONG(1) 一致 → get_holding('LONG') 命中; 无需额外处理(也不该清除)。
     if (market !== 'A' && !isSplit && parseFloat(newAction.fx_rate) > 0) body.fx_rate = parseFloat(newAction.fx_rate)
     else delete body.fx_rate
     if (newAction.fee != null && newAction.fee !== '') {
@@ -216,7 +232,7 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
       body: JSON.stringify(body),
     })
     setAdding(false)
-    setNewAction({ action_type: isDeriv ? 'OPEN' : 'BUY', broker: '', price: '', shares: '', trade_date: defaultDate(market), trade_time: '', note: '', fee: '', fx_rate: '' })
+    setNewAction({ action_type: isDeriv || direction === 'SHORT' ? 'OPEN' : 'BUY', broker: '', price: '', shares: '', trade_date: defaultDate(market), trade_time: '', note: '', fee: '', fx_rate: '' })
     await load()
     onChange?.()
   }
@@ -228,7 +244,7 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
       shares: parseFloat(draft.shares),
       trade_date: draft.trade_date,
       trade_time: storeTime(market, draft.trade_date, draft.trade_time) || '',   // "" → 清空回退录入时间; 美股美东→北京
-      broker: draft.broker || '',           // "" → 用持仓默认券商
+      broker: draft.broker || '',           // "" → 无
       note: draft.note || '',
     }
     // 改了汇率: 填值 = 按结单汇率; 清空(传 0) = 回退按成交日牌价自动取
@@ -289,6 +305,7 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
                   <ActionRow
                     market={market}
                     code={stockCode}
+                    direction={direction}
                     key={a.id}
                     action={a}
                     editing={editingId === a.id}
@@ -308,16 +325,18 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
                     </td>
                     <td className="py-1.5 px-2">
                       <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px]" value={newAction.action_type} onChange={e => setNewAction({ ...newAction, action_type: e.target.value })}>
-                        {(isDeriv ? DERIV_TYPES : typesOf(market)).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        {addTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                       </select>
-                      {isDeriv && (
+                      {isDeriv ? (
                         <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={newAction.direction} onChange={e => setNewAction({ ...newAction, direction: e.target.value })} title="方向(与本行持仓一致)">
                           <option value="LONG">多 (LONG)</option>
                           <option value="SHORT">空 (SHORT)</option>
                         </select>
+                      ) : direction === 'SHORT' && (
+                        <span className="inline-block mt-1 text-[10px] px-1 py-[1px] rounded border font-semibold bg-bear/15 text-bear border-bear/40">做空 (SHORT)</span>
                       )}
-                      <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={newAction.broker} onChange={e => setNewAction({ ...newAction, broker: e.target.value })} title="本笔券商, 留空用持仓默认">
-                        <option value="">默认券商</option>
+                      <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={newAction.broker} onChange={e => setNewAction({ ...newAction, broker: e.target.value })} title="本笔券商, 留空=无">
+                        <option value="">无</option>
                         {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                       </select>
                     </td>

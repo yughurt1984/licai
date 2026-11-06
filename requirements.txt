@@ -15,5 +15,5 @@ pypinyin>=0.51
 # 知识星球附件正文提取(可选功能; 不接星球也不影响启动)
 pypdf>=6.0
 python-docx>=1.1
-# 富途 OpenAPI SDK(港/美股行情快照; 需本地跑 FutuOpenD 网关, 没装则自动回退免费源)
-futu-api>=9.0
+# 富途 OpenAPI REST 签名(港/美股行情快照; Ed25519/RSA-SHA256)
+cryptography>=42.0

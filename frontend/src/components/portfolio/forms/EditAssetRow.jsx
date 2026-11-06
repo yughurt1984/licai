@@ -230,7 +230,7 @@ export function EditAssetRow({ asset, onDone, onCancel, brokers = [] }) {
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-text-dim">券商</label>
               <select className={`${inp} w-28`} value={broker} onChange={e => setBroker(e.target.value)}>
-                <option value="">默认</option>
+                <option value="">无</option>
                 {brokersOfType(brokers, asset.asset_type).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>

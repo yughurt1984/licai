@@ -3,6 +3,8 @@ import { brokersOfType, estimateFee, isOnchainEtf, isOnchainFundKind } from '../
 import { fetchJSON } from '../../../hooks/useApi'
 import Tooltip from '../../Tooltip'
 import { BROKER_COMMISSION_MIN, BROKER_COMMISSION_RATE, KEY_TO_ASSET_TYPE } from '../constants'
+import { currencySymbol } from '../helpers'
+import { AssetClassPicker, useAssetClass } from './AssetClassPicker'
 
 // ============================================================
 // AddFundForm — 基金添加表单(场内 ETF/LOF / 场外开放式 / REITs), 仅处理 F。
@@ -16,9 +18,35 @@ import { BROKER_COMMISSION_MIN, BROKER_COMMISSION_RATE, KEY_TO_ASSET_TYPE } from
 // 净申购/手续费 由 申购金额+费率 自动算(灰显只读); 确认份额 还需申购净值,
 // 净值没填(当日申购 T+1 未公布)时份额留空 → 后端记 pending 待结算。
 // 场外基金代码存档带 .OF 后缀(019144 → 019144.OF), 报价层按该代码请求 ths。
+//
+// 基金类型(记账口径)不再手选: 资产类型×币种 → assets_classify 唯一小类,
+// 小类推导记账口径 —— *etf_fund / *lof_fund → etf(场内市价), *reits_fund → reits,
+// 其余(mm/otc/private) → open(场外申购)。
 // ============================================================
-export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
+
+function fundKindOfSub(sub) {
+  const s = String(sub || '')
+  if (/reits_fund$/.test(s)) return 'reits'
+  if (/mm_fund$/.test(s)) return 'mm'           // 场内货币基金: 场内交易资产, 股票式记账(份额×单价+券商)
+  if (/etf_fund$|lof_fund$/.test(s)) return 'etf'
+  return 'open'
+}
+
+export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
   const assetType = KEY_TO_ASSET_TYPE[typeKey] || 'FUND'
+  // 资产分类(PG assets_classify): 大类显示 + 资产类型×币种 → 唯一小类(市场)。
+  // 币种选项只给当前资产类型下有的(hook 里吸附, 选不出无效组合)。
+  const { rows, err, mainOptions, currencyOptions,
+    main: hookMain, currency: hookCurrency, matched: hookMatched,
+    setMain, setCurrency } =
+    useAssetClass('fund', { preferMain: 'etf_fund' })
+  // 录入入口已选具体小类(sub)时: 按该小类锁定中类/币种, 不再二次选择(全部来自 assets_classify)
+  const subRow = sub ? rows.find(r => r.sub_assets_type === sub) : null
+  const main = subRow ? subRow.main_assets_type : hookMain
+  const currency = subRow ? subRow.currency : hookCurrency
+  const matched = subRow || hookMatched
+  const curSymbol = currencySymbol(currency || 'CNY')
+
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [platform, setPlatform] = useState('')
@@ -29,23 +57,23 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
   const [unitPrice, setUnitPrice] = useState('')
   const [fee, setFee] = useState('')
   const [feeTouched, setFeeTouched] = useState(false)
-  const [tradeTime, setTradeTime] = useState('')     // 成交时刻 HH:MM (场内基金, 可选)
   const [feeRatePct, setFeeRatePct] = useState('')   // FUND 申购费率 %, C 类填 0
   const [hint, setHint] = useState('')
   // 场内基金的买入日期 / 场外的申购日期, 种子流水 start_date 用它
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().slice(0, 10))
-  // FUND 细分类型: etf(场内, 股票式市价记账) / open(场外开放式, NAV T+1) / reits(场内, tickflow行情)。
-  // 默认按代码段位猜, 可下拉手改。
-  const [fundKind, setFundKind] = useState('open')
-  const [fundKindTouched, setFundKindTouched] = useState(false)
+  // FUND 细分类型(记账口径)由分类小类推导: etf(场内, 市价) / open(场外, NAV T+1) / reits(场内, tickflow)。
+  // 小类没匹配到(目录在加载)时按代码段位兜底, 与老逻辑一致。
+  const fundKind = matched ? fundKindOfSub(matched.sub_assets_type)
+    : (isOnchainEtf(code) ? 'etf' : 'open')
 
-  useEffect(() => {
-    if (fundKindTouched) return
-    setFundKind(isOnchainEtf(code) ? 'etf' : 'open')
-  }, [code, fundKindTouched])
-
-  const isInlineFund = isOnchainFundKind(fundKind)   // 场内基金(ETF/LOF/REITs)按股票口径
-  const isOtcFund = fundKind === 'open'              // 场外开放式(申购口径)
+  // 内联/场外 与 账本路由 统一以 assets_classify.trade 为准(数据驱动, 不按 kind 枚举写死):
+  //   true  = 交易资产 → 场内股票式记账, 持仓账本 holdings/position_actions(POST /api/portfolio)
+  //   false = 非交易资产 → 场外申购口径, 场外账本 external_assets/actions(POST /api/assets)
+  // 目录未匹配(只填代码没选小类)时退化为代码段位兜底(1/5 开头=场内 etf, 其余=场外 open),
+  // 仅此处用到 isOnchainFundKind —— 它不再是路由/渲染的判定源, 只是未匹配时的兜底。
+  const isInlineFund = matched ? matched.trade === true : isOnchainFundKind(fundKind)
+  const isOtcFund = !isInlineFund
+  const toHoldings = isInlineFund
 
   // 申购口径自动计算(外扣法): 净申购金额/手续费 由 申购金额+费率; 确认份额 还需申购净值
   const amt = parseFloat(cost) || 0
@@ -57,7 +85,7 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
 
   // 场内基金按股买: 自动估算手续费 (券商费率; 场外的手续费走申购公式, 不用费率估算)
   useEffect(() => {
-    if (!isInlineFund || feeTouched) return
+    if (!isInlineFund || fundKind === 'mm' || feeTouched) return   // 场内货基无交易佣金, 不自动估算手续费
     const s = parseFloat(shares); const u = parseFloat(unitPrice)
     if (s > 0 && u > 0) {
       const est = estimateFee(s * u, brokers, selectedBroker, 'etf', assetType)
@@ -110,6 +138,27 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
     if (isOtcFund && !(amt > 0)) return alert('请输入申购金额')
     if (!code || !name) return alert('代码/名称必填')
 
+    // ── 交易资产(trade=t) → 持仓账本(holdings/position_actions): 口径同股票 ──
+    // 成本价 = 买入单价, 后端按综合成本法重算; 小类透传(分类归口 + trade 校验)
+    if (toHoldings) {
+      await fetchJSON('/api/portfolio', {
+        method: 'POST',
+        body: JSON.stringify({
+          stock_code: code.trim(),
+          stock_name: name.trim(),
+          shares: parseFloat(shares),
+          cost_price: parseFloat(unitPrice),
+          fee: parseFloat(fee) > 0 ? parseFloat(fee) : undefined,
+          trade_date: tradeDate || undefined,
+          broker: selectedBroker || null,
+          sub_assets_type: matched?.sub_assets_type,
+        }),
+      })
+      onDone?.()
+      return
+    }
+
+    // ── 非交易资产(trade=f) → 场外账本(external_assets/actions): 申购口径 ──
     // 场外基金代码存档带 .OF 后缀(019144 → 019144.OF); 场内原样
     const storedCode = isOtcFund && /^\d{6}$/.test(code.trim()) ? `${code.trim()}.OF` : code.trim()
     await fetchJSON('/api/assets', {
@@ -123,7 +172,6 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
           : shares ? parseFloat(shares) : null,
         // 场内买入日/场外申购日当种子流水 start_date (口径同股票)
         start_date: tradeDate || null,
-        trade_time: isInlineFund && tradeTime ? tradeTime : null,
         purchase_fee_rate: isOtcFund && ratePct != null ? ratePct / 100 : null,
         broker: selectedBroker || null,
         // 手续费单独透传 (cost 已含它), 后端单存到初始流水的 fee 字段, 避免在流水里"消失"
@@ -132,6 +180,7 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
           ? (fundFee != null && fundFee > 0.005 ? parseFloat(fundFee.toFixed(2)) : null)
           : isInlineFund && parseFloat(fee) > 0 ? parseFloat(fee) : null,
         fund_kind: fundKind,
+        sub_assets_type: matched?.sub_assets_type,
       }),
     })
     onDone?.()
@@ -144,16 +193,20 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
     <div className="px-6 py-3 bg-surface-2/50 border-b border-border space-y-2.5 text-[13px]">
       {/* 单行自适应: 各控件 flex-1 均分一行宽度(宽屏自动拉伸/窄屏收缩到 min-w 后折行兜底) */}
       <div className="flex flex-wrap gap-1.5 items-end">
-        <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-          <label className="text-[12px] text-text-dim whitespace-nowrap">基金类型</label>
-          <select value={fundKind}
-            onChange={e => { setFundKind(e.target.value); setFundKindTouched(true) }}
-            className={`${inp} w-full`}>
-            <option value="etf">场内基金</option>
-            <option value="open">场外基金</option>
-            <option value="reits">Reits</option>
-          </select>
-        </div>
+        {/* 资产类型 / 币种 / 市场自动匹配: 选项全部来自 PG assets_classify; 大类由上层入口点选。
+            录入入口已锁小类时显示静态徽标, 避免二次选择; 否则用下拉级联。 */}
+        {subRow ? (
+          <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
+            <label className="text-[12px] text-text-dim whitespace-nowrap">分类</label>
+            <div className={`${inp} w-full !bg-surface-3/40 text-text-bright flex items-center`}>
+              {subRow.sub_assets_type_name || sub}
+            </div>
+          </div>
+        ) : (
+          <AssetClassPicker rows={rows} err={err} mainOptions={mainOptions} currencyOptions={currencyOptions}
+            matched={matched} main={main} currency={currency} inp={inp}
+            onMain={v => setMain(v)} onCurrency={v => setCurrency(v)} />
+        )}
         <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
           <label className="text-[12px] text-text-dim whitespace-nowrap">基金代码</label>
           <input value={code} onChange={e => setCode(e.target.value)}
@@ -168,7 +221,7 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
         {/* 申购净值(场外) / 买入单价(场内): 先价格后数量; 场外的份额走自动确认份额(见下) */}
         <div className="flex flex-col gap-1 flex-1 min-w-[68px]">
           <label className="text-[12px] text-text-dim whitespace-nowrap">
-            {isInlineFund ? '买入单价 ¥' : '申购净值 ¥'}
+            {isInlineFund ? `买入单价 ${curSymbol}` : `申购净值 ${curSymbol}`}
           </label>
           <input type="number" step="0.0001" value={unitPrice} onChange={e => setUnitPrice(e.target.value)}
             className={`${inp} w-full font-mono`} placeholder="3.4915" />
@@ -185,7 +238,7 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
         {isOtcFund && (
           <>
             <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">申购金额 ¥</label>
+              <label className="text-[12px] text-text-dim whitespace-nowrap">申购金额 {curSymbol}</label>
               <input type="number" step="0.01" value={cost}
                 onChange={e => { setCost(e.target.value); setCostTouched(true) }}
                 className={`${inp} w-full font-mono`} placeholder="10000" />
@@ -249,7 +302,7 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
         {isInlineFund && (
           <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
             <label className="text-[12px] text-text-dim whitespace-nowrap">
-              累计投入 ¥
+              累计投入 {curSymbol}
               {!costTouched && parseFloat(shares) > 0 && parseFloat(unitPrice) > 0 && (
                 <span className="text-[9.5px] text-accent ml-1">自动算</span>
               )}
@@ -289,16 +342,9 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
         )}
         {isInlineFund && (
           <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-            <label className="text-[12px] text-text-dim whitespace-nowrap">成交时刻 <span className="text-text-muted text-[10px]">可空</span></label>
-            <input type="time" value={tradeTime} onChange={e => setTradeTime(e.target.value)}
-              className={`${inp} w-full font-mono text-text-dim`} title="今日建仓的成交时刻(可选), 留空用录入时间, 供分时图打点" />
-          </div>
-        )}
-        {isInlineFund && (
-          <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
             <label className="text-[12px] text-text-dim whitespace-nowrap">券商</label>
             <select className={`${inp} w-full font-mono`} value={selectedBroker} onChange={e => setSelectedBroker(e.target.value)}>
-              <option value="">默认</option>
+              <option value="">无</option>
               {brokersOfType(brokers, assetType).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
             </select>
           </div>
@@ -322,11 +368,16 @@ export function AddFundForm({ typeKey, onDone, onCancel, brokers = [] }) {
 
       {assetType === 'FUND' && (
         <div className="text-[10.5px] text-text-muted">
-          {fundKind === 'etf'
-            ? '场内基金按市价成交, 口径同股票: 成本 = 份额 × 单价 + 手续费; 行情走 ths 每日价格(ths fund/market/snapshot), 实时估值'
-            : fundKind === 'reits'
-              ? 'REITs 场内成交, 口径同股票; 行情走 TickFlow 实时行情(需在设置页或 TICKFLOW_API_KEY 配置 key)'
-              : '场外开放式基金按申购口径: 净申购金额=申购金额÷(1+费率), 手续费=申购金额−净申购金额, 确认份额=净申购金额÷T日净值; 净值走 ths(ths fund/performance/nav); 净值没填先记待确认; 代码存档带 .OF 后缀'}
+          {fundKind === 'mm'
+            ? '场内货币基金(交易资产): 按份额 × 单价 + 券商记账(口径同股票), 行情走 ths 每日价格; 无申购费/交易佣金'
+            : fundKind === 'etf'
+              ? '场内基金按市价成交, 口径同股票: 成本 = 份额 × 单价 + 手续费; 行情走 ths 每日价格(ths fund/market/snapshot), 实时估值'
+              : fundKind === 'reits'
+                ? 'REITs 场内成交, 口径同股票; 行情走 TickFlow 实时行情(需在设置页或 TICKFLOW_API_KEY 配置 key)'
+                : '场外开放式基金按申购口径: 净申购金额=申购金额÷(1+费率), 手续费=申购金额−净申购金额, 确认份额=净申购金额÷T日净值; 净值走 ths(ths fund/performance/nav); 净值没填先记待确认; 代码存档带 .OF 后缀'}
+          {toHoldings
+            ? ' · 分类标记 trade=t → 计入持仓账本(holdings)'
+            : matched ? ' · 分类标记 trade=f → 计入场外账本(external_assets)' : ''}
         </div>
       )}
 
