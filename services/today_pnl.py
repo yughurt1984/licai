@@ -123,7 +123,7 @@ async def today_pnl() -> dict:
 
 async def _compute() -> dict:
     from database import (get_all_holdings, get_position_actions,
-                          list_external_assets, list_external_actions)
+                          list_external_assets, list_external_actions, is_derivative_kind)
     from services.market_data import get_realtime_quotes, normalize_stock_code, split_stock_code
 
     day = _today_cst()
@@ -135,9 +135,9 @@ async def _compute() -> dict:
     # (现金流口径假设"开仓=买入市值", 对空头不成立); 同代码多空两行都必须计,
     # 且不能进下面按代码键的 holdings 字典 —— 会互相覆盖。
     dir_holdings = [h for h in all_holdings
-                    if h.get("asset_kind") in ("fut", "opt") or (h.get("direction") or "") == "SHORT"]
+                    if is_derivative_kind(h.get("main_assets_type")) or (h.get("direction") or "") == "SHORT"]
     holdings = {h["stock_code"]: h for h in all_holdings
-                if not (h.get("asset_kind") in ("fut", "opt") or (h.get("direction") or "") == "SHORT")}
+                if not (is_derivative_kind(h.get("main_assets_type")) or (h.get("direction") or "") == "SHORT")}
     acts_all = await get_position_actions(limit=5000)
     by_code: dict[str, list] = {}
     for a in acts_all:
@@ -184,12 +184,12 @@ async def _compute() -> dict:
             pnl += price * mult * overnight * float(pct) / 100 * sign
         if opened_sh > 1e-9 and opened_amt > 0:
             pnl += (price - opened_amt / opened_sh) * mult * opened_sh * sign
-        is_fut_row = hrow.get("asset_kind") in ("fut", "opt")
+        is_fut_row = is_derivative_kind(hrow.get("main_assets_type"))
         fx = 1.0 if is_fut_row else float(q.get("fx_rate") or 1.0)
         if pnl:
             pnl *= fx
         items.append({
-            "code": hrow["stock_code"], "type": hrow["asset_kind"].upper(),
+            "code": hrow["stock_code"], "type": (hrow.get("main_assets_type") or "common_share").upper(),
             "market": "FUT" if is_fut_row else split_stock_code(hrow["stock_code"])[0],
             "currency": "CNY" if is_fut_row else (q.get("currency") or "CNY"), "fx_rate": fx,
             "name": hrow.get("stock_name") or hrow["stock_code"],

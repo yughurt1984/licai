@@ -126,29 +126,33 @@ export function useAssetClass(assetsClass, { preferMain = '', preferCurrency = '
 
 export function AssetClassPicker({ err, mainOptions, currencyOptions, matched,
                                    main, currency, mainLocked = false, inp = '',
-                                   onMain, onCurrency }) {
-  // 资产大类由上层入口(手动记账的 entryType 下拉 / 持仓页添加入口)点选决定, 此处不再重复展示
+                                   onMain, onCurrency, compact = false }) {
+  // 资产大类由上层入口(手动记账的 entryType 下拉 / 持仓页添加入口)点选决定, 此处不再重复展示。
+  // compact=true: 窄输入(衍生品等一字段一行的大表单用), 标签照旧在输入框上方。
+  const wMain = compact ? 'w-[76px]' : ''
+  const wCur = compact ? 'w-[68px]' : ''
+  const wMkt = compact ? 'w-[74px]' : 'w-24'
   return (
     <>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">资产类型</label>
-        <select className={inp} value={main} disabled={mainLocked}
+        <label className="text-[12px] text-text-dim">资产类型</label>
+        <select className={`${inp} ${wMain}`} value={main} disabled={mainLocked}
           onChange={e => onMain?.(e.target.value)}>
           {mainOptions.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">币种</label>
-        <select className={inp} value={currency} onChange={e => onCurrency?.(e.target.value)}>
+        <label className="text-[12px] text-text-dim">币种</label>
+        <select className={`${inp} ${wCur}`} value={currency} onChange={e => onCurrency?.(e.target.value)}>
           {currencyOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim"
+        <label className="text-[12px] text-text-dim"
           title={matched ? `sub_assets_type: ${matched.sub_assets_type}` : undefined}>
-          市场 <span className="text-text-muted text-[10px]">自动匹配</span>
+          市场 <span className="text-text-muted text-[11px]">自动匹配</span>
         </label>
-        <div className={`${inp} w-24 !bg-surface-3/40 text-text-bright flex items-center`}>
+        <div className={`${inp} ${wMkt} !bg-surface-3/40 text-text-bright flex items-center`}>
           {matched?.sub_assets_type_name || '—'}
         </div>
       </div>

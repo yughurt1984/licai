@@ -31,7 +31,6 @@ _requests.Session.__init__ = _no_proxy_session_init
 import akshare as ak
 import pandas as pd
 
-from config import config
 
 # In-memory cache: {key: (data, timestamp)}
 _cache: dict[str, tuple] = {}
@@ -57,12 +56,15 @@ def quote_auto_fetch() -> bool:
     True: 恢复自动联网(读穿三段策略 + WS 推流直连远端)。
     用 getattr 兜底: 旧的 config.py 还没加这个字段时也不炸, 行为同纯 PG 模式。
     """
-    return bool(getattr(config, "quote_auto_fetch", False))
+    return bool(os.environ.get("QUOTE_AUTO_FETCH", ""))   # 部署开关(config.env 可选键, 默认纯 PG 模式)
 
 
 # ---- 行情库 read-through: 成功即落 PG, 失败回退最后快照(见 services/market_store.py) ----
 from services import market_store  # noqa: E402  (只依赖 config, 无循环导入)
 from services.quote_source import QuoteRow, _quote_ticker  # noqa: E402  (规范层: 只依赖 pydantic, 无循环导入)
+
+# K线缓存秒数(引擎行为, 非部署配置)
+_HISTORY_CACHE_TTL = 300
 
 _MARKET_BY_ATYPE = {"a_stock": "A", "hk_stock": "HK", "us_stock": "US", "fut": "FUT", "opt": "OPT"}
 _MACRO_ATYPE = {"fx": "fx", "metal_base": "commodity", "metal_minor": "commodity",
@@ -113,91 +115,90 @@ def _store_rows_to_quotes(rows: dict[str, dict], fx_map: dict[str, float] | None
     return out
 
 
-# ── 通用分组获取: PG 优先 + 源链按码兜底(品种→源的映射见 _quote_chains) ──────────
+# ── 通用分组获取: PG 优先 + 按小类指派的报价源链(main → back → sina) ──────────
 
-def _quote_chains() -> dict[str, tuple]:
-    """品种分组 → 源适配器链(有序, 主源在前, 见 services/quote_source.py)。
+def _code_market(code: str) -> str:
+    """code → 市场分组(A/HK/US/FUT/OPT)。期货/期权 thscode 判定优先于普通码拆分。"""
+    from services.ths_fuyao import is_thscode, ths_kind
+    c = (code or "").strip().upper()
+    if is_thscode(c):
+        return "FUT" if ths_kind(c) == "fut" else "OPT"
+    return split_stock_code(c)[0]
 
-    sina(sina_quote.py) 只兜底股票(A/HK/US); 期货/期权没有兜底源(sina 没有这些数据),
-    失败就空, 等每日维护任务补。tickflow(需 key, 设置页/TICKFLOW_API_KEY)在主源之后
-    二段兜底 A/港美股; 未配置 key 时它静默空返回, 链为直落到 sina, 行为不变。
-    新增品种/源 = 适配器实现 QuoteSource 协议 + 这里加一行。
+
+def _quote_chain(sub: str | None, market: str, src_map: dict) -> list[str]:
+    """小类 + 市场 → 该码的报价源链(去重保序)。
+
+    ① assets_classify 的 main_quote_source → back_quote_source(人工维护, 查表获取);
+    ② 尾部落全局兜底 sina —— 仅股票/ETF/港美股(A/HK/US); 期货/期权无 sina 数据, 不加。
+    两级都没配的小类, 链只剩 sina(兜底A); 期货/期权两级都没配 = 无源可用(空链, 打日志)。
     """
-    from services import ths_fuyao, futu_quote, sina_quote, tickflow
-    return {
-        "A": (ths_fuyao.SOURCE, tickflow.SOURCE, sina_quote.SOURCE),
-        "HK": (futu_quote.SOURCE, tickflow.SOURCE, sina_quote.SOURCE),
-        "US": (futu_quote.SOURCE, tickflow.SOURCE, sina_quote.SOURCE),
-        "FUT": (ths_fuyao.SOURCE,),
-        "OPT": (ths_fuyao.SOURCE,),
-    }
+    names: list[str] = []
+    for n in src_map.get(sub or "", ()) or ():
+        if n and n not in names:
+            names.append(n)
+    if market in ("A", "HK", "US") and "sina" not in names:
+        names.append("sina")
+    return names
 
 
 async def _fetch_group_rows(group: str, codes: list[str], stored: dict | None = None) -> list[QuoteRow]:
-    """沿品种→源链抓行情。assets_classify.data_source 人工指派源优先, 每个源只喂缺码(按码兜底)。
+    """按小类指派的报价源链抓行情(每个源只喂自己没拿到的缺码, 按码兜底)。
 
-    路由: code → 小类(symbol_dict 主查, quote_latest 已存行兜底) → assets_classify.data_source
-    (如 hk_comm_stock→tickflow) → 先走指派源; 指派源没拿到的码落回标准链(_quote_chains),
-    链上跳过该码已经试过的源 —— 指派源不在兜底链里重试, 免得同一源对同一码打两遍。
+    路由: code → 小类(symbol_dict 主查, quote_latest 已存行兜底) → assets_classify 的
+    main_quote_source/back_quote_source(人工维护, 查表获取) → 链 = main → back →
+    sina(全局兜底, 仅 A/HK/US)。同链的码共享一次源调用(按链元组分批)。
     """
     rows: list[QuoteRow] = []
     remaining = list(dict.fromkeys(codes))
     if not remaining:
         return rows
 
-    # ① 人工指派源优先: 小类在 assets_classify.data_source 指了源 → 先走指派源
     registry = _source_registry()
-    pinned: dict[str, list[str]] = {}
-    unpinned: list[str] = []
-    tried: dict[str, set[str]] = {}          # code → 已试过的源名(指派源), 兜底链里跳过
     sub_map = await _code_sub_map(remaining, stored)
     src_map = await _classify_sources()
-    for c in remaining:
-        name = src_map.get(sub_map.get(c, "") or "", "")
-        if name and name in registry:
-            pinned.setdefault(name, []).append(c)
-            tried.setdefault(c, set()).add(name)
-        else:
-            if name:
-                _warn_unknown_source(name)
-            unpinned.append(c)
-    for name, cs in pinned.items():
-        got = await _snapshot_safe(registry[name], cs)
-        have = {r.code for r in rows}
-        rows.extend(r for r in got if r.code not in have)
-        got_codes = {r.code for r in got}
-        unpinned.extend(c for c in cs if c not in got_codes)
 
-    # ② 标准链兜底: 只喂指派源/链上前源没拿到的缺码; 该码已试过的源不重试
-    for src in _quote_chains().get(group, ()):
-        batch = [c for c in unpinned if src.name not in tried.get(c, ())]
-        if not batch:
+    by_chain: dict[tuple, list[str]] = {}
+    for c in remaining:
+        names = _quote_chain(sub_map.get(c, ""), _code_market(c), src_map)
+        by_chain.setdefault(tuple(names), []).append(c)
+
+    for names, cs in by_chain.items():
+        if not names:
+            print(f"[market_data] 小类无报价源配置(链为空), 码未获取: {cs[:5]}{'…' if len(cs) > 5 else ''}")
             continue
-        got = await _snapshot_safe(src, batch)
-        have = {r.code for r in rows}
-        rows.extend(r for r in got if r.code not in have)
-        got_codes = {r.code for r in got}
-        for c in got_codes:
-            tried.setdefault(c, set()).add(getattr(src, "name", ""))
-        unpinned = [c for c in unpinned if c not in got_codes]
+        missing = list(dict.fromkeys(cs))
+        for name in names:
+            if not missing:
+                break
+            src = registry.get(name)
+            if src is None:
+                _warn_unknown_source(name)
+                continue
+            got = await _snapshot_safe(src, missing)
+            have = {r.code for r in rows}
+            rows.extend(r for r in got if r.code not in have)
+            got_codes = {r.code for r in got}
+            missing = [c for c in missing if c not in got_codes]
     return rows
 
 
-# ── 数据源路由: assets_classify.data_source(人工维护)按小类指源 ─────────────
-# 用法: UPDATE assets_classify SET data_source='tickflow' WHERE sub_assets_type='hk_comm_stock';
-# 之后该小类的行情(如 00700.HK)优先走 tickflow, 指派源拿不到的码自动落标准链兜底。
-_cls_source_cache: list = [None, 0.0]      # ({sub_assets_type: 源名}, ts)
+# ── 数据源路由: assets_classify 报价双源(人工维护, 查表获取) ─────────────
+# 用法: UPDATE assets_classify SET main_quote_source='tickflow', back_quote_source='sina'
+#       WHERE sub_assets_type='hk_comm_stock';
+# 之后该小类的行情链 = main → back → sina(全局兜底, 仅股/ETF/港美股)。
+_cls_source_cache: list = [None, 0.0]      # ({sub_assets_type: (main, back)}, ts)
 _unknown_src_warned: set[str] = set()
 
 
 def invalidate_data_source_cache():
-    """assets_classify.data_source 改动后清路由缓存(60s TTL 之外的主动失效位)。"""
+    """assets_classify 报价源改动后清路由缓存(60s TTL 之外的主动失效位)。"""
     _cls_source_cache[0] = None
     _cls_source_cache[1] = 0.0
 
 
 def _source_registry() -> dict:
-    """assets_classify.data_source 名 → QuoteSource 适配器(小写键; ths=fuyao 的历史别名)。"""
+    """assets_classify 报价/标的信息源名 → QuoteSource 适配器(小写键; ths=fuyao 的历史别名)。"""
     from services import ths_fuyao, futu_quote, sina_quote, tickflow
     return {
         "ths": ths_fuyao.SOURCE, "fuyao": ths_fuyao.SOURCE,
@@ -210,30 +211,30 @@ def _source_registry() -> dict:
 def _warn_unknown_source(name: str):
     if name not in _unknown_src_warned:
         _unknown_src_warned.add(name)
-        print(f"[market_data] assets_classify.data_source=「{name}」没有注册的行情源, 相关码落标准链")
+        print(f"[market_data] assets_classify 指派源「{name}」没有注册的行情适配器, 该组码跳过")
 
 
-async def _classify_sources() -> dict[str, str]:
-    """assets_classify 里指了 data_source 的小类 → {sub_assets_type: 源名(小写)}。缓存 60s。"""
+async def _classify_sources() -> dict[str, tuple]:
+    """assets_classify 报价双源 → {sub_assets_type: (main, back)}(小写, 空段省略)。缓存 60s。"""
     if _cls_source_cache[0] is not None and time.time() - _cls_source_cache[1] < 60:
         return _cls_source_cache[0]
-    out: dict[str, str] = {}
+    out: dict[str, tuple] = {}
     try:
         from database import get_db
         db = await get_db()
         try:
             cur = await db.execute(
-                "SELECT sub_assets_type, data_source FROM assets_classify "
-                "WHERE data_source IS NOT NULL AND btrim(data_source) <> ''")
+                "SELECT sub_assets_type, main_quote_source, back_quote_source FROM assets_classify")
             for r in await cur.fetchall():
                 sub = str(r[0] or "").strip()
-                src = str(r[1]).strip().lower()
-                if sub and src:
-                    out[sub] = src
+                main = str(r[1] or "").strip().lower()
+                back = str(r[2] or "").strip().lower()
+                if sub and (main or back):
+                    out[sub] = (main, back)
         finally:
             await db.close()
     except Exception as e:
-        print(f"[market_data] assets_classify.data_source 读取失败: {e}")
+        print(f"[market_data] assets_classify 报价源读取失败(降级为仅 sina 兜底): {e}")
     _cls_source_cache[0], _cls_source_cache[1] = out, time.time()
     return out
 
@@ -254,6 +255,12 @@ async def _code_sub_map(codes: list[str], stored: dict | None = None) -> dict[st
         st = (r.get("sub_assets_type") or "").strip() if isinstance(r, dict) else ""
         if st:
             out[sym] = st
+    # 期货/期权 thscode: 底稿/行情行都可能没有小类(合约行首次出现), 按码形兜底
+    from services.ths_fuyao import is_thscode as _is_ths, ths_kind as _ths_kind
+    for c in codes:
+        c = str(c or "").strip().upper()
+        if c and c not in out and _is_ths(c):
+            out[c] = "cn_options" if _ths_kind(c) == "opt" else "cn_futures"
     probes: dict[str, str] = {}      # symbol_dict 码 → 内部标准码
     for c in codes:
         if c in out:
@@ -784,9 +791,9 @@ async def get_realtime_quotes(stock_codes: list[str], force: bool = False) -> di
     其余情况一律只读 PG(market.quote_latest), 绝不触发 API。
     每日 PG 维护(定时批量刷新)为后续开发。
 
-    派发: 按品种分组(A/HK/US/FUT/OPT) → 查源链(_quote_chains), 主源拿不到的码
-    按码交给链上下一个源: A股/港美 → sina legacy 兜底; 期货/期权无兜底。
-    新增品种/数据源 = 实现一个 QuoteSource 适配器 + 源链表加一行, 调用方零改动。
+    派发: code → 小类 → assets_classify 报价双源(main → back) → sina 全局兜底
+    (仅股/ETF/港美股); 期货/期权两级都没配 = 无源可用。链的拼装见 _fetch_group_rows。
+    新增数据源 = 实现 QuoteSource 适配器 + _source_registry 登记 + assets_classify 指派。
     """
     if not stock_codes:
         return {}
@@ -1119,7 +1126,7 @@ def _foreign_bar_closed(stock_code: str, date_str: str) -> bool:
 async def _get_history_foreign(stock_code: str, days: int) -> pd.DataFrame:
     from database import get_cached_klines, save_klines
     cache_key = f"hist_{stock_code}_{days}"
-    df = _cache_get(cache_key, config.history_cache_ttl)
+    df = _cache_get(cache_key, _HISTORY_CACHE_TTL)
     if df is not None:
         return df
     try:
@@ -1194,7 +1201,7 @@ async def _get_historical_data_inner(stock_code: str, days: int = 60) -> pd.Data
         return pd.DataFrame()
 
     cache_key = f"hist_{stock_code}_{days}"
-    df = _cache_get(cache_key, config.history_cache_ttl)
+    df = _cache_get(cache_key, _HISTORY_CACHE_TTL)
     if df is not None:
         return df
 

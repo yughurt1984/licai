@@ -153,7 +153,7 @@ describe('normalizeHolding — 原始持仓 → 统一行', () => {
     expect(etf.type).toBe('F')
     expect(etf.category.id).toBeTruthy()
 
-    const fut = normalizeHolding({ ...base, stock_code: 'CU2601.SHF', stock_name: '沪铜2601', sub_assets_type: 'cn_futures', asset_kind: 'fut' })
+    const fut = normalizeHolding({ ...base, stock_code: 'CU2601.SHF', stock_name: '沪铜2601', sub_assets_type: 'cn_futures', main_assets_type: 'futures' })
     expect(fut.type).toBe('T')
 
     const stock = normalizeHolding({ ...base, stock_code: '600406.SH', stock_name: '三友化工', sub_assets_type: 'a_comm_stock' })

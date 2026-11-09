@@ -339,11 +339,6 @@ async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
                 return data
         except Exception as e:
             print(f"[fund] ths nav {code} failed, fallback to eastmoney: {e}")
-    data = await asyncio.to_thread(_fetch_fund_sync, bare)
-    if data:
-        _fund_cache[code] = (data, time.time())
-        await _store_fund_quote(code, data, "fundgz")
-        return data
     # 远端没取到 → PG 最后快照兜底
     return await _fund_from_store(code)
 

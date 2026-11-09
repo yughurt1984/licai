@@ -41,7 +41,7 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {/* 基金: ETF/LOF/REITs/货基(场内) 或 场外开放式; 按小类 trade 决定账本 */}
+      {/* 基金: ETF/LOF/REITs/货基(场内) 或 场外开放式; 按小类 valuation_type 决定表单模式与账本 */}
       {addCls === 'fund' && (
         <AddFundForm sub={addSub || undefined}
           brokers={brokers}

@@ -3,22 +3,20 @@ import { fetchJSON } from '../../../hooks/useApi'
 import { brokersOfType } from '../../../helpers'
 import { AssetClassPicker, useAssetClass } from './AssetClassPicker'
 
-// 期货/期权开仓表单(品种 + 月份拼接模式), 代码/名称逻辑与股票表单一致:
-// 第一行: 资产类型/币种/市场(来自 assets_classify; main 由期货|期权入口锁定,
-//         币种切换 → 匹配唯一小类 cn_futures/hk_futures/us_futures..., 品种搜索按小类过滤)
-//         + 品种代码(输入框) + 品种名称(输入框, 防抖查 symbol_dict 自动带出, 可手改) + 方向(多红/空绿)
-// 第二行: 合约月份(下拉, 未来 12 个月) + 合约代码(自动拼接 CU2601.SHF, 交易所后缀取品种行)
-//         + 保证金(按品种 margin_rate 估算, 仅供参考) + 手数 + 每手乘数(默认品种 trade_amount)
-//         + 开仓价 + 手续费(默认按分类比例费率×名义金额, 可覆盖) + 券商 + 日期
+// 衍生品开仓表单(品种 + 月份拼接模式): 顶部标签(大类名)来自 assets_classify, 资产类型
+// 默认期货/币种默认 CNY; 全部字段压缩在**一行**内(窄屏自动折行兜底):
+// 大类标签 | 资产类型/币种/市场(assets_classify) | 品种代码 | 名称(防抖查 symbol_dict) |
+// 方向(多红/空绿) | 月份 | 合约代码(自动拼接 CU2601.SHF) | 手数/乘数/开仓价/手续费 |
+// 保证金(参考) | 券商 | 日期 | 开仓/取消。
 // 品种搜索只在 symbol_dict 品种行里做(不联网、不弹下拉); 提交走 POST /api/portfolio
-// (asset_kind=fut|opt + direction), 后端 seed OPEN 流水并重算综合成本。
+// (main_assets_type=futures|options + direction), 后端 seed OPEN 流水并重算综合成本。
 export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
   // 资产分类(PG assets_classify): 衍生品大类 + 中类(futures/options/warrant) × 币种 → 唯一小类。
   // 中类由用户在表单里选(不再靠 kind 枚举锁定) —— 期货/期权同属 derivatives, 一个入口覆盖。
   const { rows, err: clsErr, mainOptions, currencyOptions,
     matched: hookMatched, main: hookMain,
     setMain, setCurrency } =
-    useAssetClass('derivatives', {})
+    useAssetClass('derivatives', { preferMain: 'futures' })   // 默认期货; 币种 hook 默认 CNY
   // 录入入口已选具体小类(sub)时锁定中类/币种; 否则用户在中类下拉里选 futures/options
   const subRow = sub ? rows.find(r => r.sub_assets_type === sub) : null
   const main = subRow ? subRow.main_assets_type : hookMain
@@ -65,6 +63,8 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
   // 品种名称自动带出(仿股票表单): 防抖 350ms, 只搜 symbol_dict 品种行(按匹配小类过滤), 不弹下拉 ——
   // 命中(精确代码优先, 否则首个)自动把名称填进品种名称输入框, 手数乘数默认带品种乘数;
   // 查不到则留空(可手填名称, 但合约代码需要品种行的交易所后缀, 提交前须先登记品种)。
+  // 品种名称自动带出: 防抖 350ms, 只查 symbol_dict 品种行(用户人工维护, 不查同花顺 API)
+  // 命中(精确代码优先, 否则首个)自动把名称填进输入框; 每手乘数默认带品种乘数。
   useEffect(() => {
     const q = query.trim()
     if (q.length < 1) { setProduct(null); setSearching(false); return undefined }
@@ -73,6 +73,7 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
     debounceRef.current = setTimeout(async () => {
       setSearching(true)
       try {
+        // 期货/期权品种由用户维护在 symbol_dict, 只查数据库, 不走 ths API
         const d = await fetchJSON(
           `/api/portfolio/products/search?q=${encodeURIComponent(q)}&kind=${isOpt ? 'opt' : 'fut'}` +
           (subType ? `&sub=${encodeURIComponent(subType)}` : ''))
@@ -90,9 +91,10 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
     return () => clearTimeout(debounceRef.current)
   }, [query, isOpt, sub])
 
-  // 合约代码自动拼接: 品种 + 月份 + 交易所后缀 (CU2601.SHF); 期权同(IO2601.CFE 按品种行交易所)
+  // 合约代码拼接: 品种(symbol_dict.code, 如 IF/CU) + 月份(YYMM) + 交易所后缀
+  // symbol_dict.suffix 由你直接维护为同花顺后缀(SHF/CFE...), 原样拼接; 期货品种只查库, 报价那一步才用 ticker 取价
   const thscode = product && month
-    ? `${product.code}${month}${product.exchange ? '.' + product.exchange : ''}`.toUpperCase()
+    ? `${product.code}${month}${product.suffix ? '.' + product.suffix : ''}`.toUpperCase()
     : ''
   // 保证金估算(仅供参考): 开仓价 × 每手乘数 × 手数 × 保证金率 —— 期货公司在交易所基础上加收
   // (保证金率来自 assets_classify 品种分类行, 经 /products/search JOIN 带出)
@@ -121,11 +123,11 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
         stock_name: (name.trim() || product.name || '') + month || thscode,
         shares: sh,
         cost_price: px,
-        asset_kind: isOpt ? 'opt' : 'fut',
+        main_assets_type: isOpt ? 'options' : 'futures',
         direction,
         contract_multiplier: mult,
         trade_date: tradeDate,
-        sub_assets_type: subType || undefined,   // 分类归口目录(trade=t 路由校验 + 统一命名)
+        sub_assets_type: subType || undefined,   // 分类归口目录(valuation_type=quote 路由校验 + 统一命名)
       }
       if (broker) body.broker = broker
       if (fee !== '' && parseFloat(fee) >= 0) body.fee = parseFloat(fee)   // 留空 = 后端按品种费率自动
@@ -134,112 +136,109 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
-  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[12.5px] text-text font-mono outline-none focus:border-accent'
-  const field = (label, value, set, placeholder, step = '0.01', type = 'number') => (
-    <div className="flex flex-col gap-1">
-      <label className="text-[10.5px] text-text-muted">{label}</label>
-      <input type={type} step={step} min="0" className={`${inp} w-24`} placeholder={placeholder}
+
+  const inp = 'bg-bg border border-border rounded px-1.5 py-1.5 text-[13px] text-text font-mono outline-none focus:border-accent'
+  const field = (label, value, set, placeholder, step = '0.01', type = 'number', w = 'w-[62px]', grow = false) => (
+    <div className={`flex flex-col gap-0.5 min-w-0${grow ? ' flex-1' : ''}`}>
+      <label className="text-[11px] text-text-muted truncate" title={label}>{label}</label>
+      <input type={type} step={step} min="0" className={`${inp} ${grow ? 'w-full min-w-[70px]' : w} text-right`} placeholder={placeholder}
         value={value} onChange={e => set(e.target.value)} />
     </div>
   )
 
   return (
-    <div className="rounded-lg border border-border-med bg-surface-2/60 p-3 space-y-3 fade-up">
-      {/* 第一行: 资产类型(中类)/币种/市场(自动匹配) + 品种代码 + 品种名称 + 方向 */}
-      <div className="flex flex-wrap items-end gap-2">
+    <div className="rounded-lg border border-border-med bg-surface-2/60 p-2 fade-up">
+      {/* 一行布局: 顶部标签(大类, 来自数据库) + 全部字段同排; 窄屏自动折行兜底 */}
+      <div className="flex flex-wrap items-end gap-1.5">
         {subRow ? (
-          <div className="flex flex-col gap-1">
-            <label className="text-[10.5px] text-text-muted">分类</label>
-            <div className={`${inp} w-28 !bg-surface-3/40 text-text-bright flex items-center`}>
-              {subRow.sub_assets_type_name || sub}
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[11px] text-text-muted">分类</label>
+            <div className={`${inp} w-[76px] !bg-surface-3/40 text-text-bright flex items-center justify-center text-center`}
+              title={subRow.sub_assets_type_name || sub}>
+              {(subRow.sub_assets_type_name || sub).slice(0, 6)}
             </div>
           </div>
         ) : (
           <AssetClassPicker rows={rows} err={clsErr}
             mainOptions={mainOptions}
             currencyOptions={currencyOptions}
-            matched={matched} main={main} inp={inp}
+            matched={matched} main={main} inp={inp} compact
             onMain={setMain} onCurrency={setCurrency} />
         )}
-        <div className="flex flex-col gap-1">
-          <label className="text-[10.5px] text-text-muted">{isOpt ? '期权品种代码' : '期货代码'}</label>
-          <input className={`${inp} w-28 font-sans`} autoFocus placeholder="CU / 沪铜"
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[11px] text-text-muted">{isOpt ? '期权品种' : '期货品种'}</label>
+          <input className={`${inp} w-[72px] font-sans`} autoFocus placeholder="CU / 沪铜"
             value={query} onChange={e => setQuery(e.target.value)} />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10.5px] text-text-muted">期货品种</label>
-          <input className={`${inp} w-28 font-sans`} placeholder={searching ? '查询中…' : '输入代码自动带出'}
+        <div className="flex flex-col gap-0.5 flex-1 min-w-[90px] max-w-[108px]">
+          <label className="text-[11px] text-text-muted truncate">名称</label>
+          <input className={`${inp} w-full font-sans`} placeholder={searching ? '查询中…' : '自动带出'}
             value={name} onChange={e => setName(e.target.value)} />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10.5px] text-text-muted">方向</label>
-          <div className="flex gap-1">
-            {[['LONG', '多'], ['SHORT', '空']].map(([d, label]) => (
-              <button key={d} onClick={() => setDirection(d)}
-                className={`px-4 py-1.5 rounded-md text-[12.5px] font-semibold border transition-colors cursor-pointer
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[11px] text-text-muted">方向</label>
+          <div className="flex gap-0.5">
+            {[['LONG', '多', '买涨: 价格涨=盈利'], ['SHORT', '空', '卖跌: 价格跌=盈利']].map(([d, label, tip]) => (
+              <button key={d} onClick={() => setDirection(d)} title={tip}
+                className={`px-3 py-1.5 rounded text-[14px] font-semibold border transition-colors cursor-pointer
                   ${direction === d
                     ? d === 'LONG' ? 'bg-bull/20 text-bull border-bull/60' : 'bg-bear/20 text-bear border-bear/60'
                     : 'border-border text-text-dim hover:text-text'}`}>
-                {label}{d === 'LONG' ? ' (买涨)' : ' (卖跌)'}
+                {label}
               </button>
             ))}
           </div>
         </div>
-      {/* 合约月份 + 合约代码 + 保证金 + 手数/乘数/价格/费用/券商/日期 (同排 flex-wrap) */}
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[11px] text-text-muted">月份</label>
+          <select className={`${inp} w-[64px]`} value={month} onChange={e => setMonth(e.target.value)}>
+            {months.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[11px] text-text-muted">合约代码</label>
+          <span className={`${inp} w-[100px] !bg-surface-3/60 text-text-bright select-all text-center`}
+            title={thscode || '选品种+月份后自动拼接'}>{thscode || '—'}</span>
+        </div>
+        {field('手数', lots, setLots, '1', '1')}
+        {field('乘数', multiplier, setMultiplier, product?.trade_amount ? String(product.trade_amount) : '5', '1')}
+        {field('开仓价', price, setPrice, '现价', '0.01', 'number', '', true)}
+        {field('手续费', fee, setFee, feeAuto != null ? feeAuto.toFixed(1) : '自动', '0.01')}
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[11px] text-text-muted truncate" title="开仓价 × 乘数 × 手数 × 保证金率(交易所口径)">保证金</label>
+          <span className={`${inp} w-[92px] !bg-surface-3/40 text-warn text-right select-all`}
+            title="开仓价 × 每手乘数 × 手数 × 保证金率(交易所口径, 期货公司加收)">
+            {marginEst != null ? `¥${marginEst.toFixed(0)}` : '—'}
+          </span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[11px] text-text-muted">券商</label>
+          <select className={`${inp} w-[96px] font-sans`} value={broker} onChange={e => setBroker(e.target.value)}>
+            <option value="">无</option>
+            {brokerOptions.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+          </select>
+        </div>
+        {field('日期', tradeDate, setTradeDate, '', undefined, 'date', 'w-[112px]')}
+        <div className="flex gap-1 pb-0.5">
+          <button onClick={submit} disabled={busy || !product}
+            className={`px-3 py-1 rounded-md bg-accent text-bg text-[13px] font-medium ${busy || !product ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}>
+            {busy ? '开仓中…' : '开仓'}
+          </button>
+          <button onClick={onCancel}
+            className="px-2 py-1 rounded-md border border-border text-text-dim text-[13px] hover:text-text cursor-pointer">取消</button>
+        </div>
+      </div>
+      {/* 条件提示与说明: 单行截断, 悬停看全文, 不占默认布局 */}
       {!product && query.trim() && !searching && (
-        <p className="text-[11px] text-warn m-0 w-full">
-          {subType
-            ? `当前市场分类「${matched?.sub_assets_type_name || subType}」下没有匹配的品种行(需维护: code=品种代码如 CU, name=品种名称, exchange=交易所后缀如 SHF, sub_assets_type=${subType})`
-            : 'symbol_dict 里没有匹配的品种行(需维护品种行并确认币种组合能匹配到小类)'}
+        <p className="text-[11.5px] text-warn m-0 mt-1 truncate"
+          title={`当前分类「${matched?.sub_assets_type_name || subType}」下没有品种行: 需在 symbol_dict 维护 code(如 CU)/name/exchange(如 SHF), 并确认 sub_assets_type=${subType || '(未匹配)'}`}>
+          {`「${matched?.sub_assets_type_name || subType || '未匹配'}」下没有品种行 — 需在 symbol_dict 维护 code/exchange`}
         </p>
       )}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10.5px] text-text-muted">合约月份</label>
-            <select className={`${inp} w-24 font-mono`} value={month} onChange={e => setMonth(e.target.value)}>
-              {months.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10.5px] text-text-muted">合约代码</label>
-            <span className={`${inp} w-40 font-mono !bg-surface-3/60 text-text-bright select-all`}>{thscode || '—'}</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10.5px] text-text-muted"
-              title="开仓价 × 每手乘数 × 手数 × 保证金率。交易所口径估算, 期货公司会在其基础上加收 —— 实际以保证金监控为准">
-              保证金(参考)
-            </label>
-            <span className="font-mono text-[12.5px] text-warn pb-1.5">
-              {marginEst != null ? `¥${marginEst.toFixed(0)} ≈` : '填价后自动'}
-            </span>
-          </div>
-          {field('手数', lots, setLots, '1', '1')}
-          {field('每手乘数', multiplier, setMultiplier, product?.trade_amount ? String(product.trade_amount) : '5', '1')}
-          {field(`开仓价 ¥`, price, setPrice, '现价')}
-          {field(`手续费 ¥`, fee, setFee, feeAuto != null ? `自动 ${feeAuto.toFixed(1)}` : '自动', '0.01')}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10.5px] text-text-muted">交易商</label>
-            <select className={`${inp} w-28 font-sans`} value={broker} onChange={e => setBroker(e.target.value)}>
-              <option value="">无</option>
-              {brokerOptions.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-            </select>
-          </div>
-          {field('日期', tradeDate, setTradeDate, '', undefined, 'date')}
-          <div className="flex gap-2 pb-0.5">
-            <button onClick={submit} disabled={busy || !product}
-              className={busy || !product ? 'px-4 py-1.5 rounded-md bg-accent text-bg text-[12.5px] font-medium opacity-50 cursor-not-allowed'
-                : 'px-4 py-1.5 rounded-md bg-accent text-bg text-[12.5px] font-medium hover:opacity-90 cursor-pointer'}>
-              {busy ? '开仓中…' : '开仓'}
-            </button>
-            <button onClick={onCancel}
-              className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[12.5px] hover:text-text cursor-pointer">取消</button>
-          </div>
-        </div>
-      {err && <p className="text-[12px] text-bear m-0">{err}</p>}
-      <p className="text-[10.5px] text-text-muted m-0">
-        品种在 symbol_dict 维护(code=CU, exchange=SHF, trade_amount=每手乘数), 费率/保证金率在
-        assets_classify 按资产小类维护(sub_assets_type 关联, 比例费率: 费率×价×乘数×手数);
-        手续费留空按分类费率自动(没配则回退券商档案), 填了以手填为准。
-        同一合约多空各占一行, 再次开仓同合约同方向请在该行点「加仓」。
+      {err && <p className="text-[12.5px] text-bear m-0 mt-1 truncate" title={err}>{err}</p>}
+      <p className="text-[11px] text-text-muted m-0 mt-1 truncate"
+        title="品种在 symbol_dict 维护(code=CU, exchange=SHF, trade_amount=每手乘数); 费率/保证金率在 assets_classify 按资产小类维护; 手续费留空按分类比例费率自动(没配则回退券商档案); 同一合约多空各占一行, 再次开仓同合约同方向请在该行点「加仓」">
+        同一合约多空各占一行 · 再次开仓同合约同方向在该行「加仓」 · 手续费留空按分类费率自动
       </p>
     </div>
   )

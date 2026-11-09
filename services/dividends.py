@@ -31,6 +31,66 @@ def _d10(v) -> str | None:
 
 # ── US 数据源: Nasdaq 主 + Yahoo 回退 ────────────────────────────────────────
 
+# ── futu 数据源: 公司行动-分红派息(三市场一套代码) ──────────────────────────
+
+def _futu_date(v) -> str | None:
+    """富途日期 YYYY/MM/DD → ISO(YYYY-MM-DD); 空返回 None。"""
+    try:
+        return _dt.datetime.strptime(str(v or ""), "%Y/%m/%d").date().isoformat()
+    except ValueError:
+        return None
+
+
+async def futu_dividends_sync(futu_code: str) -> list[dict] | None:
+    """富途分红派息事件(futu_code 前缀形态 HK.00700 / US.AAPL):
+    [{ex_date, pay_date, per_share, currency, declared, source=futu}], 除净日降序。
+    只取 process=Implementation(已实施), 预案不要。有凭证走签名/OAuth 请求, 没凭证试匿名
+    (文档示例免鉴权)。拉不到 → None。"""
+    from services import futu_auth
+    cfg = await futu_auth.futu_config()
+    path = f"/api/v1.0/quote/{futu_code}/corporate-actions/dividends"
+    headers = {}
+    if cfg.get("app_key") and cfg.get("private_key"):
+        try:
+            headers = futu_auth.build_auth_headers("GET", path, "", b"",
+                                                   cfg["app_key"], cfg["private_key"],
+                                                   cfg.get("algo") or "ed25519")
+        except Exception:
+            headers = {}                      # 签名失败按匿名试(文档示例免鉴权)
+
+
+    def _req() -> Optional[list]:
+        r = futu_auth._session.get((cfg.get("host") or futu_auth.DEFAULT_HOST) + path,
+                                   headers=headers or None, timeout=10)
+        if r.status_code != 200:
+            return None
+        j = r.json()
+        if j.get("ret_code") != 0:
+            return None
+        return (j.get("data") or {}).get("dividend_list") or []
+
+    rows = await asyncio.to_thread(_req)
+    if rows is None:
+        return None
+    out = []
+    for row in rows:
+        if (row.get("process") or "") != "Implementation":
+            continue                          # 预案(Plan)不要
+        ex = _futu_date(row.get("ex_date"))
+        if not ex:
+            continue
+        try:
+            ps = float(row.get("dividend_per_share") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ps <= 0:
+            continue
+        out.append({"ex_date": ex, "pay_date": _futu_date(row.get("dividend_payable_date")),
+                    "per_share": ps, "currency": str(row.get("currency") or ""),
+                    "declared": str(row.get("statement") or ""), "source": "futu"})
+    return out
+
+
 def _us_nasdaq_sync(sym: str) -> list[dict] | None:
     """Nasdaq 分红历史(不复权, 带派息日)。非 Nasdaq 上市票接口返回 rows=null → None 交给回退源。"""
     import requests
@@ -133,7 +193,7 @@ async def _events_for(code: str) -> list[dict] | None:
                   for r in rows if r["per_share_cash"] > 0]      # v1 只做现金派息; 送股比例暂不用
         elif c.endswith((".HK", ".US")):
             from services import futu_quote
-            ev = await futu_quote.dividends_sync(futu_quote._to_futu_code(c))
+            ev = await futu_dividends_sync(futu_quote._to_futu_code(c))
             if ev is None and c.endswith(".US"):
                 ev = await asyncio.to_thread(_us_fallback_sync, c)   # futu 拉不到 → 内置回退(仅 US)
         else:
@@ -231,13 +291,13 @@ async def sync_dividends(only_code: str | None = None) -> dict:
     只处理 多头(LONG) 的股票持仓; A(SH/SZ/BJ)/HK/US 各有适配器(见 _events_for)。
     返回 {written: [...], skipped: n, errors: [...]}。
     """
-    from database import get_all_holdings, get_position_actions, add_position_action
+    from database import get_all_holdings, get_position_actions, add_position_action, is_derivative_kind
     from services.market_data import quote_auto_fetch, code_fx_on
     if not quote_auto_fetch():
         return {"written": [], "skipped": 0,
                 "errors": ["纯PG模式(quote_auto_fetch=false): 不拉分红数据源, 分红请手记 DIVIDEND 流水"]}
     holdings = [h for h in await get_all_holdings()
-                if (h.get("asset_kind") or "stock") == "stock"
+                if not is_derivative_kind(h.get("main_assets_type"))
                 and (h.get("direction") or "LONG") != "SHORT"          # 空头: 借券分红是支出, 跳过(手记)
                 and str(h.get("stock_code") or "").upper().endswith(_SOURCED_SUFFIX)]
     if only_code:

@@ -228,25 +228,25 @@ async def seed_into():
 def _demo_dsn() -> str:
     """<库名>_demo 演示库连接串(同实例另一个库, 不动真实账本)。"""
     from urllib.parse import urlsplit, urlunsplit
-    from config import config
-    parts = urlsplit(config.pg_dsn)
+    import db   # 加载 config.env
+    parts = urlsplit(os.environ.get("PG_DSN", ""))
     dbname = (parts.path.lstrip("/") or "postgres") + "_demo"
     return urlunsplit((parts.scheme, parts.netloc, f"/{dbname}", parts.query, parts.fragment))
 
 
 def cmd_create():
     """写入 <库名>_demo 演示库(自动建库, 不动真实账本)。给 evals/截图用。"""
-    from config import config
-    config.config.pg_dsn = _demo_dsn()
+    import db   # 加载 config.env
+    os.environ["PG_DSN"] = _demo_dsn()
     asyncio.run(init_db())
     asyncio.run(_clear_user_tables())
     asyncio.run(seed_into())
-    print(f"✓ 演示库就绪: {config.config.pg_dsn}")
+    print(f"✓ 演示库就绪: {os.environ.get("PG_DSN", "")}")
 
 
 def cmd_use():
     """pg_dump 备份当前 ledger → 清用户表 → 写入 demo 数据. 重启服务器生效."""
-    from config import config
+    import db   # 加载 config.env
     backup_dir = ROOT / "backups"
     backup_dir.mkdir(exist_ok=True)
     ts = date.today().strftime("%Y%m%d")
@@ -256,7 +256,7 @@ def cmd_use():
         print(f"⚠ 备份已存在 {backup.name}, 跳过覆盖. 想恢复用 --restore.")
     elif pg_dump:
         import subprocess
-        r = subprocess.run([pg_dump, "--dbname", config.pg_dsn, "--file", str(backup),
+        r = subprocess.run([pg_dump, "--dbname", os.environ.get("PG_DSN", ""), "--file", str(backup),
                             "--format", "custom", "--schema", "ledger"],
                            capture_output=True, text=True, timeout=300)
         if r.returncode != 0:
@@ -273,7 +273,7 @@ def cmd_use():
 
 def cmd_restore():
     """演示完恢复真实数据(pg_restore --clean 原样还原 --use 时的备份)."""
-    from config import config
+    import db   # 加载 config.env
     backups = sorted((ROOT / "backups").glob("pre-demo-*.dump"))
     if not backups:
         print("❌ 没有找到 pre-demo-*.dump 备份, 无法恢复.")
@@ -283,7 +283,7 @@ def cmd_restore():
         print("❌ 找不到 pg_restore, 无法恢复. 把它加进 PATH 后重试.")
         return
     import subprocess
-    r = subprocess.run([pg_restore, "--dbname", config.pg_dsn, "--clean",
+    r = subprocess.run([pg_restore, "--dbname", os.environ.get("PG_DSN", ""), "--clean",
                         "--schema", "ledger", str(backups[-1])],
                        capture_output=True, text=True, timeout=600)
     # pg_restore 对"表不存在"之类的告警返回非零也常见(还原本身成功), 看 stderr 摘要即可

@@ -5,6 +5,7 @@ import { TYPE_META } from './portfolio/constants'
 import { AddAShareForm } from './portfolio/forms/AddAShareForm'
 import { AddFundForm } from './portfolio/forms/AddFundForm'
 import { AddFuturesForm } from './portfolio/forms/AddFuturesForm'
+import { useAllAssetClasses } from './portfolio/forms/AssetClassPicker'
 import { DraftCard } from './ailedger/DraftCard'
 import { saveDraft } from './ailedger/save'
 
@@ -58,7 +59,7 @@ export default function AILedger({ onMutated }) {
   const [notes, setNotes] = useState('')
   const [drafts, setDrafts] = useState([])
   // ---- 手动录入区状态 ----
-  const [entryType, setEntryType] = useState('A')
+  const [entryType, setEntryType] = useState('stock')
   const [brokers, setBrokers] = useState([])
   const [formKey, setFormKey] = useState(0)        // 保存/取消后整表单重置(表单状态在自己内部)
   const [toast, setToast] = useState('')
@@ -169,6 +170,9 @@ export default function AILedger({ onMutated }) {
   }
 
   const pendingDrafts = drafts.filter(d => d.state !== 'saved')
+
+  // 手动录入大类(数据驱动): 大类来自 assets_classify, 期货/期权同属 derivatives → 归为一个「衍生品」入口
+  const { classOptions, err: classErr } = useAllAssetClasses()
 
   const formProps = {
     brokers,
@@ -284,28 +288,31 @@ export default function AILedger({ onMutated }) {
         <span className="text-[12px] font-semibold text-text">手动记账</span>
         <select value={entryType} onChange={e => setEntryType(e.target.value)}
           className="bg-bg border border-border rounded px-2 py-1 text-[12.5px] text-text outline-none focus:border-accent">
-          {/* 全类型可选; 加密/机器人/理财/现金暂显示待开发占位(表单后续单独实现) */}
-          {TYPE_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          {/* 数据驱动: 大类来自 assets_classify (期货/期权同属 derivatives → 归为一个「衍生品」入口);
+              选衍生品后, 期货/期权作为「资产类型」二级在表单内下拉选择 */}
+          {classOptions.length === 0 && <option value="">加载中…</option>}
+          {classOptions.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         <span className="text-[10.5px] text-text-muted">
-          {TYPE_META[entryType]?.desc || ''} · 字段与持仓页「添加」表单一致, 走同一套入账接口
+          {classOptions.find(([k]) => k === entryType)?.[1] || ''} · 字段与持仓页「添加」表单一致, 走同一套入账接口
         </span>
       </div>
 
       <div className="px-3 md:px-6 py-3">
         {/* key 撞在表单上: 保存/取消后整体重挂载, 表单内部 state 自然回到空白 */}
-        {entryType === 'A' && <AddAShareForm key={`a${formKey}`} initialMarket="A" {...formProps} />}
-        {/* AddFundForm 仅处理基金(F); CRYPTO/机器人/理财/现金不在此表单 */}
-        {entryType === 'F' && (
+        {entryType === 'stock' && <AddAShareForm key={`a${formKey}`} initialMarket="A" {...formProps} />}
+        {/* AddFundForm 仅处理基金(fund); 其余大类(衍生品/加密/理财/现金…)各有入口或待开发 */}
+        {entryType === 'fund' && (
           <AddFundForm key={`f${formKey}`} typeKey={entryType} {...formProps} />
         )}
-        {['T', 'O'].includes(entryType) && (
-          <AddFuturesForm key={`t${formKey}`} kind={entryType} {...formProps} />
+        {/* 衍生品(期货/期权): futures/options/warrant 中类决定 fut/opt, 一个入口覆盖 */}
+        {entryType === 'derivatives' && (
+          <AddFuturesForm key={`t${formKey}`} {...formProps} />
         )}
-        {/* 加密/机器人/理财/现金入口保留, 表单待单独开发 */}
-        {['C', 'R', 'W', 'M'].includes(entryType) && (
+        {/* 其余大类(加密/机器人/理财/现金/商品/外汇/保险…): 表单待单独开发 */}
+        {entryType && !['stock', 'fund', 'derivatives'].includes(entryType) && (
           <div className="text-[12.5px] text-text-muted py-1">
-            「{TYPE_META[entryType]?.label || entryType}」添加表单待单独开发。
+            「{classOptions.find(([k]) => k === entryType)?.[1] || entryType}」添加表单待单独开发。
           </div>
         )}
       </div>

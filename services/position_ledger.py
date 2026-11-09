@@ -492,7 +492,7 @@ async def _product_fee_of(code: str) -> dict | None:
     """thscode → 品种行(symbol_dict JOIN assets_classify), 含比例费率与每手乘数。
 
     品种 = 合约主体的字母前缀(CU2601 → CU / IO2601-C-4000 → IO); 查不到品种行 → None。
-    费率口径已从老 symbol_dict 的元/手改为 assets_classify 的比例费率
+    费率口径: symbol_dict 品种行比例费率(品种级, 原在 assets_classify 小类级 —— 粒度错了已归位)
     (open_fee_rate × 名义金额, 0.0001 = 万一); 行里没配费率时由调用方回退券商档案。
     """
     try:

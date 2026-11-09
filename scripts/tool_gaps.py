@@ -26,9 +26,9 @@ async def main() -> int:
     ap.add_argument("--db", default="")
     args = ap.parse_args()
 
-    import config
+    import db   # 加载 config.env
     if args.db:
-        config.config.pg_dsn = args.db
+        os.environ["PG_DSN"] = args.db
 
     if args.clear:
         from db import get_conn
@@ -44,10 +44,10 @@ async def main() -> int:
     from services.tool_gaps import report
     rows = await report(args.min)
     if not rows:
-        print(f"账本={config.config.pg_dsn}: 没有命中 {args.min} 次以上的缺口")
+        print(f"账本={os.environ.get("PG_DSN", "")}: 没有命中 {args.min} 次以上的缺口")
         return 0
 
-    print(f"账本={config.config.db_path}  缺口 {len(rows)} 类\n")
+    print(f"账本={os.environ.get("DB_PATH", "portfolio.db")}  缺口 {len(rows)} 类\n")
     print(f"  {'工具':22} {'类型':8} {'市场':4} {'次数':>4}  说明")
     print(f"  {'-' * 22} {'-' * 8} {'-' * 4} {'-' * 4}  {'-' * 40}")
     for r in rows:

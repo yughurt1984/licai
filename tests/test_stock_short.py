@@ -39,7 +39,7 @@ def test_short_stock_lifecycle(fake_env):
     assert h["direction"] == "SHORT"
     assert h["shares"] == 100
     assert abs(h["cost_price"] - 10.0) < 1e-6
-    assert h["asset_kind"] == "stock"           # 股票空头 ≠ 衍生品
+    assert h["main_assets_type"] == "common_share"  # 股票空头 ≠ 衍生品
 
     # 首笔 OPEN 流水带方向
     acts = asyncio.run(pr.list_actions(CODE, direction="SHORT"))

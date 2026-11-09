@@ -17,11 +17,11 @@ rule_forge/user_memory 相同的"内存缓存 + 后台预热"模式: 启动时 w
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timezone, timedelta
 
 import asyncpg
 
-from config import config
 
 _pool: asyncpg.Pool | None = None
 
@@ -52,7 +52,7 @@ async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None or getattr(_pool, "_closed", False):
         _pool = await asyncpg.create_pool(
-            config.pg_dsn, min_size=0, max_size=5,
+            os.environ.get("PG_DSN", "postgresql://postgres:postgres@localhost:5432/allassets"), min_size=0, max_size=5,
             server_settings={"search_path": "market,public"},
         )
     return _pool
@@ -70,52 +70,12 @@ QUOTE_COLS = ("code", "ticker", "name", "sub_assets_type", "price", "open", "hig
               "quote_time", "data_source", "fetched_at")
 
 
-async def _register_symbols(rows: list[dict]) -> None:
-    """自动登记底稿: 报价落库的证券顺带 upsert 进 symbol_dict(标准代码+名称+分类小类)。
-
-    零联网 —— 名称来自报价本身, 底稿随实际使用的标的自动长全。已登记行的
-    sub_assets_type 不被覆盖(分类以人工/导入为准, 行情只补 name/ticker/exchange),
-    exchange(市场段位: SH/SZ/BJ/HK/US)只在为空时补 —— futu 拼接等按它取。
-    行情行已带 code / ticker / sub_assets_type / name, 直接取用即可。
-    """
-    out = []
-    seen = set()
-    for r in rows:
-        code = (r.get("code") or "").strip()
-        sub = (r.get("sub_assets_type") or "").strip()
-        if not code or not sub or code in seen:
-            continue
-        name = (r.get("name") or "").strip()
-        ticker = (r.get("ticker") or "").strip()
-        # 只认带名字的(名称兜底在 save_quotes 里先补过); 没名字不污染底稿
-        if not name:
-            continue
-        seen.add(code)
-        # exchange = 市场段位(600406.SH→SH / 00700.HK→HK / SNDK.US→US); 冲突时已有值优先
-        tail = code.rsplit(".", 1)[1] if "." in code else ""
-        ex = tail.upper() if tail.isalpha() and len(tail) <= 4 else ""
-        out.append((code, name, ticker, sub, ex))
-    if not out:
-        return
-    try:
-        pool = await get_pool()
-        await pool.executemany(
-            "INSERT INTO ledger.symbol_dict (code, name, ticker, sub_assets_type, exchange, updated_at) "
-            "VALUES ($1, $2, $3, $4, $5, now() AT TIME ZONE 'Asia/Shanghai') "
-            "ON CONFLICT (code) DO UPDATE SET name = excluded.name, "
-            "ticker = excluded.ticker, sub_assets_type = excluded.sub_assets_type, "
-            "exchange = COALESCE(NULLIF(ledger.symbol_dict.exchange, ''), excluded.exchange), "
-            "updated_at = now() AT TIME ZONE 'Asia/Shanghai'",
-            out)
-    except Exception as e:
-        print(f"[market_store] 底稿登记失败(不影响行情): {e}")
-
-
 async def save_quotes(rows: list[dict]) -> int:
     """write-through 最新快照。rows: store 形状 dict(见 quote_to_store_row)。缺的列存 NULL。
 
-    fetched_at 一律写当前北京时间(快照新鲜度的判据, 调用方不许自己带); 同时把证券自动
-    登记进底稿 symbol_dict。best-effort: 行情落库失败不该影响取价本身。
+    fetched_at 一律写当前北京时间(快照新鲜度的判据, 调用方不许自己带)。行情只落
+    quote_latest, 不回写 symbol_dict(symbol_dict 由人工/导入维护, 保持干净)。best-effort:
+    行情落库失败不该影响取价本身。
     """
     rows = [r for r in rows or [] if r.get("code")]
     if not rows:
@@ -148,7 +108,6 @@ async def save_quotes(rows: list[dict]) -> int:
         data = [tuple(r.get(c) for c in cols) for r in rows]
         for i in range(0, len(data), 500):
             await pool.executemany(sql, data[i:i + 500])
-        await _register_symbols(rows)
         return len(rows)
     except Exception as e:
         print(f"[market_store] save_quotes 失败(不影响行情): {e}")

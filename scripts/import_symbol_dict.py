@@ -14,8 +14,8 @@
     opt   期权合约       option_current_em 多标的聚合    (万级, sub=cn_options)
     fund  场外基金       fund_name_em                    (~2万, sub=cn_otc_fund)
 
-行结构: (code, name, ticker, sub_assets_type, exchange) —— code 统一标准「代码.市场」
-(600111.SH / 00700.HK / SNDK.US), exchange 为市场段位(HK/US 供 futu 拼接等用)。
+行结构: (code, name, ticker, sub_assets_type, suffix) —— code 统一标准「代码.市场」
+(600111.SH / 00700.HK / SNDK.US), suffix 为市场段位/交易所后缀(HK/US/SH/SZ 供 futu 拼接等用)。
 sub_assets_type 必须是 assets_classify 里已登记的小类键(人工维护分类与费率)。
 期货品种行的交易所后缀/每手乘数数据源拿不到, 导入后按需手工补(UPDATE symbol_dict)。
 
@@ -159,6 +159,7 @@ async def main(types: list[str]) -> int:
         if not rows:
             print(f"[{t}] 空结果")
             continue
+        rows = [r + (None, None, "import") for r in rows]   # 5元组→8元组: 尾补 trade_amount/margin_rate 占位 + data_source=底稿批量导入
         n = await save_symbol_dict(rows)
         total += n
         print(f"[{t}] ✓ {n} 条 (sub_assets_type 见脚本头注释)")

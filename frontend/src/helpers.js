@@ -194,7 +194,7 @@ export function fundKindOf(asset = {}) {
 }
 
 // 场内口径(etf/reits/mm): 按市价/净值成交、股票式记账, 不走净值 T+1/申购赎回
-//   mm = 场内货币基金(assets_classify 标记 trade=t → 持仓账本 holdings/position_actions)
+//   mm = 场内货币基金(assets_classify 标记 valuation_type=quote/nav → 持仓账本 holdings/position_actions)
 export function isOnchainFundKind(k) {
   return k === 'etf' || k === 'reits' || k === 'mm'
 }

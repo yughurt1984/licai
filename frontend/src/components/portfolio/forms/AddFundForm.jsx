@@ -66,14 +66,18 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
   const fundKind = matched ? fundKindOfSub(matched.sub_assets_type)
     : (isOnchainEtf(code) ? 'etf' : 'open')
 
-  // 内联/场外 与 账本路由 统一以 assets_classify.trade 为准(数据驱动, 不按 kind 枚举写死):
-  //   true  = 交易资产 → 场内股票式记账, 持仓账本 holdings/position_actions(POST /api/portfolio)
-  //   false = 非交易资产 → 场外申购口径, 场外账本 external_assets/actions(POST /api/assets)
-  // 目录未匹配(只填代码没选小类)时退化为代码段位兜底(1/5 开头=场内 etf, 其余=场外 open),
-  // 仅此处用到 isOnchainFundKind —— 它不再是路由/渲染的判定源, 只是未匹配时的兜底。
-  const isInlineFund = matched ? matched.trade === true : isOnchainFundKind(fundKind)
-  const isOtcFund = !isInlineFund
-  const toHoldings = isInlineFund
+  // 表单模式与账本路由统一以 assets_classify.valuation_type 为准(数据驱动):
+  //   quote = 市价估值 → 份额模式(单价×份额), 持仓账本 holdings/position_actions(POST /api/portfolio)
+  //   nav   = 净值估值 → 金额模式(申购金额外扣法倒推份额), 同走 holdings(净值=价格, 申购=买入)
+  //   yield/manual = 固定收益/手动估值 → 场外账本(本表单不处理, 后端会拒绝)
+  // 目录未匹配(只填代码没选小类)或小类还没配 valuation_type 时, 退化为基金种类兜底
+  // (场内 etf/reits=份额模式, 场外 open=金额模式)。
+  const vtype = String(matched?.valuation_type || '').trim().toLowerCase()
+  const isOtcFund = vtype
+    ? vtype === 'nav'
+    : (matched ? fundKindOfSub(matched.sub_assets_type) === 'open' : isOnchainFundKind(fundKind))
+  const isInlineFund = !isOtcFund
+  const toHoldings = true   // 全部基金统一走 holdings(净值=价格, 申购=买入)
 
   // 申购口径自动计算(外扣法): 净申购金额/手续费 由 申购金额+费率; 确认份额 还需申购净值
   const amt = parseFloat(cost) || 0
@@ -114,7 +118,8 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
     const seq = ++autoSeq.current
     autoTimer.current = setTimeout(async () => {
       try {
-        const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(c)}`)
+        const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(c)}` +
+          `&sub=${encodeURIComponent(matched?.sub_assets_type || '')}`)
         if (seq === autoSeq.current && name) { setName(name); return }
       } catch { /* 底表没有, 走行情接口兜底 */ }
       try {
@@ -136,53 +141,33 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
     if (isInlineFund && !(parseFloat(unitPrice) > 0)) return alert('请输入买入单价')
     if (isInlineFund && !(parseFloat(shares) > 0)) return alert('请输入份额')
     if (isOtcFund && !(amt > 0)) return alert('请输入申购金额')
+    if (isOtcFund && !confShares) return alert('请输入申购净值(确认份额=净申购金额÷净值)')
     if (!code || !name) return alert('代码/名称必填')
 
-    // ── 交易资产(trade=t) → 持仓账本(holdings/position_actions): 口径同股票 ──
-    // 成本价 = 买入单价, 后端按综合成本法重算; 小类透传(分类归口 + trade 校验)
-    if (toHoldings) {
+    // ── 全部基金 → 持仓账本(holdings/position_actions): 口径同股票 ──
+    // 成本价 = 买入单价(场内)或申购净值(场外, 同在 unitPrice 字段), 后端按综合成本法重算; 小类透传
+    const _shares = isOtcFund ? (confShares || 0) : parseFloat(shares || 0)
+    const _costPrice = parseFloat(unitPrice || 0)
+    const _fee = isOtcFund
+      ? (fundFee != null && fundFee > 0.005 ? parseFloat(fundFee.toFixed(2)) : undefined)
+      : isInlineFund && parseFloat(fee) > 0 ? parseFloat(fee) : undefined
+    // 场外基金代码存档带 .OF 后缀(019144 → 019144.OF); 场内原样
+    const storedCode = isOtcFund && /^\d{6}$/.test(code.trim()) ? `${code.trim()}.OF` : code.trim()
+    try {
       await fetchJSON('/api/portfolio', {
         method: 'POST',
         body: JSON.stringify({
-          stock_code: code.trim(),
+          stock_code: storedCode,
           stock_name: name.trim(),
-          shares: parseFloat(shares),
-          cost_price: parseFloat(unitPrice),
-          fee: parseFloat(fee) > 0 ? parseFloat(fee) : undefined,
+          shares: _shares,
+          cost_price: _costPrice,
+          fee: _fee,
           trade_date: tradeDate || undefined,
           broker: selectedBroker || null,
           sub_assets_type: matched?.sub_assets_type,
         }),
       })
-      onDone?.()
-      return
-    }
-
-    // ── 非交易资产(trade=f) → 场外账本(external_assets/actions): 申购口径 ──
-    // 场外基金代码存档带 .OF 后缀(019144 → 019144.OF); 场内原样
-    const storedCode = isOtcFund && /^\d{6}$/.test(code.trim()) ? `${code.trim()}.OF` : code.trim()
-    await fetchJSON('/api/assets', {
-      method: 'POST',
-      body: JSON.stringify({
-        asset_type: assetType, code: storedCode, name: name.trim(), platform: platform.trim(),
-        cost_amount: parseFloat(effCost),
-        // 净值没填 → 份额待确认(pending); 场内按手填份额
-        shares: isOtcFund
-          ? (confShares ? parseFloat(confShares.toFixed(4)) : null)
-          : shares ? parseFloat(shares) : null,
-        // 场内买入日/场外申购日当种子流水 start_date (口径同股票)
-        start_date: tradeDate || null,
-        purchase_fee_rate: isOtcFund && ratePct != null ? ratePct / 100 : null,
-        broker: selectedBroker || null,
-        // 手续费单独透传 (cost 已含它), 后端单存到初始流水的 fee 字段, 避免在流水里"消失"
-        // 场外: 申购手续费 = 申购金额 − 净申购金额; 场内: 按券商费率估算/手填
-        fee: isOtcFund
-          ? (fundFee != null && fundFee > 0.005 ? parseFloat(fundFee.toFixed(2)) : null)
-          : isInlineFund && parseFloat(fee) > 0 ? parseFloat(fee) : null,
-        fund_kind: fundKind,
-        sub_assets_type: matched?.sub_assets_type,
-      }),
-    })
+    } catch (e) { return alert(e.message || '保存失败') }   // 后端拒绝(路由校验/查重)要给用户看到
     onDone?.()
   }
 
@@ -376,8 +361,8 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
                 ? 'REITs 场内成交, 口径同股票; 行情走 TickFlow 实时行情(需在设置页或 TICKFLOW_API_KEY 配置 key)'
                 : '场外开放式基金按申购口径: 净申购金额=申购金额÷(1+费率), 手续费=申购金额−净申购金额, 确认份额=净申购金额÷T日净值; 净值走 ths(ths fund/performance/nav); 净值没填先记待确认; 代码存档带 .OF 后缀'}
           {toHoldings
-            ? ' · 分类标记 trade=t → 计入持仓账本(holdings)'
-            : matched ? ' · 分类标记 trade=f → 计入场外账本(external_assets)' : ''}
+            ? ` · 估值类型 ${vtype || '(未配)'} → 计入持仓账本(holdings)`
+            : matched ? ` · 估值类型 ${vtype || '(未配)'} → 计入场外账本` : ''}
         </div>
       )}
 

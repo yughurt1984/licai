@@ -364,6 +364,7 @@ function FutuSection() {
   const [appKey, setAppKey] = useState('')
   const [privateKey, setPrivateKey] = useState('')
   const [algo, setAlgo] = useState('ed25519')
+
   const [status, setStatus] = useState({ text: '', ok: null })
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -419,11 +420,12 @@ function FutuSection() {
         )}
       </div>
       <p className="text-[11px] text-text-muted mb-2 leading-relaxed">
-        港/美股(含 ETF)行情快照走富途 OpenAPI REST。在{' '}
+        港/美股(含 ETF)行情快照走富途 OpenAPI REST(API Key 签名)。在{' '}
         <a href="https://open.futunn.com/dashboard" target="_blank" rel="noreferrer" className="text-accent hover:underline">open.futunn.com/dashboard</a>{' '}
-        创建 AppKey 并上传公钥(Ed25519/RSA-SHA256), 私钥 PEM 粘到下面 —— 只存本地库, 不回显。
+        创建 AppKey 时粘贴 Ed25519 公钥, 私钥 PEM 粘到下面 —— 只存本地库, 不回显。
         未配置或接口失败时自动回退免费源。
       </p>
+
       {cfg?.last_error && (
         <p className="text-[11px] text-bear mb-2">最近错误：{cfg.last_error}</p>
       )}

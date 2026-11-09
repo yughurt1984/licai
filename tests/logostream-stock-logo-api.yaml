@@ -1,0 +1,1082 @@
+openapi: 3.1.0
+info:
+  title: LogoStream Stock Logo API
+  version: 1.4.0
+  summary: Logos for stocks, banks, cryptocurrencies, commodities, currencies and
+    country flags.
+  description: >
+    Resolves a financial identifier to a logo image.
+
+
+    Supported identifiers are ISIN, WKN and ticker symbol for equities and
+    funds,
+
+    BIC and German Bankleitzahl for banks, plus symbols for cryptocurrencies,
+
+    commodities and their futures contracts, ISO currency codes and ISO country
+
+    codes.
+
+
+    ## Quick start
+
+
+    The shortest path is an image tag. No client library, no request code — put
+
+    the URL in `src` and the browser does the rest:
+
+
+    ```html
+
+    <img src="https://api.logostream.dev/stocks/isin/US0378331005?key=YOUR_KEY"
+         alt="Apple Inc." width="48" height="48">
+    ```
+
+
+    The same URL works anywhere an image URL is accepted, including CSS:
+
+
+    ```css
+
+    .logo-apple {
+      background-image: url("https://api.logostream.dev/stocks/isin/US0378331005?key=YOUR_KEY");
+    }
+
+    ```
+
+
+    An image tag cannot send request headers, so the key has to travel in the
+
+    query string for this to work. Be aware that it is then readable in the page
+
+    source of every page that serves it — see the security section below.
+
+
+    From a server, prefer the header instead:
+
+
+    ```bash
+
+    curl -H "X-API-Key: YOUR_KEY" \
+      https://api.logostream.dev/stocks/isin/US0378331005
+    ```
+
+
+    ## Response format
+
+
+    Every logo endpoint returns an **image**, not JSON. SVG is served directly
+
+    from object storage; raster formats are rendered on demand.
+
+
+    ## Missing logos
+
+
+    By default a request for an identifier without a logo still returns
+
+    **HTTP 200** with a generated monogram placeholder, so a page never shows a
+
+    broken image. Because that is indistinguishable from a real hit by status
+
+    code alone, every response carries an `X-Source` header, and placeholders
+
+    additionally carry `X-Fallback: 1` plus an `X-Fallback-Reason` naming why.
+
+
+    For coverage checks, add `fallback=none` to receive **HTTP 404** with an
+
+    empty body instead. Use this when you are measuring, not when you are
+
+    displaying.
+
+
+    ## Caching
+
+
+    Responses are sent with `Cache-Control: public, max-age=86400`. Logos are
+
+    stable; caching them aggressively is intended.
+  contact:
+    name: LogoStream
+    url: https://logostream.dev
+servers:
+  - url: https://api.logostream.dev
+    description: Production
+security:
+  - ApiKeyHeader: []
+  - ApiKeyQuery: []
+tags:
+  - name: Logos
+    description: Logo and flag retrieval.
+  - name: Account
+    description: Usage information for your own API key.
+  - name: Sync
+    description: Keeping a locally stored set of logos up to date.
+paths:
+  /stocks/{idType}/{identifier}:
+    get:
+      tags:
+        - Logos
+      operationId: getStockLogo
+      summary: Logo for an equity, fund, certificate or stock index
+      description: |
+        Resolves an ISIN, WKN or ticker symbol to a company logo.
+
+        For certificates, warrants and knock-outs the API resolves to the
+        underlying instrument, or to the issuer's logo where the issuer is
+        known.
+
+        ## Stock indices
+
+        576 stock indices are served from this same endpoint — there is no
+        separate `/indices/` path. Three ways in:
+
+        1. **Real ISIN**, where one exists — 123 of them do:
+           `/stocks/isin/DE0008469008` (DAX), `/stocks/isin/ES0SI0000005`
+           (IBEX 35).
+        2. **Synthetic key**, for the 453 indices that have no ISIN. The form
+           is `IDX_{SOURCE}_{SYMBOL}`, built from the exchange and the symbol:
+           `/stocks/isin/IDX_NSE_NIFTY`, `/stocks/isin/IDX_SP_SPX`. It goes in
+           the `isin` slot because that is where the key is stored; it is not
+           an ISIN and will not pass an ISO 6166 check digit test.
+        3. **Symbol**, either the full exchange-qualified form or a short one:
+           `/stocks/symbol/XETR:DAX`, `/stocks/symbol/IBEX35`.
+
+        **The full symbol always works. A short form does not always exist.**
+        482 indices carry at least one, but 94 candidates were deliberately
+        left out because they collide with a real listed company — `GD` is
+        General Dynamics, `HSI` is Heidrick & Struggles, `NDX` is Nordex, `AEX`
+        is Chubb. `DAX` is among them: it resolves to the Global X DAX Germany
+        ETF, not to the index. Serving the index there would silently change
+        what an existing caller gets back, so it does not happen.
+
+        If you are unsure whether a short form exists, use the
+        exchange-qualified symbol — it is defined for every index.
+
+        One index can hold more than one key: 12 of them carry several ISINs
+        (the DAX has one for the performance index and one for the price
+        index). Each key resolves to the same drawing.
+      parameters:
+        - name: idType
+          in: path
+          required: true
+          description: Type of the identifier in the next path segment.
+          schema:
+            type: string
+            enum:
+              - isin
+              - wkn
+              - symbol
+          example: isin
+        - name: identifier
+          in: path
+          required: true
+          description: |
+            ISIN, German WKN, or exchange ticker symbol. For stock indices also
+            the synthetic `IDX_{SOURCE}_{SYMBOL}` key (in the `isin` slot), or
+            an exchange-qualified symbol such as `XETR:DAX`.
+
+            Futures continuation symbols such as `CME_MINI:ES1!` or
+            `NSE:NIFTY1!` work either way: send the `!` literally or
+            percent-encoded as `%21`. `!` is a valid path character, so no
+            encoding is needed — but some HTTP clients add it on their own, and
+            both forms resolve to the same logo. Roughly a fifth of the 2,023
+            index symbols are continuation symbols.
+          schema:
+            type: string
+          example: US0378331005
+        - $ref: "#/components/parameters/format"
+        - name: variant
+          in: query
+          required: false
+          description: |
+            Which rendering of the logo to prefer. Omit for the standard square
+            icon.
+
+            If the requested variant does not exist for an instrument, the API
+            falls back to another variant rather than failing. Check
+            `X-Variant-Exact` to detect that.
+          schema:
+            type: string
+            enum:
+              - transparent
+              - xs
+              - logo
+          example: transparent
+        - $ref: "#/components/parameters/size"
+        - $ref: "#/components/parameters/fallback"
+        - $ref: "#/components/parameters/force"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/IfModifiedSince"
+      responses:
+        "200":
+          $ref: "#/components/responses/Image"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+        "404":
+          $ref: "#/components/responses/NoLogo"
+      x-codeSamples:
+        - lang: html
+          label: HTML
+          source: |
+            <img src="https://api.logostream.dev/stocks/isin/US0378331005?key=YOUR_KEY"
+                 alt="Apple Inc." width="48" height="48">
+
+            <!-- transparent background, 128px PNG -->
+            <img src="https://api.logostream.dev/stocks/isin/US0378331005?variant=transparent&format=png&size=128&key=YOUR_KEY"
+                 alt="Apple Inc.">
+        - lang: css
+          label: CSS
+          source: >
+            .logo-apple {
+              background-image: url("https://api.logostream.dev/stocks/isin/US0378331005?key=YOUR_KEY");
+              background-size: contain;
+            }
+        - lang: bash
+          label: curl
+          source: >
+            # header auth, preferred for server-to-server
+
+            curl -H "X-API-Key: YOUR_KEY" \
+              https://api.logostream.dev/stocks/isin/US0378331005 -o apple.svg
+
+            # query auth, equivalent
+
+            curl
+            "https://api.logostream.dev/stocks/isin/US0378331005?key=YOUR_KEY"
+            -o apple.svg
+        - lang: javascript
+          label: JavaScript
+          source: >
+            // Does a real logo exist? fallback=none turns a miss into a 404
+
+            // instead of the placeholder, so the check is a status code.
+
+            const res = await fetch(
+              'https://api.logostream.dev/stocks/isin/US0378331005?fallback=none',
+              { headers: { 'X-API-Key': 'YOUR_KEY' } }
+            )
+
+
+            if (res.ok) {
+              document.querySelector('#logo').src = URL.createObjectURL(await res.blob())
+            }
+
+
+            // Which asset was served, and was it the variant you asked for?
+
+            console.log(res.headers.get('X-Asset'),
+            res.headers.get('X-Variant-Exact'))
+  /banks/{idType}/{id}:
+    get:
+      tags:
+        - Logos
+      operationId: getBankLogo
+      summary: Logo for a bank
+      description: |
+        Resolves a BIC/SWIFT code or a German Bankleitzahl to a bank logo.
+
+        Banks are the one category with dedicated light and dark assets — see
+        the `mode` parameter.
+      parameters:
+        - name: idType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - bic
+              - blz
+          example: bic
+        - name: id
+          in: path
+          required: true
+          description: BIC/SWIFT code, or an 8-digit German Bankleitzahl.
+          schema:
+            type: string
+          example: COBADEFFXXX
+        - $ref: "#/components/parameters/format"
+        - name: variant
+          in: query
+          required: false
+          description: Square icon or wide wordmark. Defaults to `icon`.
+          schema:
+            type: string
+            enum:
+              - icon
+              - logo
+        - name: mode
+          in: query
+          required: false
+          description: |
+            Selects a light or dark asset where one exists. `light` and `white`
+            are equivalent, as are `dark` and `black`. Falls back to the
+            standard asset when the requested mode is unavailable.
+          schema:
+            type: string
+            enum:
+              - light
+              - white
+              - dark
+              - black
+          example: light
+        - $ref: "#/components/parameters/size"
+        - $ref: "#/components/parameters/fallback"
+        - $ref: "#/components/parameters/force"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/IfModifiedSince"
+      responses:
+        "200":
+          $ref: "#/components/responses/Image"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+        "404":
+          $ref: "#/components/responses/NoLogo"
+  /cryptos/{symbol}:
+    get:
+      tags:
+        - Logos
+      operationId: getCryptoLogo
+      summary: Logo for a cryptocurrency
+      description: |
+        Resolves a cryptocurrency ticker to its logo. Symbols are matched
+        case-insensitively.
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          description: Cryptocurrency ticker. Case-insensitive.
+          schema:
+            type: string
+          example: BTC
+        - $ref: "#/components/parameters/format"
+        - name: variant
+          in: query
+          required: false
+          description: |
+            Request the small icon. Available for roughly 1% of symbols — the
+            major ones such as BTC, ETH and SOL have it, most do not. Where it
+            is missing the standard icon is returned instead; check
+            `X-Variant-Exact` to tell the two apart.
+          schema:
+            type: string
+            enum:
+              - xs
+        - $ref: "#/components/parameters/size"
+        - $ref: "#/components/parameters/fallback"
+        - $ref: "#/components/parameters/force"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/IfModifiedSince"
+      responses:
+        "200":
+          $ref: "#/components/responses/Image"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+        "404":
+          $ref: "#/components/responses/NoLogo"
+  /commodities/{identifier}:
+    get:
+      tags:
+        - Logos
+      operationId: getCommodityLogo
+      summary: Logo for a commodity, by name, symbol or futures contract
+      description: |
+        Resolves a raw material to its logo — 90 commodities across metals,
+        energy, agriculture and chemicals.
+
+        Four kinds of identifier are accepted, tried in this order:
+
+        1. the canonical slug — `gold`, `crude-oil-wti`, `live-cattle`
+        2. a CFD symbol as brokers display it — `SOYBEAN`, `XAUUSD`
+        3. a futures root — `BGI`, `CL`, `ZW`
+        4. any contract form built from that root — `BGIV26`, `BGIV2026`,
+           `BGI1!`, `BGIc1`, `BGI=F`
+
+        Contract forms are parsed structurally rather than looked up, so a new
+        delivery month resolves the day it lists, without a change on either
+        side.
+
+        **Ambiguity is not guessed away.** Eighteen root symbols mean different
+        commodities on different exchanges. Thirteen of them return the
+        placeholder when queried bare — `BR`, `CB`, `CJ`, `CU`, `CY`, `EN`,
+        `GF`, `HC`, `MA`, `RT`, `SA`, `SF`, `SR` — because a wrong logo is
+        worse than none. The remaining five keep the contract the symbol is
+        commonly understood to mean: `PL` platinum, `RB` gasoline, `SI` silver,
+        `ZC` corn, `ZS` soybeans. In both cases `mic` selects the exchange
+        explicitly.
+
+        Only `variant=transparent` exists here; `xs` and `logo` fall back to
+        the standard icon.
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          description: |
+            Slug, CFD symbol, futures root or contract form. Case-insensitive.
+            Percent-encode `!` as `%21` in continuation symbols.
+          schema:
+            type: string
+          example: BGIV26
+        - name: mic
+          in: query
+          required: false
+          description: |
+            Exchange, for roots that mean different commodities in different
+            places. Takes the exchange code as TradingView spells it (`LME`,
+            `CBOT`, `NYMEX`, `ZCE`, `SHFE`), **not** an ISO 10383 MIC. An
+            unknown exchange returns the placeholder rather than falling back
+            to the bare lookup — a caller who names an exchange means it.
+          schema:
+            type: string
+          example: LME
+        - $ref: "#/components/parameters/format"
+        - name: variant
+          in: query
+          required: false
+          description: |
+            Request the version without the white ground. Commodities have no
+            `xs` icon and no wordmark; those values return the standard icon.
+          schema:
+            type: string
+            enum:
+              - transparent
+        - $ref: "#/components/parameters/size"
+        - $ref: "#/components/parameters/fallback"
+        - $ref: "#/components/parameters/force"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/IfModifiedSince"
+      responses:
+        "200":
+          $ref: "#/components/responses/Image"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+        "404":
+          $ref: "#/components/responses/NoLogo"
+  /forex/{currencyCode}:
+    get:
+      tags:
+        - Logos
+      operationId: getForexLogo
+      summary: Symbol for a currency
+      description: |
+        Resolves an ISO 4217 code to a currency symbol or flag. Covers fiat
+        currencies as well as precious metals such as `XAU` and `XAG`.
+
+        This endpoint has no variants — every currency is stored as a single
+        asset. Responses therefore always carry `X-Variant-Exact: 0`, which here
+        reflects the storage layout rather than a missing variant.
+      parameters:
+        - name: currencyCode
+          in: path
+          required: true
+          description: ISO 4217 currency code. Case-insensitive.
+          schema:
+            type: string
+          example: USD
+        - $ref: "#/components/parameters/format"
+        - $ref: "#/components/parameters/size"
+        - $ref: "#/components/parameters/fallback"
+        - $ref: "#/components/parameters/force"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/IfModifiedSince"
+      responses:
+        "200":
+          $ref: "#/components/responses/Image"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+        "404":
+          $ref: "#/components/responses/NoLogo"
+  /country/{code}:
+    get:
+      tags:
+        - Logos
+      operationId: getCountryFlag
+      summary: Flag for a country
+      description: |
+        Resolves an ISO 3166-1 alpha-2 country code to a flag. Use the `aspect`
+        parameter to choose the ratio.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: ISO 3166-1 alpha-2 country code. Case-insensitive.
+          schema:
+            type: string
+          example: DE
+        - $ref: "#/components/parameters/format"
+        - name: aspect
+          in: query
+          required: false
+          description: |
+            Aspect ratio of the flag. Only `1x1` (square) and `4x3` exist.
+
+            Unlike `format`, an unsupported value is **not** silently corrected:
+            the request resolves to nothing and returns the monogram placeholder
+            with `X-Fallback: 1`. Passing `16x9` therefore yields a grey tile,
+            not a flag.
+          schema:
+            type: string
+            enum:
+              - 1x1
+              - 4x3
+            default: 1x1
+          example: 1x1
+        - $ref: "#/components/parameters/size"
+        - $ref: "#/components/parameters/fallback"
+        - $ref: "#/components/parameters/force"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: "#/components/parameters/IfModifiedSince"
+      responses:
+        "200":
+          $ref: "#/components/responses/Image"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+        "404":
+          $ref: "#/components/responses/NoLogo"
+  /changes:
+    get:
+      tags:
+        - Sync
+      operationId: getChanges
+      summary: Identifiers whose logo has changed since a point in time
+      description: |
+        For clients that store logos locally. Returns the identifiers whose
+        served asset has changed since `since`, so a stored set can be refreshed
+        without re-downloading it.
+
+        Two fields decide whether the answer can be trusted as complete:
+
+        * **`truncated`** — `since` predates the retention horizon, so the set
+          is incomplete and a full refresh is required. Never read an empty
+          `changes` array as "nothing has changed" while this is `true`.
+        * **`feed_stale`** — the reconciliation against storage is overdue or a
+          run has stalled. File replacements may be missing from the set;
+          pointer changes are unaffected.
+
+        Two different latencies, and the difference matters when you plan your
+        sync:
+
+        * Changes to **which asset** an identifier resolves to — a corrected
+          mapping, a reassigned issuer logo — appear **within seconds**.
+        * Replacement of the **file itself** in storage is picked up by a
+          reconciliation sweep that runs **every 14 days**. For a faster signal
+          on those, revalidate with `If-None-Match` (see the image endpoints);
+          that is exact at any interval you choose.
+
+        Not cached (`Cache-Control: no-store`) — the answer depends on the
+        moment it is asked. Counts as one request, like any other call.
+      parameters:
+        - name: since
+          in: query
+          required: true
+          description: Start of the window, ISO 8601. Usually the timestamp of your last
+            successful sync.
+          schema:
+            type: string
+            format: date-time
+          example: 2026-09-01T00:00:00Z
+        - name: cursor
+          in: query
+          required: false
+          description: |
+            Opaque value from `next_cursor` of the previous page. Do not parse
+            or construct it.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Rows per page. Values above 1000 are capped.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        "200":
+          description: Changes in ascending order of `changed_at`.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - since
+                  - limit
+                  - truncated
+                  - feed_stale
+                  - changes
+                properties:
+                  since:
+                    type: string
+                    format: date-time
+                  limit:
+                    type: integer
+                  truncated:
+                    type: boolean
+                    description: |
+                      `since` predates the retention horizon. The set is
+                      incomplete — refresh everything rather than trusting it.
+                  oldest_available:
+                    type: string
+                    format: date-time
+                    description: Present only when `truncated` is true. Earliest point the feed can
+                      answer for.
+                  feed_stale:
+                    type: boolean
+                    description: |
+                      The reconciliation against storage is overdue, or a run
+                      has stalled. Treat an empty set as unknown, not as
+                      "nothing changed".
+                  next_cursor:
+                    type: string
+                    description: |
+                      Absent on the last page. Its presence is the only signal
+                      that another page follows.
+                  changes:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - identifier
+                        - category
+                        - change_type
+                        - changed_at
+                      properties:
+                        id:
+                          type: integer
+                        identifier:
+                          type: string
+                          description: The identifier you request the logo under, an ISIN for stocks.
+                          example: LT0000128092
+                        category:
+                          type: string
+                          enum:
+                            - stocks
+                            - banks
+                            - cryptos
+                            - forex
+                            - country
+                        asset_name:
+                          type: string
+                          nullable: true
+                          description: Matches `X-Asset` of the image response. Null for removals.
+                          example: LT0000128092_icon
+                        change_type:
+                          type: string
+                          enum:
+                            - added
+                            - updated
+                            - removed
+                          description: >
+                            `added` — there was no logo before, there is one
+                            now.
+
+                            `updated` — the served bytes are different.
+
+                            `removed` — the API now answers with the
+                            placeholder.
+                        changed_at:
+                          type: string
+                          format: date-time
+              example:
+                since: 2026-09-01T00:00:00Z
+                limit: 200
+                truncated: false
+                feed_stale: false
+                changes:
+                  - id: 8471
+                    identifier: LT0000128092
+                    category: stocks
+                    asset_name: LT0000128092_icon
+                    change_type: updated
+                    changed_at: 2026-09-14T09:12:44Z
+        "400":
+          description: "`since` is missing or unparsable, or `cursor` is invalid."
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+        "503":
+          description: |
+            The change log could not be read. Deliberately an error rather than
+            an empty list — an empty list would state "nothing has changed".
+          headers:
+            Retry-After:
+              schema:
+                type: string
+            X-Error:
+              schema:
+                type: string
+                enum:
+                  - upstream
+      x-codeSamples:
+        - lang: bash
+          label: curl
+          source: >
+            # everything that moved since the last sync, first page
+
+            curl -H "X-API-Key: YOUR_KEY" \
+              "https://api.logostream.dev/changes?since=2026-09-01T00:00:00Z&limit=500"
+        - lang: javascript
+          label: JavaScript
+          source: >
+            // Walk every page. next_cursor is absent on the last one.
+
+            let cursor = null
+
+            const changed = []
+
+
+            do {
+              const url = new URL('https://api.logostream.dev/changes')
+              url.searchParams.set('since', lastSync)
+              url.searchParams.set('limit', '1000')
+              if (cursor) url.searchParams.set('cursor', cursor)
+
+              const res = await fetch(url, { headers: { 'X-API-Key': 'YOUR_KEY' } })
+              if (!res.ok) throw new Error(`changes: HTTP ${res.status}`)
+              const page = await res.json()
+
+              // Both of these mean the set is not a complete answer.
+              if (page.truncated) throw new Error('window too old - refresh everything')
+              if (page.feed_stale) console.warn('reconciliation is behind - file changes may be missing')
+
+              changed.push(...page.changes)
+              cursor = page.next_cursor
+            } while (cursor)
+  /usage:
+    get:
+      tags:
+        - Account
+      operationId: getUsage
+      summary: Request volume for your API key
+      description: |
+        Returns the number of requests recorded for the calling key over the
+        last 30 days. Calling this endpoint does not count towards that total.
+      responses:
+        "200":
+          description: Usage summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key:
+                    type: string
+                    description: The key the figure refers to.
+                  period:
+                    type: string
+                    example: 30d
+                  total:
+                    type: integer
+                    description: Requests in the period.
+                    example: 148213
+              example:
+                api_key: your-api-key
+                period: 30d
+                total: 148213
+        "400":
+          description: Key is not in a valid format.
+        "401":
+          $ref: "#/components/responses/MissingKey"
+        "403":
+          $ref: "#/components/responses/InvalidKey"
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Preferred for server-to-server calls. Keeps the key out of proxy, CDN
+        and server access logs.
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: key
+      description: |
+        Required when embedding a logo directly with `<img src="...">`, because
+        an image tag cannot send request headers. Note that a key used this way
+        is visible in the page source of every page that serves it.
+  parameters:
+    format:
+      name: format
+      in: query
+      required: false
+      description: |
+        Output format. Defaults to `svg`, which is served directly from storage.
+        All other formats are rendered on demand from the same source asset and
+        are available for every endpoint.
+
+        An unrecognised value is **not** rejected: the API falls back to `svg`
+        and still answers with HTTP 200. A typo therefore yields an SVG rather
+        than an error — check the `Content-Type` of the response if that matters
+        to you.
+      schema:
+        type: string
+        enum:
+          - svg
+          - png
+          - webp
+          - jpg
+          - jpeg
+          - avif
+        default: svg
+      example: png
+    size:
+      name: size
+      in: query
+      required: false
+      description: |
+        Output width in pixels. Applies to raster formats only; SVG is
+        resolution-independent and ignores it.
+      schema:
+        type: string
+      example: "128"
+    fallback:
+      name: fallback
+      in: query
+      required: false
+      description: |
+        Set to `none` to receive HTTP 404 with an empty body instead of the
+        monogram placeholder. Intended for coverage checks over a list of
+        identifiers, not for display.
+      schema:
+        type: string
+        enum:
+          - none
+      example: none
+    force:
+      name: force
+      in: query
+      required: false
+      description: |
+        Set to `true` to bypass caches and re-resolve the identifier. Useful
+        immediately after a logo has been added or corrected. Slower; do not use
+        for normal traffic.
+      schema:
+        type: string
+        enum:
+          - "true"
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: |
+        Validator you received as `ETag` on an earlier response. A match is
+        answered with `304` and an empty body, so a client holding tens of
+        thousands of assets can check its stock without downloading it again.
+      schema:
+        type: string
+      example: '"9a0364b9e99bb480dd25e1f0284c8555"'
+    IfModifiedSince:
+      name: If-Modified-Since
+      in: header
+      required: false
+      description: |
+        `Last-Modified` value from an earlier response. Answered with `304` if
+        the asset has not been written since.
+      schema:
+        type: string
+      example: Mon, 14 Sep 2026 09:12:44 GMT
+  headers:
+    X-Source:
+      description: |
+        Which layer served the image: `R2` for a stored asset, `TwicPics` for an
+        on-demand rendering, `fallback` for the generated placeholder.
+      schema:
+        type: string
+        enum:
+          - R2
+          - TwicPics
+          - fallback
+    X-Asset:
+      description: |
+        Name of the asset that was actually served. Present on real hits only.
+      schema:
+        type: string
+      example: US0378331005_icon
+    X-Variant-Exact:
+      description: |
+        `1` if the served asset is the variant you asked for, `0` if the API
+        fell back to a different variant because the requested one does not
+        exist for this instrument. Present on real hits only.
+      schema:
+        type: string
+        enum:
+          - "1"
+          - "0"
+    X-Fallback:
+      description: |
+        Present and set to `1` only when no real logo was found. Absent on every
+        real hit — this is the reliable way to tell the two apart, since both
+        return HTTP 200 by default.
+      schema:
+        type: string
+        enum:
+          - "1"
+    X-Fallback-Reason:
+      description: |
+        Why the placeholder was returned. Present only alongside
+        `X-Fallback: 1`, never on a real hit.
+
+        * `unknown` — the identifier is not in our data.
+        * `ambiguous` — the identifier is known but means different
+          commodities on different exchanges, so returning one of them would
+          be a guess. Add the `mic` parameter to say which you mean.
+
+        Worth logging separately: `ambiguous` means the lookup very nearly
+        worked and one parameter fixes it, while `unknown` is a coverage gap.
+      schema:
+        type: string
+        enum:
+          - unknown
+          - ambiguous
+    Cache-Control:
+      description: Always `public, max-age=86400` for image responses.
+      schema:
+        type: string
+    ETag:
+      description: |
+        Validator for the served asset. Send it back as `If-None-Match` to
+        revalidate without downloading the image again.
+
+        Placeholders carry no `ETag` — a monogram is the statement "no logo
+        exists", not a stable asset. Were it given a validator, a client would
+        revalidate the absence instead of picking up the real logo once it
+        lands.
+      schema:
+        type: string
+      example: '"9a0364b9e99bb480dd25e1f0284c8555"'
+    Last-Modified:
+      description: When the served asset was last written. Real hits only.
+      schema:
+        type: string
+      example: Mon, 14 Sep 2026 09:12:44 GMT
+  responses:
+    Image:
+      description: |
+        The logo. Note that this is also returned when no logo exists, in which
+        case the body is a generated monogram placeholder and `X-Fallback: 1`
+        is set.
+      headers:
+        X-Source:
+          $ref: "#/components/headers/X-Source"
+        X-Asset:
+          $ref: "#/components/headers/X-Asset"
+        X-Variant-Exact:
+          $ref: "#/components/headers/X-Variant-Exact"
+        X-Fallback:
+          $ref: "#/components/headers/X-Fallback"
+        X-Fallback-Reason:
+          $ref: "#/components/headers/X-Fallback-Reason"
+        Cache-Control:
+          $ref: "#/components/headers/Cache-Control"
+        ETag:
+          $ref: "#/components/headers/ETag"
+        Last-Modified:
+          $ref: "#/components/headers/Last-Modified"
+      content:
+        image/svg+xml:
+          schema:
+            type: string
+        image/png:
+          schema:
+            type: string
+            format: binary
+        image/webp:
+          schema:
+            type: string
+            format: binary
+        image/jpeg:
+          schema:
+            type: string
+            format: binary
+        image/avif:
+          schema:
+            type: string
+            format: binary
+    NotModified:
+      description: |
+        The asset you already hold is still current. Returned when the
+        `If-None-Match` you sent matches the current validator, or the
+        `If-Modified-Since` is not older than the asset. The body is empty.
+
+        `X-Asset` and `X-Variant-Exact` are present here too: a revalidating
+        run exists precisely for that information, and losing it on the 304
+        would make the run pointless.
+      headers:
+        ETag:
+          $ref: "#/components/headers/ETag"
+        Last-Modified:
+          $ref: "#/components/headers/Last-Modified"
+        X-Asset:
+          $ref: "#/components/headers/X-Asset"
+        X-Variant-Exact:
+          $ref: "#/components/headers/X-Variant-Exact"
+        Cache-Control:
+          $ref: "#/components/headers/Cache-Control"
+    NoLogo:
+      description: |
+        No logo exists for this identifier. Returned only when `fallback=none`
+        was requested; the body is empty.
+      headers:
+        X-Fallback:
+          $ref: "#/components/headers/X-Fallback"
+        X-Fallback-Reason:
+          $ref: "#/components/headers/X-Fallback-Reason"
+        X-Source:
+          $ref: "#/components/headers/X-Source"
+    MissingKey:
+      description: No API key was supplied, in either the header or the query string.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+          example:
+            error: Missing API Key.
+    InvalidKey:
+      description: The supplied API key is not recognised.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+          example:
+            error: Invalid API Key.

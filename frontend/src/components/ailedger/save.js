@@ -67,7 +67,8 @@ async function saveFutures(d, ctx) {
   if (!product) throw new Error(`symbol_dict 里没有品种「${q}」(需先在品种库维护)`)
   const month = String(d.month || '').trim()
   if (!/^\d{4}$/.test(month)) throw new Error('合约月份应为 YYMM 四位数字')
-  const thscode = `${product.code}${month}${product.exchange ? '.' + product.exchange : ''}`.toUpperCase()
+  // symbol_dict.suffix 直接维护为同花顺后缀(SHF/CFE...), 原样拼接
+  const thscode = `${product.code}${month}${product.suffix ? '.' + product.suffix : ''}`.toUpperCase()
   const direction = (d.direction || 'LONG').toUpperCase() === 'SHORT' ? 'SHORT' : 'LONG'
   const lots = num(d.shares)
   const price = num(d.price)
@@ -94,7 +95,7 @@ async function saveFutures(d, ctx) {
     body: JSON.stringify({
       stock_code: thscode,
       stock_name: (product.name || product.code || '') + month,
-      asset_kind: isOpt ? 'opt' : 'fut',
+      main_assets_type: isOpt ? 'options' : 'futures',
       ...body,
     }),
   })

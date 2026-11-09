@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS holdings (
     direction SMALLINT CHECK (direction IN (0, 1)),  -- 1=多(LONG) 0=空(SHORT); 多头股票为 NULL(等价多)
     broker_id BIGINT,                    -- 本持仓券商 → brokers.id(brokers 主键是 BIGINT;
                                          --   读写边界映射成券商名, 应用层继续按名字消费)
-    asset_kind TEXT DEFAULT 'stock',     -- 引擎列(stock|fut|opt): 建仓时由 sub_assets_type 推导钉住 ——
+    main_assets_type TEXT DEFAULT 'common_share',  -- 引擎列(中类, 钉住): 建仓时取 assets_classify.main_assets_type
                                          --   大类命名归口 assets_classify, 算账分支不跟人工改分类漂移
     contract_multiplier DOUBLE PRECISION DEFAULT 1,  -- 期货/期权: 每手乘数, 建仓时钉住(流水每笔另有历史值;
                                          --   symbol_dict 是品种当前标准值, 重灌/调整不改写已钉住的)

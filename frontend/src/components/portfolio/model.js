@@ -3,7 +3,7 @@ import { currencyOfCode, fundCategoryOf, stockCategoryOf, stockMarketOfCode } fr
 
 // Normalize raw holding → unified row (股票 / 期货 T / 期权 O 同一管线)
 export function normalizeHolding(h) {
-  // 展示分类唯一标准: assets_classify.sub_assets_type → 大类/中类派生(后端透传), 不看 asset_kind(引擎列)
+  // 展示分类唯一标准: assets_classify.sub_assets_type → 大类/中类派生(后端透传), 不看 main_assets_type(引擎列, 钉住的衍生品判定)
   const rowType = typeOfSub(h.sub_assets_type, { assets_class: h.assets_class, main_assets_type: h.main_assets_type }) || 'A'
   const isShort = h.direction === 'SHORT'
   // 期货/期权/股票 都是双向(做多/做空), 没带方向时按做多兜底 —— 交易方向列统一展示
@@ -14,6 +14,7 @@ export function normalizeHolding(h) {
   const originalCostValue = h.original_cost_value ?? (h.cost_price * h.shares)
   return {
     id: `${rowType}-${h.stock_code}-${h.direction || ''}`,
+    src: 'holding',               // 行来源标记: holdings(/api/portfolio) —— 流水/编辑/加减仓走持仓链路
     type: rowType,
     category: rowType === 'A' ? stockCategoryOf(h) : rowType === 'F' ? fundCategoryOf(h.stock_name) : null,
     code: h.stock_code,
@@ -72,6 +73,7 @@ export function normalizeAsset(a) {
   const cat = key === 'F' ? fundCategoryOf(a.name) : null
   return {
     id: `${key}-${a.id}`,
+    src: 'asset',                 // 行来源标记: external_assets(/api/assets) —— 走场外链路
     type: key,
     category: cat,
     code: a.code,

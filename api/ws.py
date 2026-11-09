@@ -9,7 +9,11 @@ from services.market_data import (get_realtime_quotes, is_trading_day_active, ma
                                   split_stock_code)
 from services import feishu_notify
 from services.context import run_as_user, current_user_id
-from config import config
+
+
+# 推送间隔(引擎行为, 非部署配置): 盘内 5s / 盘外 60s
+_REFRESH_INTERVAL = 5
+_IDLE_INTERVAL = 60
 
 router = APIRouter()
 
@@ -90,8 +94,8 @@ def _push_interval(opened: dict, holdings: list[dict]) -> int:
     """持仓所在的任一市场正在交易 → 快刷新; 否则慢刷新。A 股不论持仓与否都按 A 股时段快刷(沿用原口径)。"""
     held = {split_stock_code(h.get("stock_code") or "")[0] for h in holdings or []}
     if opened.get("A") or any(opened.get(m) for m in held & {"HK", "US"}):
-        return config.refresh_interval
-    return config.idle_interval
+        return _REFRESH_INTERVAL
+    return _IDLE_INTERVAL
 
 
 async def price_monitor_loop():
@@ -132,7 +136,7 @@ async def price_monitor_loop():
                         "markets_open": opened,                    # {A, HK, US} 各自是否在连续交易时段
                     }, user_id=uid)
                     any_pushed = True
-            await asyncio.sleep(config.refresh_interval if any_pushed else config.idle_interval)
+            await asyncio.sleep(_REFRESH_INTERVAL if any_pushed else _IDLE_INTERVAL)
         except Exception as e:
             print(f"[monitor] Error: {e}")
             await asyncio.sleep(10)
@@ -184,7 +188,7 @@ async def backup_loop():
                     dst = backup_dir / f"licai_{today}.dump"
                     r = await asyncio.to_thread(
                         subprocess.run,
-                        [pg_dump, "--dbname", config.pg_dsn, "--file", str(dst),
+                        [pg_dump, "--dbname", os.environ.get("PG_DSN", "postgresql://postgres:postgres@localhost:5432/allassets"), "--file", str(dst),
                          "--format", "custom", "--schema", "ledger", "--schema", "market"],
                         capture_output=True, text=True, timeout=300)
                     if r.returncode == 0:

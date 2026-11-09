@@ -4,13 +4,14 @@ import { api, fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 import Tooltip from './Tooltip'
 import { AllocationDonut, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './portfolio/atoms'
-import { BUCKET_TO_CLASS, FAMILY_LABEL, TYPE_COLOR, TYPE_META, TYPE_ORDER } from './portfolio/constants'
+import { FAMILY_LABEL, TYPE_COLOR, TYPE_ORDER, TYPE_META, typeFromClassify } from './portfolio/constants'
 import { buildFamilyIndex, formatCurrencyMoney, riskFamiliesOf } from './portfolio/helpers'
 import { aggregate, normalizeAsset, normalizeHolding } from './portfolio/model'
 import { HoldingRow } from './portfolio/HoldingRow'
 import { PortfolioModals } from './portfolio/PortfolioModals'
 import { ClosedPositionsBlock, SummaryStrip } from './portfolio/summary'
 import { usePortfolioModals } from './portfolio/useModals'
+import { useAllAssetClasses } from './portfolio/forms/AssetClassPicker'
 
 // ============================================================
 // UnifiedPortfolio — replaces Portfolio + ExternalAssets
@@ -37,6 +38,37 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   const [hoverId, setHoverId] = useState(null)
   const [filter, setFilter] = useState('ALL')
   const [sortKey, setSortKey] = useState('mv')
+  // 顶部大类标签与 assets_classify 统一: 期货/期权同属 derivatives → 合并为一个「衍生品」tab;
+  // 其余大类(股票/基金/加密/理财/现金…)直接取 DB 大类名。typeFromClassify 映射不到的小类桶(TYPE_ORDER)兜底保留。
+  const { classOptions, rows: classRows } = useAllAssetClasses()
+  const classBuckets = useMemo(() => {
+    const m = {}
+    for (const r of (classRows || [])) {
+      const b = typeFromClassify(r)
+      if (b) (m[r.assets_class] = m[r.assets_class] || new Set()).add(b)
+    }
+    return m
+  }, [classRows])
+  const tabDefs = useMemo(() => {
+    const defs = []
+    const seen = new Set()
+    for (const [k, l] of classOptions) {
+      const buckets = classBuckets[k]
+      if (buckets && buckets.size) {
+        const arr = [...buckets]
+        defs.push({ key: k, label: l, buckets, color: TYPE_COLOR[arr[0]] || '#8a8378' })
+        arr.forEach(b => seen.add(b))
+      }
+    }
+    // 兜底: DB 里没有对应大类的展示桶(如机器人), 仍按原桶保留 tab
+    for (const t of TYPE_ORDER) {
+      if (!seen.has(t) && TYPE_META[t]) {
+        defs.push({ key: t, label: TYPE_META[t].label, buckets: new Set([t]), color: TYPE_COLOR[t] || '#8a8378' })
+      }
+    }
+    return defs
+  }, [classOptions, classBuckets])
+  const activeTab = filter === 'ALL' ? null : tabDefs.find(d => d.key === filter)
   // 九个弹窗/内联表单的开关(原来是九个同构 useState) —— 见 usePortfolioModals
   const { open, show, hide } = usePortfolioModals()
   const [thesisCodes, setThesisCodes] = useState(() => new Set())
@@ -138,8 +170,8 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   }, [holdings, assets])
 
   const filtered = useMemo(
-    () => filter === 'ALL' ? rows : rows.filter(r => r.type === filter),
-    [rows, filter]
+    () => (filter === 'ALL' || !activeTab) ? rows : rows.filter(r => activeTab.buckets.has(r.type)),
+    [rows, filter, activeTab]
   )
 
   const aShareTradingDay = tradingDay
@@ -155,8 +187,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
     }
     return m
   }, [realized])
-  // tabTypes: always show all types regardless of holdings
-  const tabTypes = TYPE_ORDER
+  // 顶部 tab 由 tabDefs 驱动(数据来自 assets_classify); 内容分组仍按桶(TYPE_ORDER)渲染
   // visibleTypes: from filtered rows — drives content section rendering
   const visibleTypes = TYPE_ORDER.filter(t => agg.groups[t])
 
@@ -266,25 +297,27 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   }
 
   const handleEdit = (row) => {
-    // A股/期货/期权都是 holdings —— 走 App 的 EditModal(支持期货手数/成本/最新价/删除);
-    // 其余是场外资产 → EditAssetRow
-    if (row.type === 'A' || row.type === 'T' || row.type === 'O') onEdit?.(row._raw)
+    // 持仓行(A股/期货/期权/基金, src=holding) → App 的 EditModal(shares/成本/最新价/删除);
+    // 其余是场外资产(src=asset) → EditAssetRow
+    if (row.src === 'holding') onEdit?.(row._raw)
     else show('edit', row._raw)
   }
   const handleAddLot = (row) => {
     if (row.type === 'A') return  // A股 走 TransactionHistory
     if (row.type === 'T' || row.type === 'O') return show('futLot', row._raw)  // 期货/期权: 同向 OPEN
+    if (row.src === 'holding') return onHistory?.(row._raw, 'BUY')  // 基金持仓: 买入=持仓流水预选 BUY
     show('addLot', row._raw)
   }
   const handleCloseLot = (row) => {
     if (row.type === 'T' || row.type === 'O') show('futClose', row._raw)       // 平仓 CLOSE
   }
   const handleReduceLot = (row) => {
-    if (row.type === 'A') return
+    if (row.src === 'holding') return onHistory?.(row._raw, 'SELL') // 基金持仓: 卖出=持仓流水预选 SELL
     show('reduce', row._raw)
   }
   const handleShowActions = (row) => {
     if (row.type === 'A') return
+    if (row.src === 'holding') return onHistory?.(row._raw)   // 基金持仓: 流水=position_actions(按代码)
     show('actions', row._raw)
   }
 
@@ -401,9 +434,9 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       <div className="px-3 md:px-6 py-2 border-b border-border flex justify-between items-center gap-3 flex-wrap"
         style={{ background: 'var(--color-surface-2)' }}>
         <div className="flex gap-1.5 flex-wrap">
-          {[['ALL', '全部'], ...tabTypes.map(t => [t, TYPE_META[t].label])].map(([k, l]) => {
+          {[['ALL', '全部'], ...tabDefs.map(d => [d.key, d.label])].map(([k, l]) => {
             const active = filter === k
-            const c = k === 'ALL' ? '#c8a876' : TYPE_COLOR[k]
+            const c = k === 'ALL' ? '#c8a876' : (tabDefs.find(d => d.key === k)?.color || '#8a8378')
             return (
               <button key={k} onClick={() => setFilter(k)}
                 className="px-2.5 py-[3px] rounded-md text-[12]px border transition-colors cursor-pointer"
@@ -424,10 +457,10 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
           </button>
           {/* 已选中具体类型时直接打开对应大类表单(表单内再选中类/币种); 只有 ALL 才出类型菜单。
               展示桶 → 大类(assets_classify.assets_class): 期货/期权同归 derivatives。 */}
-          <button onClick={() => show('add', filter === 'ALL' ? 'menu' : (BUCKET_TO_CLASS[filter] || 'menu'))}
-            title={filter !== 'ALL' ? `添加${TYPE_META[filter].label}` : undefined}
+          <button onClick={() => show('add', filter === 'ALL' ? 'menu' : filter)}
+            title={filter !== 'ALL' ? `添加${tabDefs.find(d => d.key === filter)?.label || ''}` : undefined}
             className="px-2.5 py-[3px] rounded-md text-[12]px border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer">
-            {filter !== 'ALL' ? `+ 添加${TYPE_META[filter].label}` : '+ 添加'}
+            {filter !== 'ALL' ? `+ 添加${tabDefs.find(d => d.key === filter)?.label || ''}` : '+ 添加'}
           </button>
         </div>
       </div>

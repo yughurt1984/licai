@@ -4,7 +4,7 @@
 - 代码映射: 项目标准码(600406.SH / HK.00700 / US.AAPL) ↔ tickflow symbol(600406.SH / 00700.HK / AAPL.US)
   —— A股段位完全一致原样透传, 港美前缀/后缀互换。
 - key/host: 优先设置页(app_config 全局键 tickflow_api_key / tickflow_api_host),
-  其次 .env(TICKFLOW_API_KEY / TICKFLOW_API_HOST 或 TICKFLOW_BASE_URL) → config.py。
+  其次 config.env(经 db.py 灌进 os.environ, 本模块直读)。
   免费 host(free-api.tickflow.org)无实时行情, 默认打付费 api.tickflow.org。
 - 源适配器: QuoteSource 协议(见 services/quote_source.py), 契约=绝不抛异常 ——
   未配置 key / 网络失败 / 部分码无数据都表现为返回列表里没有该码, 派发层据此按码兜底。
@@ -16,7 +16,6 @@ import time
 from typing import Optional
 
 import requests as _requests
-import config as _config
 
 from services.quote_source import QuoteRow  # 规范层模型(仅依赖 pydantic, 无循环导入)
 
@@ -43,7 +42,8 @@ async def _api_key() -> str:
     except Exception:
         pass
     if not key:
-        key = (getattr(_config, "tickflow_api_key", "") or "").strip()
+        # 读 Config 实例的属性(_config 是模块, key 在实例上 —— 之前误读模块导致 key 永远为空)
+        key = (os.environ.get("TICKFLOW_API_KEY") or "").strip()   # config.env 部署配置
     _key_cache[0], _key_cache[1] = key, time.time()
     return key
 
@@ -61,7 +61,7 @@ async def _host() -> str:
     if not host:
         host = (os.environ.get("TICKFLOW_API_HOST", "")
                 or os.environ.get("TICKFLOW_BASE_URL", "")
-                or getattr(_config, "tickflow_api_host", "") or "").strip()
+                or os.environ.get("TICKFLOW_API_HOST") or "").strip()
     host = (host or BASE).rstrip("/")
     _host_cache[0], _host_cache[1] = host, time.time()
     return host
@@ -145,6 +145,49 @@ def _quotes_sync(symbols: list[str], key: str, host: str) -> list[dict]:
         d = _get_sync("/v1/quotes", {"symbols": ",".join(chunk)}, key, host) or {}
         out.extend(d.get("data") or [])
     return out
+
+
+async def instruments(symbols: list[str]) -> Optional[list[dict]]:
+    """标的元数据(GET /v1/instruments, 批量逗号分隔, 自动分块)。
+
+    symbols 为标准码(600000.SH / 00700.HK / AAPL.US —— 与 tickflow 同构)。
+    返回 [{symbol, exchange, code, region, name?, type?, lot_size?}]; name 为上游可选字段,
+    缺名按"未命中"处理(查名称正是本接口的用途)。失败/未配置返回 None(best-effort)。
+    """
+    clean = [str(c or "").strip().upper() for c in symbols or [] if str(c or "").strip()]
+    if not clean:
+        return None
+    host = await _host()
+    key = await _api_key()
+    if not key and _FREE_HOST_MARK not in host:
+        return None            # 未配置 key: 静默让位(与行情同语义)
+    out: list[dict] = []
+    try:
+        for i in range(0, len(clean), 50):
+            d = await asyncio.to_thread(_get_sync, "/v1/instruments",
+                                        {"symbols": ",".join(clean[i:i + 50])}, key, host) or {}
+            data = d.get("data") or []
+            items = data.get("item") if isinstance(data, dict) else data
+            for it in items or []:
+                if not isinstance(it, dict):
+                    continue
+                sym = _from_tf_symbol(str(it.get("symbol") or ""))
+                if not sym:
+                    continue
+                ext = it.get("ext") or {}
+                out.append({
+                    "code": sym,
+                    "exchange": str(it.get("exchange") or "").upper(),
+                    "ticker": str(it.get("code") or "").upper(),
+                    "region": str(it.get("region") or "").upper(),
+                    "type": str(it.get("type") or "").lower(),
+                    "name": str(it.get("name") or "").strip(),
+                    "lot_size": (ext or {}).get("lot_size"),
+                })
+        return out or None
+    except Exception as e:
+        print(f"[tickflow] instruments 失败: {str(e)[:120]}")
+        return None
 
 
 # ── 解析 ───────────────────────────────────────────────────────────────────

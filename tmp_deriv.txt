@@ -1,4 +1,0 @@
-  File "<string>", line 1
-    import psycopg;c=psycopg.connect('postgresql://postgres:840510aa@localhost:5432/allassets');cur=c.cursor();cur.execute(\
-                                                                                                                          ^
-SyntaxError: '(' was never closed

@@ -91,10 +91,10 @@ async def main() -> int:
     ap.add_argument("--db", default="")
     args = ap.parse_args()
 
-    import config
+    import db
     if args.db:
-        config.config.pg_dsn = args.db
-    print(f"账本={config.config.pg_dsn}\n")
+        os.environ["PG_DSN"] = args.db
+    print(f"账本={os.environ.get("PG_DSN", "")}\n")
 
     from services import rule_forge as rf
     if args.clear_pending:

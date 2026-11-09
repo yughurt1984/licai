@@ -1,9 +1,9 @@
 """数据库测试夹具: SQLite 时代每个测试指向一个临时 .db 文件, PG 时代统一指向测试库
 licai_test(每个测试开始前把 ledger/market schema 整个 DROP 重建, 等效于换一个空库)。
 
-为什么测试库叫 licai_test: config.pg_dsn 指向的库(通常是 licai)留着给真实数据,
+为什么测试库叫 licai_test: PG_DSN 指向的库(通常是 allassets)留着给真实数据,
 测试要一个"随时可以整库砸掉重建"的地方 —— 断在半截的测试会留下脏数据, 绝不能落在
-真库上。默认从 config.pg_dsn 推导(库名 + _test 后缀); 想换一个库/实例时设环境变量:
+真库上。默认从 PG_DSN 推导(库名 + _test 后缀); 想换一个库/实例时设环境变量:
 
     set PG_DSN_TEST=postgresql://postgres:postgres@127.0.0.1:5432/licai_unittest
 
@@ -102,12 +102,11 @@ if not getattr(asyncio, "_licai_test_pool_guard", False):
 # ── 测试库 DSN 与清库 ──────────────────────────────────────
 
 def _test_dsn() -> str:
-    """测试库连接串。优先 config.pg_dsn_test(PG_DSN_TEST), 其次由 config.pg_dsn 推导
+    """测试库连接串。优先 PG_DSN_TEST 环境变量, 其次由 PG_DSN 推导
     (<库名>_test, 同实例的另一个库 —— 绝不碰真实账本库)。"""
-    from config import config
-    if config.pg_dsn_test:
-        return config.pg_dsn_test
-    parts = urlsplit(config.pg_dsn)
+    if os.environ.get("PG_DSN_TEST"):
+        return os.environ["PG_DSN_TEST"]
+    parts = urlsplit(os.environ.get("PG_DSN", "postgresql://postgres:postgres@localhost:5432/allassets"))
     dbname = parts.path.lstrip("/").split("/")[0] or "postgres"
     return urlunsplit((parts.scheme, parts.netloc, f"/{dbname}_test",
                        parts.query, parts.fragment))
@@ -166,7 +165,7 @@ def temp_db(monkeypatch):
     from database import init_db
     dsn = _test_dsn()
     asyncio.run(_teardown_pool())          # 改 DSN 前先关掉旧池, 避免跨 DSN 复用
-    monkeypatch.setattr("config.config.pg_dsn", dsn)
+    monkeypatch.setenv("PG_DSN", dsn)
     asyncio.run(_ensure_db(dsn))
     asyncio.run(_wipe_schemas(dsn))
     asyncio.run(init_db())

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import time
 from typing import Optional
@@ -17,7 +18,6 @@ from typing import Optional
 import requests as _requests
 from requests.adapters import HTTPAdapter as _HTTPAdapter
 
-from config import config
 from services.quote_source import QuoteRow  # 规范层模型(仅依赖 pydantic, 无循环导入)
 
 BASE = "https://fuyao.aicubes.cn"
@@ -84,7 +84,7 @@ async def _api_key() -> str:
     except Exception:
         pass
     if not key:
-        key = (config.ths_api_key or "").strip()
+        key = (os.environ.get("THS_API_KEY") or "").strip()   # config.env 部署配置
     _api_key_cache[0], _api_key_cache[1] = key, time.time()
     return key
 
@@ -160,6 +160,7 @@ async def contract_detail(thscode: str) -> Optional[dict]:
 
 _quote_cache: dict[str, tuple[Optional[dict], float]] = {}
 _QUOTE_TTL = 30
+_quote_fail_cache: dict[str, tuple[float, float]] = {}   # (ts, ttl) 负缓存: 失效合约(到期/退市/代码错)不再反复打 API
 _name_cache: dict[str, tuple[str, float]] = {}
 _NAME_TTL = 6 * 3600
 
@@ -208,16 +209,25 @@ async def quote(thscode: str) -> Optional[dict]:
     hit = _quote_cache.get(thscode)
     if hit and time.time() - hit[1] < _QUOTE_TTL:
         return hit[0]
+    # 负缓存: 此前查询失败(合约到期/退市/代码错)直接跳过, 不再反复打 API(频控 15/窗口)
+    _fc = _quote_fail_cache.get(thscode)
+    if _fc and time.time() - _fc[0] < _fc[1]:
+        return None
     try:
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
         kind = "options" if _looks_option(thscode) else "futures"
-        daily = await _get(f"/api/{kind}/prices/daily", {"thscode": thscode})
+        # 日K窗口: start=昨日起点(北京时间, t-1)留足昨收算涨跌幅, end=当前时刻(t); time_period=day_1(端外唯一允许)
+        _start = int((_dt.now(_tz(_td(hours=8))).replace(hour=0, minute=0, second=0, microsecond=0)
+                      - _td(days=1)).timestamp() * 1000)
+        _end = int(_dt.now(_tz.utc).timestamp() * 1000)
+        daily = await _get(f"/api/{kind}/prices/daily",
+                           {"thscode": thscode, "time_period": "day_1", "start": _start, "end": _end})
         klines = (daily or {}).get("item") or []
         closes = [float(k["close_price"]) for k in klines if k.get("close_price") is not None]
         if not closes:
             _quote_cache[thscode] = (None, time.time())
             return None
 
-        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
         today = (_dt.now(_tz.utc) + _td(hours=8)).strftime("%Y-%m-%d")
 
         def _bar_date(k: dict) -> str:
@@ -276,6 +286,9 @@ async def quote(thscode: str) -> Optional[dict]:
         return out
     except Exception as e:
         print(f"[ths_fuyao] quote {thscode} 失败: {str(e)[:120]}")
+        # 负缓存: "Target not found"(合约到期/退市/代码错, 一去不返)缓存 24h; 其它(网络抖动)缓存 60s
+        _perm = "Target not found" in str(e)
+        _quote_fail_cache[thscode] = (time.time(), 24 * 3600.0 if _perm else 60.0)
         return None
 
 
@@ -342,6 +355,33 @@ async def a_share_snapshot(thscodes: list[str]) -> Optional[list[dict]]:
     except Exception as e:
         print(f"[ths_fuyao] a-share snapshot 失败: {str(e)[:120]}")
         return None
+
+
+# ---- 品种目录(期货/期权 varieties, 标的信息源用) ----
+
+_varieties_cache: dict[str, tuple[list, float]] = {}
+_VARIETIES_TTL = 6 * 3600
+
+
+async def varieties_list(kind: str) -> list[dict]:
+    """期货/期权品种列表(GET /api/futures|options/varieties/list), 缓存 6h。
+
+    kind: 'futures' | 'options'。item 字段: variety_code/name/exchange_code/margin_rate/
+    trade_amount/contract_multiplier/tick_size...(见上游 docs futures/options-varieties)。
+    best-effort: 失败返回 []。
+    """
+    k = "options" if kind == "options" else "futures"
+    hit = _varieties_cache.get(k)
+    if hit and time.time() - hit[1] < _VARIETIES_TTL:
+        return hit[0]
+    try:
+        d = await _get(f"/api/{k}/varieties/list", {})
+        items = ((d or {}).get("item")) or []
+        _varieties_cache[k] = (items, time.time())
+        return items
+    except Exception as e:
+        print(f"[ths_fuyao] {k} varieties 失败: {str(e)[:120]}")
+        return []
 
 
 # ---- 基金(场内 ETF/LOF 行情快照 + 场外基金净值) ----
@@ -485,11 +525,13 @@ def is_etf_lof(code: str) -> bool:
 async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
     """fuyao 源适配器: 标准码 → 规范 QuoteRow(翻译在此完成, 不再散在派发层)。
 
-    三路分流: 期货/期权(thscode)逐只走 quote()(fuyao 无批量快照接口); 场内基金
-    (ETF/LOF)走批量 fund_snapshots; 其余 A股走批量 a_share_snapshot。
+    四路分流: 期货/期权(thscode)逐只走 quote()(fuyao 无批量快照接口); 场外基金(.OF)
+    逐只走 fund_nav(/api/fund/performance/nav, 净值 T+1); 场内基金(ETF/LOF)走批量
+    fund_snapshots; 其余 A股走批量 a_share_snapshot。
     契约: 不抛异常 —— 失败/无数据的码不出现在返回里, 派发层据此按码兜底。
     """
     fut_opt: list[str] = []
+    otc_fund: list[str] = []
     etf_lof: list[str] = []
     ashare: list[str] = []
     for c in codes:
@@ -498,6 +540,8 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
             continue
         if is_thscode(c):
             fut_opt.append(c)
+        elif c.endswith(".OF"):
+            otc_fund.append(c)      # 场外基金没有盘中价, 快照端点也不收 .OF 码
         elif is_etf_lof(c):
             etf_lof.append(c)
         else:
@@ -512,14 +556,30 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
                 code=code, market="FUT" if ths_kind(code) == "fut" else "OPT",
                 name=q.get("name") or "", price=float(q["price"]),
                 prev_close=q.get("prev_close"), change_pct=q.get("change_pct"),
-                currency="CNY", quote_time=q.get("quote_time") or "", source="fuyao")
+                currency="CNY", quote_time=q.get("quote_time") or "", source="ths")
         except Exception as e:
             print(f"[ths_fuyao] {code} quote 失败: {str(e)[:120]}")
+            return None
+
+    async def _one_of(code: str) -> Optional["QuoteRow"]:
+        # 场外基金: 单位净值即价格(nav=price), 昨净值即昨收; quote_time 用净值日期
+        try:
+            d = await fund_nav(code)
+            if not d or not d.get("nav"):
+                return None
+            return QuoteRow(
+                code=code, market="OF", price=float(d["nav"]),
+                prev_close=d.get("prev_nav"), change_pct=d.get("change_pct"),
+                currency="CNY", quote_time=d.get("nav_date") or "", source="ths")
+        except Exception as e:
+            print(f"[ths_fuyao] {code} fund nav 失败: {str(e)[:120]}")
             return None
 
     out: list[QuoteRow] = []
     ths_rows = await asyncio.gather(*(_one_ths(c) for c in fut_opt))
     out.extend(r for r in ths_rows if r)
+    of_rows = await asyncio.gather(*(_one_of(c) for c in otc_fund))
+    out.extend(r for r in of_rows if r)
 
     if etf_lof:
         try:
@@ -534,7 +594,7 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
                         prev_close=it.get("prev_close"),
                         volume=it.get("volume") or 0, amount=it.get("turnover") or 0,
                         change_pct=it.get("change_pct"), currency="CNY",
-                        quote_time=it.get("quote_time") or "", source="fuyao"))
+                        quote_time=it.get("quote_time") or "", source="ths"))
                 except Exception:
                     continue
         except Exception as e:
@@ -552,7 +612,7 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
                         open=it.get("open"), high=it.get("high"), low=it.get("low"),
                         prev_close=it.get("prev_close"),
                         volume=it.get("volume") or 0, amount=it.get("turnover") or 0,
-                        change_pct=it.get("change_pct"), currency="CNY", source="fuyao"))
+                        change_pct=it.get("change_pct"), currency="CNY", source="ths"))
                 except Exception:
                     continue
         except Exception as e:
@@ -561,7 +621,7 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
 
 
 class _FuyaoSource:
-    name = "fuyao"
+    name = "ths"        # 统一源名(与 assets_classify.data_source / 日志一致; 历史别名 fuyao 在注册表保留)
     asset_types = ("A", "FUT", "OPT")
 
     async def snapshot(self, codes: list[str]) -> list[QuoteRow]:

@@ -12,7 +12,6 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from config import config
 from database import init_db, get_config, set_config
 from services import llm_client
 from api.portfolio_routes import router as portfolio_router
@@ -34,7 +33,7 @@ for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"
 
 # 极简 .env 加载(不引第三方依赖): 只认 KEY=VALUE 行, 已在 os.environ 里的不覆盖。
 # 用于扩展数据源凭证等 secrets —— .env 被 .gitignore 挡着, 不进库。
-_envf = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+_envf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.env")   # 部署配置(与 db.py 加载同一文件)
 if os.path.exists(_envf):
     with open(_envf, encoding="utf-8") as _f:
         for _line in _f:
@@ -86,7 +85,7 @@ async def lifespan(app: FastAPI):
         _tasks.append(asyncio.create_task(dividend_sync_loop()))   # 派息全自动落账(6h 一轮)
     else:
         print("[startup] 纯 PG 模式(quote_auto_fetch=false): 跳过联网后台任务(早报/派息同步)")
-    print(f"全资产看板已启动: http://localhost:{config.port}")
+    print(f"全资产看板已启动: http://localhost:{os.environ.get('PORT', '8888')}")
     yield
     for _t in _tasks:
         _t.cancel()
@@ -219,7 +218,7 @@ async def icon512():
 if __name__ == "__main__":
     uvicorn.run(
         "run:app",
-        host=config.host,
-        port=config.port,
+        host=os.environ.get("HOST", "0.0.0.0"),
+        port=int(os.environ.get("PORT", "8888")),
         reload=False,
     )

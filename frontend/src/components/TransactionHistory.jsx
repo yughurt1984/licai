@@ -14,7 +14,7 @@ const ACTION_TYPES = [
 ]
 // 港美股另有拆股/合股: 价格栏填比例(1 拆 4 填 4, 10 合 1 填 0.1), 数量为 0, 不产生现金流
 const SPLIT_TYPE = { value: 'SPLIT', label: '拆股/合股' }
-const typesOf = (market) => market === 'A' ? ACTION_TYPES : [...ACTION_TYPES, SPLIT_TYPE]
+const typesOf = (market) => (market === 'A' || market === 'OF') ? ACTION_TYPES : [...ACTION_TYPES, SPLIT_TYPE]
 const FX_HINT = '成交汇率(1 外币 = ? 人民币), 可选; 留空按成交日中行牌价自动取, 填结单上的汇率更准'
 
 // 期货/期权(同花顺 thscode, 如 CU2601.SHF): 流水只有 开仓/平仓, 每笔带方向
@@ -34,13 +34,15 @@ const ACQUIRE_TYPES = new Set(['BUY', 'ADD', 'BONUS'])
 // 港美股流水按原币记: 价格、手续费都是港元/美元; 股数没有 100 股一手的规则
 const marketOf = (code) => {
   const c = String(code || '').toUpperCase()
-  return (c.endsWith('.HK') || c.startsWith('HK.')) ? 'HK' : (c.endsWith('.US') || c.startsWith('US.')) ? 'US' : 'A'
+  return (c.endsWith('.HK') || c.startsWith('HK.')) ? 'HK' : (c.endsWith('.US') || c.startsWith('US.')) ? 'US'
+    : c.endsWith('.OF') ? 'OF' : 'A'
 }
-const CCY = { A: '¥', HK: 'HK$', US: 'US$', FUT: '¥' }
+// 场外基金(.OF): 份额=金额÷净值天然小数; 净值 T+1 无盘中时刻约束; 币种人民币
+const CCY = { A: '¥', HK: 'HK$', US: 'US$', FUT: '¥', OF: '¥' }
 // 美股: 日期 = 美东交易日(券商成交记录上那天), 时刻按美东录入/展示; 后端 trade_time 统一存北京时间
 const US_DATE_HINT = '美东交易日 · 盈立成交记录上的日期; 北京时间凌晨成交算前一天'
 const TIME_HINT = { A: '成交时刻(可选), 留空用录入时间, 供分时图打点', HK: '成交时刻(可选), 留空用录入时间, 供分时图打点',
-  US: '美东成交时刻(可选, 如 09:35), 留空用录入时间, 供分时图打点' }
+  US: '美东成交时刻(可选, 如 09:35), 留空用录入时间, 供分时图打点', OF: '成交时刻(可选), 留空用录入时间' }
 const defaultDate = (market) => market === 'US' ? usTodayDate() : new Date().toISOString().slice(0, 10)
 // 展示/编辑用的时刻: 美股把北京时间换回美东(换不出来就原样)
 const localTime = (market, date, t) => {
@@ -55,6 +57,7 @@ const FEE_HINT = {
   HK: '按港股收费方案自动估算(默认盈立 PRO: 佣金 0.06% + 平台费 18 港元/单 + 印花税等法定费用), 港元',
   US: '按美股收费方案自动估算(默认盈立 PRO: 佣金 0.01 美元/股、最低 1 美元 + 平台费 0.009 美元/股、最低 2.88 美元; 卖出另加 SEC/TAF), 美元',
   FUT: '按券商「期货费/手」自动(未配则为 0), 手填覆盖优先',
+  OF: '场外基金手续费(申购费等), 手填; 留空为 0',
 }
 
 const DirectionBadge = ({ d }) => d ? (
@@ -133,7 +136,7 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
           className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] w-20 text-right font-mono mt-1 block text-text-dim"
           value={draft.fx_rate ?? ''} onChange={e => setDraft({ ...draft, fx_rate: e.target.value === '' ? null : (parseFloat(e.target.value) || 0), fx_set: true })} />}
       </td>
-      <td className="py-1.5 px-2"><input type="number" step={market === 'A' ? 100 : market === 'US' ? 'any' : 1} min={market === 'A' ? 100 : market === 'US' ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" value={draft.shares} onChange={e => setDraft({ ...draft, shares: parseFloat(e.target.value) || 0 })} /></td>
+      <td className="py-1.5 px-2"><input type="number" step={market === 'A' ? 100 : (market === 'US' || market === 'OF') ? 'any' : 1} min={market === 'A' ? 100 : (market === 'US' || market === 'OF') ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" value={draft.shares} onChange={e => setDraft({ ...draft, shares: parseFloat(e.target.value) || 0 })} /></td>
       <td className="py-1.5 px-2">
         <input type="number" step="0.01" min="0"
           placeholder={action.fee_auto != null ? `估 ${action.fee_auto.toFixed(2)}` : '0'}
@@ -346,7 +349,7 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
                         value={newAction.fx_rate ?? ''} onChange={e => setNewAction({ ...newAction, fx_rate: e.target.value })} />}
                     </td>
                     <td className="py-1.5 px-2">{newAction.action_type === 'SPLIT' ? <span className="text-[11px] text-text-dim">--</span>
-                      : <input type="number" step={market === 'A' && !isDeriv ? 100 : market === 'US' ? 'any' : 1} min={market === 'A' && !isDeriv ? 100 : market === 'US' ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="数量" value={newAction.shares} onChange={e => setNewAction({ ...newAction, shares: e.target.value })} />}</td>
+                      : <input type="number" step={market === 'A' && !isDeriv ? 100 : (market === 'US' || market === 'OF') ? 'any' : 1} min={market === 'A' && !isDeriv ? 100 : (market === 'US' || market === 'OF') ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="数量" value={newAction.shares} onChange={e => setNewAction({ ...newAction, shares: e.target.value })} />}</td>
                     <td className="py-1.5 px-2"><input type="number" step="0.01" min="0" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="自动估" value={newAction.fee ?? ''} onChange={e => setNewAction({ ...newAction, fee: e.target.value })} title={`留空 = 按券商费率自动估; 填值 = 实际手续费(单位 ${CCY[market]})`} /></td>
                     <td className="py-1.5 px-2"><input type="text" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-full" placeholder="备注" value={newAction.note} onChange={e => setNewAction({ ...newAction, note: e.target.value })} /></td>
                     <td className="py-1.5 px-2 text-center">

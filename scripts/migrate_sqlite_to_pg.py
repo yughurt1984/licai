@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncpg
 
-from config import config
+import db   # 加载 config.env → os.environ
 
 # 迁移顺序 = 导出顺序(无外键, 只是业务可读性)。kline_cache 在列 —— 数据一并搬,
 # 它是应用内的日K缓存, 搬过去第一天概念回溯/涨停回测就有数据可用。
@@ -100,9 +100,9 @@ async def reset_sequences(con: asyncpg.Connection, table: str):
 
 
 async def migrate(truncate: bool, check_only: bool) -> int:
-    sq = sqlite3.connect(config.db_path)
+    sq = sqlite3.connect(os.environ.get("DB_PATH", "portfolio.db"))
     sq.row_factory = sqlite3.Row
-    pg = await asyncpg.connect(config.pg_dsn)
+    pg = await asyncpg.connect(os.environ.get("PG_DSN", ""))
     ok = True
     try:
         # 确保表存在(应用还没启动过就先建 schema + 全部表)

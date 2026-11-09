@@ -62,7 +62,8 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
     lookupTimer.current = setTimeout(async () => {
       setNameLooking(true)
       try {
-        const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(bare)}`)
+        const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(bare)}` +
+          `&sub=${encodeURIComponent(matched?.sub_assets_type || '')}`)
         if (seq === lookupSeq.current && name) { setForm(f => ({ ...f, name })); return }
       } catch { /* 底表查不到, 走联网兜底 */ }
       try {
@@ -71,7 +72,7 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
       } catch { /* 查不到就留空, 用户可手填 */ }
       if (seq === lookupSeq.current) setNameLooking(false)
     }, 350)
-  }, [market])
+  }, [market, matched?.sub_assets_type])   // sub 进依赖: 名称查询把所选小类传给 instruments 路由
 
   // 换「资产类型×币种」组合 = 换市场: 清空待录入内容(与老版市场下拉同款行为)
   const lastSubRef = useRef(matched?.sub_assets_type)

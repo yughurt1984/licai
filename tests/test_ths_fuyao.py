@@ -47,7 +47,7 @@ def test_snapshot_rows_routes_etf_to_fund_endpoint(monkeypatch):
     assert all("513310" not in (params.get("thscodes") or "") for p, params in fake.calls
                if p == "/api/a-share/prices/snapshot")            # ETF 不进 A股端点
     by_code = {r.code: r for r in rows}
-    assert by_code["513310.SH"].price == 3.787 and by_code["513310.SH"].source == "fuyao"
+    assert by_code["513310.SH"].price == 3.787 and by_code["513310.SH"].source == "ths"
     assert by_code["600406.SH"].price == 8.5
 
 

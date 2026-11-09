@@ -12,7 +12,7 @@ class HoldingCreate(BaseModel):
     broker: Optional[str] = None
     fx_rate: Optional[float] = None   # 港美股成交日汇率(每 1 原币折人民币), 按结单填; 不填按成交日自动取
     fee: Optional[float] = None       # 手续费(CNY); 不填由 estimate_trade_fee 按费率自动算
-    asset_kind: Optional[str] = None  # stock(默认) | fut(期货) | opt(期权) — 期货/期权走开仓语义
+    main_assets_type: Optional[str] = None  # 中类(common_share/futures/options/...): 钉住的引擎列; 期货/期权走开仓语义
     direction: Optional[str] = None   # LONG(多) | SHORT(空) — 期货/期权必带; 股票做空传 SHORT(多头不落方向)
     contract_multiplier: Optional[float] = None  # 每手乘数(沪铜 5 / 期权合约单位 10000)
     sub_assets_type: Optional[str] = None  # 资产小类(assets_classify 键): 落库并由它推导大类/引擎列
@@ -49,7 +49,7 @@ class HoldingResponse(BaseModel):
     fx_pnl: Optional[float] = None      # 港美股: 浮动盈亏里本金的汇兑部分(原币成本×现汇率 − 按成交日汇率的人民币成本)
     sector: Optional[str] = None  # 顶级行业, e.g. "有色金属" / "汽车" — 用于前端分组
     broker: Optional[str] = None
-    asset_kind: Optional[str] = None              # stock | fut | opt — 引擎列(账本/报价行为), 展示分类一律看 sub_assets_type
+    main_assets_type: Optional[str] = None         # 中类(common_share/futures/options/...): 钉住的引擎列; 展示分类一律看 sub_assets_type
     sub_assets_type: Optional[str] = None         # 资产小类(assets_classify 键) — 前后端资产类型识别的唯一标准
     assets_class: Optional[str] = None             # 大类(stock/fund/...), 来自 assets_classify, 前端展示分类派生源
     main_assets_type: Optional[str] = None         # 中类(mm_fund/futures/...); 衍生品按它拆 期货/期权

@@ -82,3 +82,8 @@ tests/test_eval_cases_conv.py
 
 # --- PostgreSQL (本地一次性测试实例的数据目录) ---
 scripts/.tmp_pgdata/
+
+# futu API 私钥(绝不入库)
+futu_*.pem
+*_ed25519.pem
+config.env

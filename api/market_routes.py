@@ -10,25 +10,96 @@ from services.market_data import normalize_stock_code, get_realtime_quotes
 router = APIRouter(prefix="/api/market", tags=["market"])
 
 
-@router.get("/symbol-name")
-async def symbol_name(code: str = ""):
-    """添加股票的名称自动匹配: 优先按 symbol_dict.ticker(裸码, 如 600111)匹配,
-    退回按 code(数据源标准格式 600111.SH)匹配。纯本地零联网, 查不到返回 null。"""
-    bare = str(code or "").strip().upper()
-    if not bare:
-        return {"name": None, "code": None}
+
+# ── 标准码拼接: assets_classify.code_suffix 驱动 ──────────────────────────
+# 小类 → 市场后缀(如 HK/US/JP/OF)从 DB 读取(60s 缓存)。
+# code_suffix = 'AUTO' 或 NULL → A股等码形推市场的小类, 走 normalize_stock_code 码形推断。
+_suffix_cache: dict = {"data": {}, "ts": 0.0}
+
+
+async def _get_code_suffixes() -> dict:
+    """{sub_assets_type: code_suffix} 从 assets_classify 读取, 60s 缓存。"""
+    import time as _t
+    if _suffix_cache["data"] and _t.time() - _suffix_cache["ts"] < 60:
+        return _suffix_cache["data"]
     from database import get_db
     db = await get_db()
     try:
+        cur = await db.execute(
+            "SELECT sub_assets_type, code_suffix FROM assets_classify "
+            "WHERE code_suffix IS NOT NULL AND code_suffix <> ''")
+        data = {r[0]: r[1].strip().upper() for r in await cur.fetchall()}
+    except Exception:
+        data = {}
+    _suffix_cache["data"] = data
+    _suffix_cache["ts"] = _t.time()
+    return data
+
+
+def _build_standard_code(bare: str, suffix: str) -> str:
+    """裸码 + 市场后缀 → 标准码(统一拼接, 不再按码形硬编码)。"""
+    body = bare.split(".")[0] if "." in bare else bare
+    if suffix == "HK" and body.isdigit():
+        body = body.zfill(5)                              # 港股补前导零
+    return f"{body}.{suffix}"
+
+
+@router.get("/symbol-name")
+async def symbol_name(code: str = "", sub: str = ""):
+    """添加资产的名称自动匹配(两级):
+
+    ① symbol_dict 底稿: 按 ticker(裸码, 如 600111) → code(标准格式 600111.SH), 纯本地零联网;
+    ② 底稿未命中(新上市标的) → 按表单所选小类(sub_assets_type)路由 instruments 源
+       (assets_classify.main_instruments_source → back; tickflow=股/ETF/港美股,
+       ths=期货/期权品种)获取元数据 → 立即回显, 后台写入 symbol_dict(下次起纯本地)。
+    查无此标的(或源未配置)返回 name=null, 不落库。
+    """
+    bare = str(code or "").strip().upper()
+    sub_name = str(sub or "").strip()
+    if not bare:
+        return {"name": None, "code": None}
+
+    # ① 标准码: code_suffix 驱动(assets_classify.code_suffix → 市场后缀), 统一拼接
+    suffixes = await _get_code_suffixes()
+    suffix = suffixes.get(sub_name, "")
+    if suffix:
+        std = _build_standard_code(bare, suffix)
+    elif "otc" in sub_name:
+        std = bare + ".OF" if "." not in bare else bare.upper()   # OTC 基金 .OF 后缀(老数据/未配置 code_suffix)
+    else:
+        std = normalize_stock_code(bare)
+    body = std.split(".")[0] if "." in std else std
+
+    from database import get_db, save_symbol_dict
+    db = await get_db()
+    try:
         # 大小写不敏感: 库里存 cu / aapl / 600406.sh 都能命中(美股 ticker 尤其常见小写)
-        cur = await db.execute("SELECT name, code FROM symbol_dict WHERE UPPER(ticker) = ? LIMIT 1", (bare,))
+        cur = await db.execute("SELECT name, code FROM symbol_dict WHERE UPPER(ticker) = ? LIMIT 1", (body,))
         r = await cur.fetchone()
         if r is None:
-            cur = await db.execute("SELECT name, code FROM symbol_dict WHERE UPPER(code) = ? LIMIT 1", (bare,))
+            cur = await db.execute("SELECT name, code FROM symbol_dict WHERE UPPER(code) = ? LIMIT 1", (std,))
             r = await cur.fetchone()
-        return {"name": r[0] if r else None, "code": r[1] if r else None}
+        if r is not None:
+            return {"name": r[0] if r else None, "code": r[1] if r else None}
     finally:
         await db.close()
+
+    # ② instruments 源获取(底稿未命中); 逐源状态透传给前端(缺 key/未配置一眼可见)
+    from services import instruments
+    row, sources = await instruments.fetch_instrument_diag(sub_name, std)
+    if not row or not row.get("name"):
+        return {"name": None, "code": None,
+                "sources": [{"source": n, "status": st} for n, st in sources]}
+    try:
+        # 落库与响应同请求内 await(单行 upsert 毫秒级; create_task 跨响应会被循环关闭取消)
+        await save_symbol_dict([(
+            row["code"], row["name"], row.get("ticker") or "", sub_name,
+            row.get("suffix") or "", row.get("trade_amount"), row.get("margin_rate"),
+            row.get("source"))])
+    except Exception as e:
+        print(f"[symbol-name] 底稿登记失败(不影响回显): {e}")
+    return {"name": row["name"], "code": row["code"], "fetched": True,
+            "sources": [{"source": n, "status": st} for n, st in sources]}
 
 
 @router.get("/asset-classes")
@@ -42,7 +113,7 @@ async def asset_classes(assets_class: str = ""):
     db = await get_db()
     try:
         sql = ("SELECT assets_class, assets_class_name, main_assets_type, assets_type_name, "
-               "sub_assets_type, sub_assets_type_name, currency, trade, risk_level "
+               "sub_assets_type, sub_assets_type_name, currency, valuation_type, risk_level "
                "FROM assets_classify")
         params: list = []
         if assets_class.strip():
@@ -53,6 +124,20 @@ async def asset_classes(assets_class: str = ""):
         return {"items": [dict(r) for r in await cur.fetchall()]}
     finally:
         await db.close()
+
+
+@router.get("/quote/{code}")
+async def market_quote(code: str):
+    """单标的报价(前端名称兜底/行情查看): PG 优先(quote_latest), 缺行冷启动联网一次。
+
+    返回 get_realtime_quotes 形状的 quote(stock_code/stock_name/price/...);
+    标的不可得时 stock_name 为 null。
+    """
+    from services.market_data import get_realtime_quotes, normalize_stock_code
+    std = normalize_stock_code(code)
+    quotes = await get_realtime_quotes([std])
+    r = quotes.get(std) or (next(iter(quotes.values()), {}) if quotes else {})
+    return r or {"stock_code": std, "stock_name": None}
 
 
 class MarketRefreshReq(BaseModel):

@@ -8,7 +8,6 @@ asyncpg/PG 方言。日期/时间戳列(purchase_date/created_at/updated_at/quot
 """
 from __future__ import annotations
 from db import get_conn
-from config import config
 from services.context import current_user_id
 
 
@@ -76,8 +75,8 @@ CREATE TABLE IF NOT EXISTS holdings (
     direction SMALLINT CHECK (direction IN (0, 1)),  -- 1=多(LONG) 0=空(SHORT); 多头股票为 NULL(等价多)
     broker_id BIGINT,                    -- 本持仓券商 → brokers.id(brokers 主键是 BIGINT;
                                          --   读写边界映射成券商名, 应用层继续按名字消费)
-    asset_kind TEXT DEFAULT 'stock',     -- 引擎列(stock|fut|opt): 建仓时由 sub_assets_type 推导钉住 ——
-                                         --   大类命名归口 assets_classify, 算账分支不跟人工改分类漂移
+    main_assets_type TEXT DEFAULT 'common_share',  -- 引擎列(中类, 钉住): 建仓时取 assets_classify.main_assets_type,
+                                                  --   不再由 sub→main 推导; 算账分支不跟人工改分类漂移
     contract_multiplier DOUBLE PRECISION DEFAULT 1,  -- 期货/期权: 每手乘数, 建仓时钉住(流水每笔另有历史值;
                                          --   symbol_dict 是品种当前标准值, 重灌/调整不改写已钉住的)
     last_price NUMERIC(18,6),            -- 期权最新价兜底(行情不可达时手填); 期货走报价管线不落这
@@ -188,7 +187,7 @@ CREATE TABLE IF NOT EXISTS external_assets (
     redeem_fee_tiers TEXT,               -- 基金赎回费阶梯 JSON [[天数, 费率], ...]
     contract_multiplier DOUBLE PRECISION DEFAULT 1,  -- FUT/OPT: 每手乘数(沪铜 5吨/手; 期权合约单位), 市值=价×乘数×手数
     sub_assets_type TEXT,                -- 资产小类(assets_classify 键): 分类统一命名归口目录;
-                                         --   trade=t 的资产不落本表(走 holdings), 创建时已校验
+                                         --   valuation_type=quote/nav 的资产不落本表(走 holdings), 创建时已校验
     broker TEXT,
     closed SMALLINT DEFAULT 0,           -- 平仓归档: 1 = 退出在持
     closed_realized DOUBLE PRECISION,    -- 平仓时已实现盈亏(CNY)
@@ -275,21 +274,26 @@ CREATE TABLE IF NOT EXISTS watchlist_group (
 -- 币种/保证金率/开平仓费率都从那边按小类取。
 CREATE TABLE IF NOT EXISTS symbol_dict (
     code TEXT PRIMARY KEY,               -- 股票: 600111.SH / 00700.HK; 期货/期权品种: CU / IO(品种级, 合约按品种+月份拼)
-    name TEXT NOT NULL,
     ticker TEXT,                         -- 裸码: 600111 / 00700 / CU(搜股匹配键)
+    name TEXT NOT NULL,
     sub_assets_type TEXT NOT NULL,       -- 资产小类 → assets_classify.sub_assets_type(a_comm_stock/cn_futures/...)
-    exchange TEXT,                       -- 交易所: SH/SZ/BJ/HKEX/SHF/DCE/CZCE/CFE/INE/GFEX...
+    suffix TEXT,                         -- 标准码后缀(点号后段): SH/SZ/BJ/HK/US/SHF/DCE/CZC/CFE/INE/GFE...
     industry_sw TEXT,                    -- 申万行业
     industry_gics TEXT,                  -- GICS 行业
     trade_amount INTEGER,                -- 每手数量/合约乘数(期货品种行): 沪铜 5 / 期权 10000
+    margin_rate DOUBLE PRECISION,        -- 保证金率(品种级, 0.10=10%; ths varieties 回填/人工维护)
+    open_fee_rate DOUBLE PRECISION,      -- 开仓费率(比例, ×名义金额, 0.0001=万一)
+    close_fee_rate DOUBLE PRECISION,     -- 平昨费率(比例)
+    close_today_fee_rate DOUBLE PRECISION, -- 平今费率(比例)
+    data_source TEXT,                    -- 信息来源(最后更新本行的源): tickflow/ths/futu/import; 空=老数据未记录
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_symbol_dict_sub_assets_type ON symbol_dict(sub_assets_type);
-CREATE INDEX IF NOT EXISTS idx_symbol_dict_exchange ON symbol_dict(exchange);
+CREATE INDEX IF NOT EXISTS idx_symbol_dict_suffix ON symbol_dict(suffix);
 
 -- 资产分类目录(**人工维护**): 三级分类(大类/中类/小类) + 每小类的计价币种、交易属性与费率。
 -- symbol_dict.sub_assets_type → 本表 sub_assets_type(PK)。新增一类资产改这张表, 不改代码。
--- 费率是比例口径(× 名义金额, 0.0001 = 万一); margin_rate 小数(0.10 = 10%)。
+-- 保证金率/开平仓费率是品种级参数, 归口 symbol_dict(margin_rate/open_fee_rate/...), 不在本表。
 CREATE TABLE IF NOT EXISTS assets_classify (
     assets_class TEXT NOT NULL,          -- 大类: stock/fund/fix-income/commodity/crypto/derivatives/cash_equal/forex/insurance
     assets_class_name TEXT NOT NULL,
@@ -298,14 +302,14 @@ CREATE TABLE IF NOT EXISTS assets_classify (
     sub_assets_type TEXT NOT NULL,       -- 小类(关联键): a_comm_stock/cn_etf_fund/cn_futures/crypto_spot...
     sub_assets_type_name TEXT NOT NULL,
     currency TEXT,                       -- 计价货币: CNY/HKD/USD/'U'(USDT)
-    trade BOOLEAN,                       -- 是否可交易
+    valuation_type TEXT,                 -- 估值类型: quote(市价→holdings) / nav(净值→holdings) /
+                                         --   yield(固定收益→场外) / manual(手动→场外); 决定表单与账本
     asset_owner TEXT,
     risk_level TEXT,
-    data_source TEXT,                    -- 行情/数据源: ths/...
-    margin_rate DOUBLE PRECISION,        -- 保证金率(期货/期权/合约类)
-    open_fee_rate DOUBLE PRECISION,      -- 开仓费率(比例)
-    close_fee_rate DOUBLE PRECISION,     -- 平昨费率(比例)
-    close_today_fee_rate DOUBLE PRECISION, -- 平今费率(比例)
+    main_quote_source TEXT,              -- 主报价源(人工维护): ths/futu/tickflow/sina... 无则该小类无报价
+    back_quote_source TEXT,              -- 备报价源(人工维护): main 没拿到的码交给它; 之后落 sina(全局兜底, 选A保留)
+    main_instruments_source TEXT,        -- 主标的信息源(人工维护): tickflow(股/ETF/港美股) / ths(期货/期权品种)
+    back_instruments_source TEXT,        -- 备标的信息源(人工维护)
     PRIMARY KEY (sub_assets_type)
 );
 CREATE INDEX IF NOT EXISTS idx_assets_classify_assets_class ON assets_classify(assets_class);
@@ -661,6 +665,10 @@ async def init_db():
         await _align_date_column_types(db)
         await _ensure_schema_columns(db)
         await _migrate_code_format(db)
+        await _migrate_quote_sources(db)
+        await _migrate_fees_to_symbol_dict(db)
+        await _migrate_code_suffix(db)
+        await _migrate_exchange_to_suffix(db)
     finally:
         await db.close()
 
@@ -669,6 +677,16 @@ async def init_db():
 # 拿到新列 —— 这里按清单补齐。(表, 列, 列型 DDL)
 _EXTRA_COLUMNS = [
     ("external_assets", "sub_assets_type", "TEXT"),   # 资产小类: 分类路由(trade)与统一命名归口目录
+    ("assets_classify", "back_quote_source", "TEXT"),       # 备报价源(main 没拿到的码交给它)
+    ("assets_classify", "main_instruments_source", "TEXT"), # 主标的信息源(tickflow/ths varieties)
+    ("assets_classify", "back_instruments_source", "TEXT"), # 备标的信息源
+    ("symbol_dict", "margin_rate", "DOUBLE PRECISION"),         # 保证金率(品种级)
+    ("symbol_dict", "open_fee_rate", "DOUBLE PRECISION"),       # 开仓费率(比例)
+    ("symbol_dict", "close_fee_rate", "DOUBLE PRECISION"),      # 平昨费率(比例)
+    ("symbol_dict", "close_today_fee_rate", "DOUBLE PRECISION"),# 平今费率(比例)
+    ("symbol_dict", "data_source", "TEXT"),                     # 信息来源(tickflow/ths/futu/import)
+    ("assets_classify", "code_suffix", "TEXT"),                 # 标准码市场后缀(HK/US/JP/OF; A股留空=码形推)
+    ("assets_classify", "valuation_type", "TEXT"),              # 估值类型 quote/nav/yield/manual(值人工维护)
 ]
 
 
@@ -680,6 +698,142 @@ async def _ensure_schema_columns(db) -> None:
         if not (await cur.fetchone())[0]:
             await db.execute(f'ALTER TABLE ledger."{table}" ADD COLUMN "{col}" {ddl}')
             print(f"[db] {table}.{col}: 已补列({ddl})")
+
+
+async def _migrate_exchange_to_suffix(db) -> None:
+    """symbol_dict.exchange → suffix(标准码后缀)。列改名, 兼容老库(手动未改或测试库)场景。幂等。"""
+    try:
+        cur = await db.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='ledger' AND table_name='symbol_dict'")
+        cols = {r[0] for r in await cur.fetchall()}
+        if "exchange" in cols and "suffix" not in cols:
+            await db.execute("ALTER TABLE ledger.symbol_dict RENAME COLUMN exchange TO suffix")
+            await db.execute("DROP INDEX IF EXISTS idx_symbol_dict_exchange")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_symbol_dict_suffix ON ledger.symbol_dict(suffix)")
+            print("[db] symbol_dict.exchange → suffix")
+        elif "suffix" in cols and "exchange" not in cols:
+            # 已改名, 仅确保索引形态(老库可能仍叫 idx_symbol_dict_exchange)
+            await db.execute("DROP INDEX IF EXISTS idx_symbol_dict_exchange")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_symbol_dict_suffix ON ledger.symbol_dict(suffix)")
+        await db.commit()
+    except Exception as e:
+        print(f"[db] 迁移 exchange→suffix 跳过(不挡启动): {str(e)[:160]}")
+
+
+# 费率字段迁移: 保证金率/开平仓费率是品种级参数(沪铜 vs 螺纹各不同), 从 assets_classify
+# (小类级, 全部期货共用一个值 —— 粒度错了)归位到 symbol_dict 品种行。
+async def _migrate_fees_to_symbol_dict(db) -> None:
+    """① 把 assets_classify 期货/期权小类的非空费率摊到同小类的 symbol_dict 品种行(仅填空);
+    ② 无品种行可摊的(如 crypto_perpetual)打日志留痕; ③ 删除 assets_classify 四列。"""
+    cur = await db.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema='ledger' AND table_name='assets_classify'")
+    cols = {r[0] for r in await cur.fetchall()}
+    if "margin_rate" not in cols:
+        return                                    # 已迁移过(列已删), 幂等出口
+    rate_cols = ("margin_rate", "open_fee_rate", "close_fee_rate", "close_today_fee_rate")
+    try:
+        await db.execute(
+            "UPDATE ledger.symbol_dict s SET margin_rate = c.margin_rate, "
+            "open_fee_rate = c.open_fee_rate, close_fee_rate = c.close_fee_rate, "
+            "close_today_fee_rate = c.close_today_fee_rate "
+            "FROM ledger.assets_classify c "
+            "WHERE c.sub_assets_type = s.sub_assets_type AND s.margin_rate IS NULL "
+            "AND (c.margin_rate IS NOT NULL OR c.open_fee_rate IS NOT NULL "
+            "     OR c.close_fee_rate IS NOT NULL OR c.close_today_fee_rate IS NOT NULL)")
+        leftover = await db.execute(
+            "SELECT sub_assets_type, margin_rate, open_fee_rate FROM ledger.assets_classify "
+            "WHERE (margin_rate IS NOT NULL OR open_fee_rate IS NOT NULL "
+            "       OR close_fee_rate IS NOT NULL OR close_today_fee_rate IS NOT NULL) "
+            "AND NOT EXISTS (SELECT 1 FROM ledger.symbol_dict s "
+            "                WHERE s.sub_assets_type = ledger.assets_classify.sub_assets_type)")
+        lost = [tuple(r) for r in await leftover.fetchall()]
+        for col in rate_cols:
+            await db.execute(f"ALTER TABLE ledger.assets_classify DROP COLUMN IF EXISTS {col}")
+        await db.commit()
+        print(f"[db] 费率已归位 symbol_dict 品种行; 无品种行可摊的小类(值已随列删除, 需要时按品种重建): {lost or '无'}")
+    except Exception as e:
+        print(f"[db] ! 费率迁移失败(跳过, 不挡启动): {str(e)[:160]}")
+
+
+# 源名统一: ths_fuyao 适配器源名 fuyao → ths(与 assets_classify.data_source 一致)。
+# 存量 quote_latest / symbol_dict 的 'fuyao' 值随改; 幂等(无 fuyao 行时零写入)。
+async def _migrate_fuyao_name(db) -> None:
+    try:
+        n1 = await db.execute("UPDATE market.quote_latest SET data_source = 'ths' WHERE data_source = 'fuyao'")
+        n2 = await db.execute("UPDATE ledger.symbol_dict SET data_source = 'ths' WHERE data_source = 'fuyao'")
+        await db.commit()
+        if (n1.rowcount or 0) + (n2.rowcount or 0):
+            print(f"[db] 源名 fuyao → ths: quote_latest {n1.rowcount} 行, symbol_dict {n2.rowcount} 行")
+    except Exception as e:
+        print(f"[db] ! fuyao→ths 源名迁移失败(跳过): {str(e)[:160]}")
+
+
+# code_suffix 迁移: 给固定位市场的 assets_classify 行填 code_suffix。
+# A股等码形推市场的小类留 NULL(normalize_stock_code 码形推断兜底)。
+# code_suffix 种子: 固定位市场填实际后缀; A 股系(后缀随码数段位变)留 NULL 走码形推断。
+# 码形推后缀的小类: a_comm_stock / cn_etf_fund / cn_lof_fund / cn_tran_bond
+#                   (全部是 A 股交易所挂牌, 6 位码, 后缀由 _a_share_market_suffix 推 SH/SZ/BJ)
+_CODE_SUFFIX_SEED = {
+    "hk_comm_stock": "HK", "us_comm_stock": "US", "jp_comm_stock": "JP",
+    "cn_etf_fund": None, "cn_lof_fund": None, "cn_otc_fund": "OF",
+    "cn_reits_fund": None, "hk_etf_fund": "HK", "us_etf_fund": "US",
+    "cn_futures": None, "cn_options": None,
+    "hk_futures": "HK", "hk_options": "HK", "hk_warrant": "HK",
+    "us_futures": "US", "us_options": "US", "us_prio_stock": "US",
+}
+
+
+async def _migrate_code_suffix(db) -> None:
+    try:
+        cur = await db.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='ledger' AND table_name='assets_classify' AND column_name='code_suffix'")
+        if not (await cur.fetchone()):
+            return   # 列还没补上, 跳过
+        for sub, suffix in _CODE_SUFFIX_SEED.items():
+            if suffix is None:
+                continue
+            await db.execute(
+                "UPDATE ledger.assets_classify SET code_suffix = ? "
+                "WHERE sub_assets_type = ? AND (code_suffix IS NULL OR code_suffix = '')",
+                (suffix, sub))
+        await db.commit()
+    except Exception as e:
+        print(f"[db] ! code_suffix 迁移失败(跳过): {str(e)[:160]}")
+
+
+# 数据源列迁移: assets_classify.data_source 改名 main_quote_source(报价双源的主位),
+# instruments 双源给默认建议值(期货/期权=ths varieties, 股/ETF/港美股=tickflow; 用户可 SQL 改)。
+_INSTRUMENTS_DEFAULT_THS = ("cn_futures", "cn_options")
+_INSTRUMENTS_DEFAULT_TF = ("a_comm_stock", "hk_comm_stock", "us_comm_stock", "us_prio_stock",
+                           "cn_etf_fund", "cn_lof_fund", "hk_etf_fund", "us_etf_fund")
+
+
+async def _migrate_quote_sources(db) -> None:
+    await _migrate_fuyao_name(db)
+    try:
+        cur = await db.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='ledger' AND table_name='assets_classify'")
+        cols = {r[0] for r in await cur.fetchall()}
+        if "data_source" in cols and "main_quote_source" not in cols:
+            await db.execute("ALTER TABLE ledger.assets_classify RENAME COLUMN data_source TO main_quote_source")
+            print("[db] assets_classify.data_source → main_quote_source")
+        n1 = await db.execute(
+            "UPDATE ledger.assets_classify SET main_instruments_source = 'ths' "
+            "WHERE main_instruments_source IS NULL AND sub_assets_type = ANY(?)",
+            (list(_INSTRUMENTS_DEFAULT_THS),))
+        n2 = await db.execute(
+            "UPDATE ledger.assets_classify SET main_instruments_source = 'tickflow' "
+            "WHERE main_instruments_source IS NULL AND sub_assets_type = ANY(?)",
+            (list(_INSTRUMENTS_DEFAULT_TF),))
+        await db.commit()
+        if (n1.rowcount or 0) + (n2.rowcount or 0):
+            print(f"[db] assets_classify instruments 源默认值: {(n1.rowcount or 0)+(n2.rowcount or 0)} 行")
+    except Exception as e:
+        print(f"[db] ! assets_classify 数据源列迁移失败(跳过, 不挡启动): {str(e)[:160]}")
 
 
 # 日期/时间戳字段名 → 目标列型。created_at/updated_at/quote_time/fetched_at 带时刻 → TIMESTAMP;
@@ -751,7 +905,7 @@ def _flip_code(old: str) -> str:
 async def _migrate_code_format(db) -> None:
     """把旧前缀形态的港美股代码翻成标准形态(幂等: 只动仍匹配旧形态的行)。"""
     # ① symbol_dict: 标准行已存在时直接删旧形态重复行(它们是行情登记泄漏的),
-    #    没有标准孪生的改写过去; 顺便补 exchange(市场段位)与美股裸码行(→ ticker.US)。
+    #    没有标准孪生的改写过去; 顺便补 suffix(市场段位)与美股裸码行(→ ticker.US)。
     try:
         await db.execute(
             "DELETE FROM ledger.symbol_dict a WHERE a.code ~ ? AND EXISTS ("
@@ -762,14 +916,14 @@ async def _migrate_code_format(db) -> None:
             "SELECT code FROM ledger.symbol_dict WHERE code ~ ?", (_OLD_CODE_RE,))
         olds = [r[0] for r in await cur.fetchall()]
         for old in olds:
-            await db.execute("UPDATE ledger.symbol_dict SET code = ?, exchange = ? WHERE code = ?",
+            await db.execute("UPDATE ledger.symbol_dict SET code = ?, suffix = ? WHERE code = ?",
                              (_flip_code(old), "HK" if _flip_code(old).endswith(".HK") else "US", old))
         await db.execute(
-            "UPDATE ledger.symbol_dict SET exchange = CASE WHEN code ~ '\\.HK$' THEN 'HK'"
+            "UPDATE ledger.symbol_dict SET suffix = CASE WHEN code ~ '\\.HK$' THEN 'HK'"
             " WHEN code ~ '\\.US$' THEN 'US' END "
-            "WHERE (exchange IS NULL OR exchange = '') AND code ~ '\\.(HK|US)$'")
+            "WHERE (suffix IS NULL OR suffix = '') AND code ~ '\\.(HK|US)$'")
         await db.execute(
-            "UPDATE ledger.symbol_dict SET code = code || '.US', exchange = 'US' "
+            "UPDATE ledger.symbol_dict SET code = code || '.US', suffix = 'US' "
             "WHERE code NOT LIKE '%.%' AND sub_assets_type LIKE 'us%' "
             "AND NOT EXISTS (SELECT 1 FROM ledger.symbol_dict b WHERE b.code = ledger.symbol_dict.code || '.US')")
         await db.commit()
@@ -879,17 +1033,21 @@ async def get_assets_classify_row(sub: str) -> dict | None:
         await db.close()
 
 
-def kind_from_classify(cls_row: dict | None, fallback: str = "stock") -> str:
-    """assets_classify 行 → 账本引擎列 asset_kind(futures→fut, options→opt, 其余→stock)。
-    分类归口目录, 引擎分支钉住: 目录改名/重录不影响已落库的 kind。"""
+# 持仓引擎行为桶: 由钉住的 main_assets_type 直接判定, 不再每次查 assets_classify 推导。
+# 未知中类按"股类型"兜底(与旧 'stock' 兜底一致)。
+_DERIV_MAIN = {"futures", "options", "warrant", "hk_warrant"}   # 有乘数/保证金/行权价
+
+
+def is_derivative_kind(main: str | None) -> bool:
+    """持仓是否衍生品(期货/期权/窝轮): 走 乘数×手数 市值、保证金/权利金 口径。"""
+    return (main or "") in _DERIV_MAIN
+
+
+def main_assets_type_of(cls_row: dict | None, fallback: str = "common_share") -> str:
+    """assets_classify 行 → 钉住的 main_assets_type。建仓时一次性取用, 不再逐行推导。"""
     if not cls_row:
         return fallback
-    main_t = str(cls_row.get("main_assets_type") or "").lower()
-    if main_t == "futures":
-        return "fut"
-    if main_t == "options":
-        return "opt"
-    return "stock"
+    return str(cls_row.get("main_assets_type") or fallback)
 
 
 def _norm_holding_row(r: dict) -> dict:
@@ -912,7 +1070,7 @@ def _norm_holding_row(r: dict) -> dict:
 
 # holdings 行 LEFT JOIN assets_classify: 把分类目录的大类/中类/小类名透传给前端,
 # 前端展示分类(股票/基金/期货/...)统一以 assets_classify 为准(不再逐个小类硬编码枚举)。
-_HOLDING_SELECT = "h.*, c.assets_class, c.main_assets_type, c.sub_assets_type_name"
+_HOLDING_SELECT = "h.*, c.assets_class, c.sub_assets_type_name"
 _HOLDING_JOIN = "FROM holdings h LEFT JOIN assets_classify c ON c.sub_assets_type = h.sub_assets_type"
 
 
@@ -974,20 +1132,20 @@ async def get_holding(stock_code: str, direction: str | None = None, strict: boo
 
 async def add_holding(stock_code: str, stock_name: str, shares, cost_price: float,
                       direction: str | None = None, contract_multiplier: float | None = None,
-                      asset_kind: str | None = None, sub_assets_type: str | None = None,
+                      main_assets_type: str | None = None, sub_assets_type: str | None = None,
                       broker=None, purchase_date: str | None = None):
-    # 分类归口兜底: 调用方没显式给 asset_kind 且带了小类时, 引擎列由目录推导
-    # (futures→fut / options→opt / 其余→stock)。路由层(create_holding)已提前推导并显式传入。
-    if asset_kind is None and sub_assets_type:
-        asset_kind = kind_from_classify(await get_assets_classify_row(sub_assets_type))
+    # 分类归口兜底: 调用方没显式给 main_assets_type 且带了小类时, 取目录中类钉住。
+    # 路由层(create_holding)已提前推导并显式传入, 这里只是最后兜底。
+    if main_assets_type is None and sub_assets_type:
+        main_assets_type = main_assets_type_of(await get_assets_classify_row(sub_assets_type))
     db = await get_db()
     try:
         await db.execute(
             "INSERT INTO holdings (user_id, code, ticker, name, sub_assets_type, shares, cost_price, "
-            "direction, broker_id, asset_kind, contract_multiplier, purchase_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "direction, broker_id, main_assets_type, contract_multiplier, purchase_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (_uid(), stock_code, _ticker_of(stock_code), stock_name, sub_assets_type,
              _num(shares), _num(cost_price), direction_to_db(direction),
-             await _broker_id_of(broker), asset_kind or "stock",
+             await _broker_id_of(broker), main_assets_type or "common_share",
              _num(contract_multiplier) if contract_multiplier is not None else contract_multiplier,
              purchase_date),
         )
@@ -999,7 +1157,7 @@ async def add_holding(stock_code: str, stock_name: str, shares, cost_price: floa
 async def update_holding(stock_code: str, **kwargs):
     """_direction 是保留字参数: 多用户/双向选择器(kwargs 里传 _direction='LONG' 等), 不落列。
 
-    kwargs 沿用旧列名(stock_name/shares/cost_price/last_price/direction/broker/asset_kind),
+    kwargs 沿用旧列名(stock_name/shares/cost_price/last_price/direction/broker/main_assets_type),
     这里翻译成新列: stock_name→name, broker(券商名)→broker_id, 数值→numeric, 方向→1/0。"""
     direction = kwargs.pop("_direction", None)
     colmap = {"stock_name": "name"}
@@ -1318,6 +1476,16 @@ PER_USER_KEYS = frozenset({
 
 def _config_uid(key: str) -> int:
     return _uid() if key in PER_USER_KEYS else 0
+
+
+async def list_user_ids() -> list[int]:
+    """全部已注册用户的 id(后台循环逐用户处理用; 空表返回 [])。"""
+    db = await get_db()
+    try:
+        cur = await db.execute("SELECT id FROM users ORDER BY id")
+        return [r[0] for r in await cur.fetchall()]
+    finally:
+        await db.close()
 
 
 async def get_config(key: str) -> str | None:
@@ -2347,11 +2515,13 @@ async def reorder_watchlist(codes: list[str], scope: str = "global", group: str 
 # ---- 全市场代码↔名称字典(搜股底表, 落盘避免每次重启重拉 20s+) ----
 
 async def save_symbol_dict(rows: list[tuple]) -> int:
-    """rows: [(code, name, ticker, sub_assets_type, exchange)] 或 6 元组尾带 trade_amount。
+    """rows: [(code, name, ticker, sub_assets_type, suffix)] / 6 元组尾带 trade_amount /
+    7 元组再尾带 margin_rate(期货品种行, ths varieties 回填) / 8 元组再尾带 data_source
+    (信息来源: tickflow/ths/futu/import; None = 不改动已存来源)。
 
     code 为标准格式(股票=代码+市场如 600111.SH / 00700.HK, 美股=ticker), ticker 为裸码。
     sub_assets_type 必须是 assets_classify 里已登记的小类键(NOT NULL 约束)。
-    upsert 不删旧码(退市票留着仍可搜历史)。
+    upsert 不删旧码(退市票留着仍可搜历史); margin_rate 仅填空, 不覆盖人工值。
     """
     if not rows:
         return 0
@@ -2360,16 +2530,20 @@ async def save_symbol_dict(rows: list[tuple]) -> int:
         c, n, t, sub = str(r[0]), str(r[1]), str(r[2] or ""), str(r[3] or "")
         ex = str(r[4] or "") if len(r) >= 5 else ""
         ta = r[5] if len(r) >= 6 and r[5] is not None else None
-        return (c, n, t, sub, ex, ta)
+        mr = r[6] if len(r) >= 7 and r[6] is not None else None
+        ds = str(r[7]).strip().lower() if len(r) >= 8 and r[7] is not None else None
+        return (c, n, t, sub, ex, ta, mr, ds)
 
     db = await get_db()
     try:
         await db.executemany(
-            "INSERT INTO symbol_dict (code, name, ticker, sub_assets_type, exchange, trade_amount, updated_at) "
-            "VALUES (?,?,?,?,?,?,now()) "
+            "INSERT INTO symbol_dict (code, name, ticker, sub_assets_type, suffix, trade_amount, margin_rate, data_source, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,now()) "
             "ON CONFLICT(code) DO UPDATE SET name=excluded.name, ticker=excluded.ticker, "
-            "sub_assets_type=excluded.sub_assets_type, exchange=excluded.exchange, "
-            "trade_amount=excluded.trade_amount, updated_at=now()",
+            "sub_assets_type=excluded.sub_assets_type, suffix=excluded.suffix, "
+            "trade_amount=excluded.trade_amount, "
+            "margin_rate=COALESCE(ledger.symbol_dict.margin_rate, excluded.margin_rate), "
+            "data_source=COALESCE(excluded.data_source, ledger.symbol_dict.data_source), updated_at=now()",
             [_norm(r) for r in rows])
         await db.commit()
         return len(rows)
@@ -2378,11 +2552,11 @@ async def save_symbol_dict(rows: list[tuple]) -> int:
 
 
 async def load_symbol_dict() -> tuple[list[tuple], str | None]:
-    """→ ([(code, name, ticker, sub_assets_type, exchange)], 最新更新时间)。空表返回 ([], None)。"""
+    """→ ([(code, name, ticker, sub_assets_type, suffix)], 最新更新时间)。空表返回 ([], None)。"""
     db = await get_db()
     try:
         cur = await db.execute(
-            "SELECT code, name, COALESCE(ticker,''), sub_assets_type, COALESCE(exchange,'') FROM symbol_dict")
+            "SELECT code, name, COALESCE(ticker,''), sub_assets_type, COALESCE(suffix,'') FROM symbol_dict")
         rows = [tuple(r) for r in await cur.fetchall()]
         cur = await db.execute("SELECT MAX(updated_at) FROM symbol_dict")
         ts = (await cur.fetchone())[0]
@@ -2391,38 +2565,39 @@ async def load_symbol_dict() -> tuple[list[tuple], str | None]:
         await db.close()
 
 
-async def upsert_futures_product(code: str, name: str, sub_assets_type: str, exchange: str, *,
-                                 trade_amount=None):
+async def upsert_futures_product(code: str, name: str, sub_assets_type: str, suffix: str, *,
+                                 trade_amount=None, margin_rate=None, data_source=None):
     """期货/期权品种行: code=品种代码(CU/IO), sub_assets_type=资产小类(cn_futures/cn_options),
-    exchange=交易所后缀(SHF/CFE...)。
+    suffix=交易所后缀(SHF/CFE...)。保证金率/开平仓费率在 symbol_dict 品种行(品种级参数)。
 
-    保证金率/开平仓费率在 assets_classify 按 sub_assets_type 配(人工维护), 不在本表 ——
-    费率是比例口径(×名义金额), 与老 symbol_dict 的元/手不同。
+    data_source: 信息来源(tickflow/ths/futu/import); None = 不改动已存来源。
     """
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO symbol_dict (code, name, ticker, sub_assets_type, exchange, trade_amount, updated_at) "
-            "VALUES (?,?,?,?,?,?,now()) "
+            "INSERT INTO symbol_dict (code, name, ticker, sub_assets_type, suffix, trade_amount, margin_rate, data_source, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,COALESCE(?, ledger.symbol_dict.data_source),now()) "
             "ON CONFLICT(code) DO UPDATE SET name=excluded.name, sub_assets_type=excluded.sub_assets_type, "
-            "exchange=excluded.exchange, trade_amount=excluded.trade_amount, updated_at=now()",
-            (code.strip().upper(), name, code.strip().upper(), sub_assets_type, exchange, trade_amount))
+            "suffix=excluded.suffix, trade_amount=excluded.trade_amount, "
+            "margin_rate=COALESCE(ledger.symbol_dict.margin_rate, excluded.margin_rate), "
+            "data_source=COALESCE(excluded.data_source, ledger.symbol_dict.data_source), updated_at=now()",
+            (code.strip().upper(), name, code.strip().upper(), sub_assets_type, suffix, trade_amount, margin_rate, data_source))
         await db.commit()
     finally:
         await db.close()
 
 
 async def get_futures_product(product: str) -> dict | None:
-    """按品种代码取品种行: symbol_dict(代码/名称/交易所/每手乘数) JOIN assets_classify
-    (币种/保证金率/开平仓费率/分类名)。CU → {code,name,exchange,trade_amount,margin_rate,
+    """按品种代码取品种行: symbol_dict(代码/名称/交易所/每手乘数/保证金率/开平仓费率)
+    JOIN assets_classify(币种/分类名)。CU → {code,name,suffix,trade_amount,margin_rate,
     open_fee_rate,...}。大小写不敏感: 库里存 cu / Cu / CU 都能命中。
     """
     db = await get_db()
     try:
         cur = await db.execute(
-            "SELECT s.code, s.name, s.ticker, s.sub_assets_type AS asset_type, s.exchange, "
-            "s.trade_amount, c.currency, c.margin_rate, c.open_fee_rate, c.close_fee_rate, "
-            "c.close_today_fee_rate, c.assets_class, c.assets_class_name, "
+            "SELECT s.code, s.name, s.ticker, s.sub_assets_type AS asset_type, s.suffix, "
+            "s.trade_amount, s.margin_rate, s.open_fee_rate, s.close_fee_rate, "
+            "s.close_today_fee_rate, c.currency, c.assets_class, c.assets_class_name, "
             "c.main_assets_type, c.sub_assets_type_name "
             "FROM symbol_dict s "
             "LEFT JOIN assets_classify c ON c.sub_assets_type = s.sub_assets_type "
@@ -2445,9 +2620,9 @@ async def search_futures_products(q: str, asset_type: str = "", sub: str = "") -
     """
     bare = (q or "").strip()
     kw = f"%{bare}%"
-    sql = ("SELECT s.code, s.name, s.sub_assets_type AS asset_type, s.exchange, s.trade_amount, "
-           "c.currency, c.margin_rate, c.open_fee_rate, c.close_fee_rate, c.close_today_fee_rate "
-           "FROM symbol_dict s "
+    sql = ("SELECT s.code, s.name, s.sub_assets_type AS asset_type, s.suffix, s.trade_amount, "
+           "s.margin_rate, s.open_fee_rate, s.close_fee_rate, s.close_today_fee_rate, "
+           "c.currency FROM symbol_dict s "
            "LEFT JOIN assets_classify c ON c.sub_assets_type = s.sub_assets_type "
            "WHERE (s.sub_assets_type ILIKE '%fut%' OR s.sub_assets_type ILIKE '%opt%') "
            "AND (s.code ILIKE ? OR s.name ILIKE ? OR s.ticker ILIKE ?) "

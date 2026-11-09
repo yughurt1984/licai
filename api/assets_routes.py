@@ -559,16 +559,17 @@ async def create_asset(data: AssetCreate):
     if data.asset_type not in {"FUND", "CRYPTO", "BOT", "WEALTH", "CASH", "FUT", "OPT"}:
         raise HTTPException(400, "asset_type must be FUND / CRYPTO / BOT / WEALTH / CASH / FUT / OPT")
 
-    # 分类路由(assets_classify.trade): true=交易资产 → 持仓账本(holdings/position_actions);
-    # false=非交易资产 → 场外账本(本表)。规则来自目录数据, 不按大类写死 —— 传了小类就按它校验,
-    # 没传小类的老调用方(CRYPTO/BOT/WEALTH/CASH 手填流程)不受影响。
+    # 分类路由(assets_classify.valuation_type): quote/nav=市价/净值估值 → 持仓账本
+    # (holdings/position_actions); yield/manual=固定收益/手动估值 → 场外账本(本表)。
+    # 规则来自目录数据, 不按大类写死 —— 传了小类就按它校验, 没传小类的老调用方
+    # (CRYPTO/BOT/WEALTH/CASH 手填流程)不受影响。
     if data.sub_assets_type:
         from database import get_assets_classify_row
         _cls = await get_assets_classify_row(data.sub_assets_type)
-        if _cls is not None and _cls.get("trade"):
+        if _cls is not None and (_cls.get("valuation_type") or "").strip().lower() in ("quote", "nav"):
             raise HTTPException(
-                400, f"「{_cls.get('sub_assets_type_name') or data.sub_assets_type}」在分类目录中标记为交易资产(trade=t)，"
-                     f"应记入持仓账本(holdings)，请走对应录入入口")
+                400, f"「{_cls.get('sub_assets_type_name') or data.sub_assets_type}」估值类型为 "
+                     f"{_cls.get('valuation_type')}，应记入持仓账本(holdings)，请走对应录入入口")
 
     # FUND/CRYPTO 且只填了金额没填份额 → 走 pending 模式 (T+1 未确认).
     # cost_amount 暂记 0, 实际金额放 pending_amount; seed action 写 status=pending.

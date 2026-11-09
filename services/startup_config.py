@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import os
 
-from config import config
 from database import get_config, set_config
 from services import llm_client
 
@@ -55,7 +54,7 @@ async def apply_saved_config() -> None:
     # 直接无条件写 env 会让 config.py 反过来盖掉设置页存的值, 优先级就倒过来了。
     from services.providers import get_provider, load_error
     if not os.environ.get("MARKET_PROVIDER") and not (await get_config("market_provider")):
-        _mp = getattr(config, "market_provider", "") or ""
+        _mp = os.environ.get("MARKET_PROVIDER", "") or ""
         if _mp:
             os.environ["MARKET_PROVIDER"] = _mp
     _prov = await get_provider()

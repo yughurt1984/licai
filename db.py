@@ -28,7 +28,48 @@ from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
 
-from config import config
+# ── 部署配置加载(config.env → os.environ) ──────────────────────────────────
+# config.env 是部署人编辑的数据文件(gitignore): PG_DSN/端口/数据源凭证。
+# 这里在模块导入时加载(所有 PG 访问与脚本的必经点), 早于一切业务读取;
+# os.environ 已有的键不覆盖(环境变量 > config.env)。
+_PG_DSN_PLACEHOLDER = "postgresql://postgres:postgres@localhost:5432/allassets"
+
+
+def _load_config_env() -> None:
+    import os
+    from pathlib import Path
+    path = Path(__file__).resolve().parent / "config.env"
+    if not path.exists():
+        return
+    lines = path.read_text(encoding="utf-8").splitlines()
+    n = len(lines)
+    i = 0
+    while i < n:
+        line = lines[i].strip()
+        i += 1
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        # 多行双引号值(与 python-dotenv 行为一致): 行内开引号后, 直到配对闭引号为止为一整值(保留内部换行)。
+        # 只有"开了引号但本行没闭合"(不以 " 结尾)才算多行 —— 常规单行值 "xxx" 首尾都带引号,
+        # 不能进多行分支(否则会把后面几行吞进值里, PG_DSN 就带了换行和引号, 连库直接被 reset)。
+        if v.startswith('"') and not v.endswith('"'):
+            buf = [v]
+            while i < n:
+                buf.append(lines[i]); i += 1
+                if lines[i - 1].rstrip().endswith('"'):
+                    break
+            v = "\n".join(buf)
+        v = v.strip().strip('"').strip("'").replace(chr(92) + "n", "\n")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+_load_config_env()
+
+
 
 
 def _encode_dt(v):
@@ -425,14 +466,25 @@ async def get_pool() -> asyncpg.Pool:
     async with _pool_lock:
         if _pool is not None and not _pool._closed:
             return _pool
-        dsn = config.pg_dsn
-        try:
-            # min_size=0 的池创建时不建立真实连接, 库不存在要在这里就探出来
-            probe = await asyncpg.connect(dsn, timeout=10)
-            await probe.close()
-        except asyncpg.exceptions.InvalidCatalogNameError:
-            # 首次启动目标库还不存在: 连到 postgres 库把它建出来再重试
-            await _create_database_if_missing(dsn)
+        import os as _os
+        dsn = _os.environ.get("PG_DSN", _PG_DSN_PLACEHOLDER)
+        # 启动探测加重试: Windows 上偶发的 WinError 64(指定的网络名不再可用)是杀软/防火墙
+        # 或 PG 瞬时抖动掐断 TCP 握手, 与配置无关 —— 不重试整个应用就起不来, 重试即自愈。
+        for attempt in range(3):
+            try:
+                # min_size=0 的池创建时不建立真实连接, 库不存在要在这里就探出来
+                probe = await asyncpg.connect(dsn, timeout=10)
+                await probe.close()
+                break
+            except asyncpg.exceptions.InvalidCatalogNameError:
+                # 首次启动目标库还不存在: 连到 postgres 库把它建出来再重试
+                await _create_database_if_missing(dsn)
+                break
+            except (OSError, asyncpg.exceptions.ConnectionDoesNotExistError) as e:
+                if attempt == 2:
+                    raise
+                print(f"[db] 连接 PostgreSQL 失败({e!r}), 第 {attempt + 2}/3 次重试...")
+                await asyncio.sleep(1.5 * (attempt + 1))
         _pool = await asyncpg.create_pool(
             dsn, min_size=0, max_size=20,     # 12 个后台循环 + 并发请求, SQLite 时代无上限
             server_settings={"search_path": "ledger,public"},

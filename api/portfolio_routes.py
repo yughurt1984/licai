@@ -12,7 +12,7 @@ from database import (
     get_all_holdings, get_holding, add_holding, update_holding, delete_holding,
     get_position_actions, add_position_action, update_position_action, delete_position_action,
     list_brokers, get_futures_product,
-    get_assets_classify_row, kind_from_classify,
+    get_assets_classify_row, is_derivative_kind, main_assets_type_of,
     get_thesis, list_theses, set_thesis, delete_thesis,
     save_portfolio_snapshot, list_snapshots_between,
 )
@@ -218,14 +218,14 @@ async def list_holdings() -> list[HoldingResponse]:
         fx_pnl = None
         original_cost_value = cost_value = None
         margin_value = None
-        is_short_stock = (not h.get("asset_kind") in ("fut", "opt")
+        is_short_stock = (not is_derivative_kind(h.get("main_assets_type"))
                           and (_direction or "").upper() == "SHORT")
 
         # ── 期货/期权估值: 市值=价×乘数×手数; 浮动按方向(空头翻号); 今日=涨跌幅×方向 ──
         # 算完直接定稿 —— 下面的股票通用估值块对 fut/opt 必须跳过, 否则乘数/方向会被
         # 覆盖掉(实测: 浮动盈亏变成 现价×手数 − 成本×乘数×手数, 差一个乘数还丢了空头翻号)。
-        is_fut = h.get("asset_kind") in ("fut", "opt")
-        if is_fut:
+        is_deriv = is_derivative_kind(h.get("main_assets_type"))
+        if is_deriv:
             mult = float(h.get("contract_multiplier") or 1)
             lots = float(h["shares"] or 0)
             cost_v = round(float(h["cost_price"] or 0) * mult * lots, 2)
@@ -248,7 +248,7 @@ async def list_holdings() -> list[HoldingResponse]:
             # 期货是杠杆交易, 总资产里的资产贡献 = 成本×保证金率 + 浮动盈亏
             # (保证金率来自 assets_classify 按 sub_assets_type 关联的品种分类行);
             # 期权是权利金全额(买方), 不走保证金口径。分类行没配 margin_rate → None, 前端退回名义市值。
-            if h.get("asset_kind") == "fut" and cost_v:
+            if h.get("main_assets_type") == "futures" and cost_v:
                 prod = re.match(r"^[A-Za-z]+", code)
                 p = await get_futures_product(prod.group(0)) if prod else None
                 rate = (p or {}).get("margin_rate")
@@ -283,7 +283,7 @@ async def list_holdings() -> list[HoldingResponse]:
             h["stock_name"] = q["stock_name"]
 
         # ── 股票通用估值(fut/opt 与空头已在上面定稿, 跳过 —— 那两套公式带乘数/方向) ──
-        if not is_fut and not is_short_stock:
+        if not is_deriv and not is_short_stock:
             original_cost_value = round(h["cost_price"] * h["shares"], 2)
             cost_value = round(original_cost_value * fx_rate, 2)
             if cost_value_cny is not None and h["shares"]:
@@ -320,10 +320,9 @@ async def list_holdings() -> list[HoldingResponse]:
             fx_pnl=fx_pnl,
             sector=sector_map.get(code),
             broker=broker_display,
-            asset_kind=h.get("asset_kind") or "stock",
+            main_assets_type=h.get("main_assets_type") or "common_share",
             sub_assets_type=h.get("sub_assets_type"),
             assets_class=h.get("assets_class"),
-            main_assets_type=h.get("main_assets_type"),
             sub_assets_type_name=h.get("sub_assets_type_name"),
             direction=h.get("direction"),
             contract_multiplier=h.get("contract_multiplier"),
@@ -368,11 +367,11 @@ async def realized_pnl():
         # 按方向各算一本账再合并: 期货/期权双向、股票做空(同代码 多+空 两行)都适用。
         # 无方向标签的流水全部落进 "LONG" 组(股票即普通多头账; 键名只是分组键)。
         h0 = holdings_map.get(code) or {}
-        is_fut = h0.get("asset_kind") in ("fut", "opt")
-        mult = float(h0.get("contract_multiplier") or 1) if is_fut else 1.0
+        is_deriv = is_derivative_kind(h0.get("main_assets_type"))
+        mult = float(h0.get("contract_multiplier") or 1) if is_deriv else 1.0
         # 账本按原币记(港股 HKD、美股 USD); 人民币口径每笔按自己的成交日汇率(fx_rate, 没记的按当前汇率),
         # 所以已实现里含本金的汇兑损益(fx_pnl 单列)。费用与看板同一口径(每笔券商 + fee_schedules 覆盖)。
-        foreign = (not is_fut) and code_currency(code) != "CNY"
+        foreign = (not is_deriv) and code_currency(code) != "CNY"
         fx = await asyncio.to_thread(code_fx, code) if foreign else 1.0
         dir_groups: dict = {}
         for a in all_acts:
@@ -383,7 +382,7 @@ async def realized_pnl():
             st = await ledger_state(code, acts, h0.get("broker"),
                                     resolve=resolve, fee_overrides=fee_overrides,
                                     fx_now=fx if foreign else None)
-            if is_fut:
+            if is_deriv:
                 rp += float(st.get("realized_pnl") or 0) * mult
                 carry += float(st.get("realized_carry") or 0) * mult
                 rp_native = rp
@@ -411,7 +410,7 @@ async def realized_pnl():
             "stock_name": name,
             "realized_pnl": round(rp, 2),
             "realized_carry": round(carry, 2),
-            "currency": "CNY" if is_fut else code_currency(code),
+            "currency": "CNY" if is_deriv else code_currency(code),
             "realized_pnl_native": round(rp_native, 2), "fx_rate": fx,
             "fx_pnl": round(fx_pnl, 2),
             "still_holding": still,
@@ -1613,17 +1612,28 @@ async def sector_concentration():
     }
 
 
-def _check_shares(stock_code: str, shares) -> None:
-    """股数校验: 美股可碎股(最多 4 位小数); A 股、港股只能是整数。"""
+def _check_shares(stock_code: str, shares, allow_fraction: bool = False) -> None:
+    """股数校验: 美股可碎股(最多 4 位小数); A 股、港股只能是整数。
+    allow_fraction: nav 型基金(场外/私募)确认份额=金额÷净值, 天然小数, 豁免整数约束。"""
     if shares is None:
         return
     if shares < 0:
         raise HTTPException(400, "股数不能为负")
+    if allow_fraction:
+        return
     if split_stock_code(stock_code)[0] == "US":
         if abs(shares * 10000 - round(shares * 10000)) > 1e-6:
             raise HTTPException(400, "美股碎股最多 4 位小数")
     elif abs(shares - round(shares)) > 1e-9:
         raise HTTPException(400, "A 股和港股的股数必须是整数, 只有美股支持碎股")
+
+
+async def _nav_valued(sub_assets_type) -> bool:
+    """小类是否净值估值(nav): 份额=金额÷净值允许小数(场外开放式/私募基金)。"""
+    if not sub_assets_type:
+        return False
+    row = await get_assets_classify_row(sub_assets_type)
+    return ((row or {}).get("valuation_type") or "").strip().lower() == "nav"
 
 
 @router.get("/contracts/search")
@@ -1711,8 +1721,9 @@ def stockCodeIsEtf(code: str) -> bool:
 
 @router.post("")
 async def create_holding(data: HoldingCreate):
-    kind = (data.asset_kind or "stock").lower()
-    if kind in ("fut", "opt"):
+    main_at = (data.main_assets_type or "").strip().lower() or None
+    is_deriv = is_derivative_kind(main_at)
+    if is_deriv:
         if (data.direction or "").upper() not in ("LONG", "SHORT"):
             raise HTTPException(400, "期货/期权必须指定方向(多/空)")
         if not (data.contract_multiplier and data.contract_multiplier > 0):
@@ -1733,16 +1744,17 @@ async def create_holding(data: HoldingCreate):
         direction = "SHORT" if _dir == "SHORT" else "LONG"
         mult = None                       # 流水层(position_actions): 股票非衍生品 → NULL
         holding_mult = 1.0                # 持仓层(holdings): 股票每手乘数恒为 1
-        _check_shares(stock_code, data.shares)
+        _check_shares(stock_code, data.shares,
+                      allow_fraction=await _nav_valued(data.sub_assets_type))   # nav 型基金份额允许小数
         if direction == "SHORT" and not (data.shares and float(data.shares) > 0):
             raise HTTPException(400, "做空持仓数量必须大于 0")
-    # 分类归口 assets_classify: 表单所选小类落库; 引擎列 asset_kind 由小类推导钉住
-    # (futures→fut / options→opt / 其余→stock, 见 database.kind_from_classify)。
-    # 表单显式声明的 fut/opt 兜底(小类未传/目录没收录时), 保证期货/期权路径不断。
+    # 分类归口 assets_classify: 表单所选小类落库; 引擎列 main_assets_type 钉住目录中类,
+    # 不再由 sub→main 逐行推导(见 database.is_derivative_kind / main_assets_type_of)。
+    # 表单显式声明的中类兜底(小类未传/目录没收录时), 保证期货/期权路径不断。
     # 股票(A股/港股/美股)表单不传 sub_assets_type 时, 按代码市场推导 common stock 小类,
     # 保证 holdings.sub_assets_type 始终有值(前端展示/费率/大类推导都依赖它)。
     sat = data.sub_assets_type
-    if not sat and kind == "stock":
+    if not sat and not is_deriv:
         _c = (data.stock_code or "").upper()
         if _c.startswith("HK."):
             sat = "hk_comm_stock"
@@ -1752,13 +1764,14 @@ async def create_holding(data: HoldingCreate):
             sat = "a_comm_stock"
     cls_row = await get_assets_classify_row(sat) if sat else None
     if cls_row:
-        kind = kind_from_classify(cls_row, fallback=kind)
-        # 分类路由(assets_classify.trade): true=交易资产 → 持仓账本(holdings/position_actions);
-        # false=非交易资产 → 场外账本(external_assets/actions)。规则来自目录数据, 不按大类写死。
-        if not cls_row.get("trade"):
+        main_at = main_at or main_assets_type_of(cls_row)
+        # 分类路由(assets_classify.valuation_type): quote/nav=市价/净值估值 → 持仓账本
+        # (holdings/position_actions); yield/manual=固定收益/手动估值 → 场外账本。
+        # 规则来自目录数据, 不按大类写死。
+        if (cls_row.get("valuation_type") or "").strip().lower() not in ("quote", "nav"):
             raise HTTPException(
-                400, f"「{cls_row.get('sub_assets_type_name') or sat}」在分类目录中标记为非交易资产(trade=f)，"
-                     f"应记入场外账本(external_assets)，请走对应录入入口")
+                400, f"「{cls_row.get('sub_assets_type_name') or sat}」估值类型为 "
+                     f"{cls_row.get('valuation_type') or '(未配置)'}，应记入场外账本，请走对应录入入口")
     # strict=True: 建仓查重只看本方向的行 —— 同代码另一方向(空头)的行不算重复,
     # 且不能借 get_holding 的"任意第一行"兜底误判成已存在。
     existing = await get_holding(stock_code, direction=direction, strict=True)
@@ -1770,8 +1783,8 @@ async def create_holding(data: HoldingCreate):
 
     name = data.stock_name or (existing.get("stock_name") if existing else None)
     if not name:
-        name = await get_stock_name(stock_code) if kind == "stock" else ""
-    if kind in ("fut", "opt") and not name:
+        name = await get_stock_name(stock_code) if not is_deriv else ""
+    if is_deriv and not name:
         try:
             from services.ths_fuyao import contract_detail
             d = await contract_detail(stock_code)
@@ -1783,11 +1796,11 @@ async def create_holding(data: HoldingCreate):
     #    sub_assets_type: 表单所选资产小类落库(分类统一命名归口 assets_classify)
     if existing:
         await update_holding(stock_code, _direction=direction, stock_name=name,
-                             contract_multiplier=holding_mult, asset_kind=kind,
+                             contract_multiplier=holding_mult, main_assets_type=main_at,
                              sub_assets_type=sat)
     else:
         await add_holding(stock_code, name, data.shares, data.cost_price,
-                          direction=direction, contract_multiplier=holding_mult, asset_kind=kind,
+                          direction=direction, contract_multiplier=holding_mult, main_assets_type=main_at,
                           sub_assets_type=sat, purchase_date=data.trade_date)
     # 1b) 如果前端传了券商, 在 recompute 之前写入, 这样 _recompute_holding 能用正确的费率
     if data.broker:
@@ -1795,7 +1808,7 @@ async def create_holding(data: HoldingCreate):
     # 2) 建仓种子流水统一 OPEN + direction(LONG/SHORT): 期货/期权/股票空头/股票多头同款,
     #    账本按 direction 镜像(空头负价技巧算盈亏)。必须带 direction, 同代码多空两行各算各的账。
     note = "re-entry (auto)" if existing else "initial (auto)"
-    _fx = await _trade_fx(stock_code, data.trade_date, data.fx_rate) if kind == "stock" else None
+    _fx = await _trade_fx(stock_code, data.trade_date, data.fx_rate) if not is_deriv else None
     await add_position_action(
         stock_code, "OPEN", data.cost_price, data.shares,
         note=note, trade_date=data.trade_date,
@@ -1815,8 +1828,9 @@ async def modify_holding(stock_code: str, data: HoldingUpdate, direction: str = 
     if not existing:
         raise HTTPException(404, f"持仓 {stock_code} 不存在")
 
-    if (existing.get("asset_kind") or "stock") == "stock":
-        _check_shares(stock_code, data.shares)
+    if not is_derivative_kind(existing.get("main_assets_type")):
+        _check_shares(stock_code, data.shares,
+                      allow_fraction=await _nav_valued(existing.get("sub_assets_type")))
     kwargs = {}
     if data.stock_name is not None:
         kwargs["stock_name"] = data.stock_name
@@ -1840,7 +1854,9 @@ async def remove_holding(stock_code: str, direction: str = None):
     if not existing:
         raise HTTPException(404, f"持仓 {stock_code} 不存在")
 
-    await delete_holding(stock_code, direction=_direction)
+    # 按查到的行删: direction 未指定时 get_holding 走"任意一行"兜底, 而 delete_holding
+    # 的 SQL 按方向精确匹配 —— 不把查到的方向传下去, LONG/SHORT 行会一条都删不到(静默空删)。
+    await delete_holding(stock_code, direction=existing.get("direction"))
     return {"message": "删除成功"}
 
 
@@ -2019,25 +2035,26 @@ async def create_action(stock_code: str, data: ActionCreate):
     解套计划/加仓子弹池已退役: BUY/ADD 不再自动撮合 pending tranche,
     历史 tranche 数据冻结保留, 新 action 一律不写 tranche_id.
     """
-    is_fut = (data.action_type or "").upper() in ("OPEN", "CLOSE")
+    is_open_close = (data.action_type or "").upper() in ("OPEN", "CLOSE")
     _direction = (data.direction or "").upper() or None
-    if is_fut and not _direction:
+    if is_open_close and not _direction:
         raise HTTPException(400, "期货/期权的开仓/平仓必须带方向(多/空)")
     holding = await get_holding(stock_code, direction=_direction)
     if not holding:
         raise HTTPException(404, f"持仓 {stock_code} 不存在")
     # 股票空头行: 只收 开仓/平仓(卖出开仓/买入平仓), 买卖(BUY/SELL)属于多头行
     is_short_stock = ((holding.get("direction") or "").upper() == "SHORT"
-                      and (holding.get("asset_kind") or "stock") == "stock")
-    if is_short_stock and not is_fut:
+                      and not is_derivative_kind(holding.get("main_assets_type")))
+    if is_short_stock and not is_open_close:
         raise HTTPException(400, "空头持仓请用 开仓/平仓 记录(卖出开仓、买入平仓)")
-    if not is_fut:
-        _check_shares(stock_code, data.shares)
+    if not is_open_close:
+        _check_shares(stock_code, data.shares,
+                      allow_fraction=await _nav_valued(holding.get("sub_assets_type")))
     is_split = (data.action_type or "").upper() == "SPLIT"
     if is_split and not (data.price and data.price > 0):
         raise HTTPException(400, "拆合股请在价格栏填比例(新股数/旧股数): 1 拆 4 填 4, 10 合 1 填 0.1")
     mult = (data.contract_multiplier
-            or (holding.get("contract_multiplier") if is_fut else None))
+            or (holding.get("contract_multiplier") if is_open_close else None))
     await add_position_action(
         stock_code=stock_code,
         action_type=data.action_type,
@@ -2052,7 +2069,7 @@ async def create_action(stock_code: str, data: ActionCreate):
         # 统一带方向落库: 多头=LONG/1, 空头=SHORT/0, 期货/期权双向。前端已按方向下发,
         # 不再对普通多头特判成 NULL(否则新流水会被 流水列表/重算 的 direction 过滤漏掉)。
         direction=_direction,
-        contract_multiplier=mult if (is_fut and not is_short_stock) else None,
+        contract_multiplier=mult if (is_open_close and not is_short_stock) else None,
     )
     await _recompute_holding(stock_code, direction=_direction)
     return {"message": "记录已添加"}

@@ -1,7 +1,7 @@
 """Settings REST endpoints for notification config and custom alerts."""
 from __future__ import annotations
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
@@ -318,24 +318,24 @@ async def save_tickflow_key(data: TickFlowKey):
 # ── futu OpenAPI REST(港/美股行情源; https://open.futunn.com) ────────────────
 class FutuConfig(BaseModel):
     api_host: str = ""
-    app_key: str = ""
-    private_key: str = ""      # PEM 全文(Ed25519/RSA); 空 = 不改动已存的
-    sign_algo: str = ""        # ed25519 | rsa
-    clear_key: bool = False    # True = 清空已存 AppKey/私钥
+    app_key: str = ""              # API Key 签名模式的 AppKey ID
+    private_key: str = ""          # PEM 全文(Ed25519/RSA); 空 = 不改动已存的
+    sign_algo: str = ""            # ed25519 | rsa
+    clear_key: bool = False        # True = 清空已存 AppKey/私钥
 
 
 @router.get("/futu")
 async def get_futu_config():
     """futu REST 凭证状态: 私钥/AppKey 只回掩码, 不回明文。DB 优先, 其次 .env/config.py。"""
-    from services import futu_quote
-    cfg = await futu_quote.futu_config()
+    from services import futu_auth
+    cfg = await futu_auth.futu_config()
     db_app_key = await get_config("futu_app_key") or ""
     masked = (cfg["app_key"][:4] + "****" + cfg["app_key"][-2:]) if len(cfg["app_key"]) > 6 else ("****" if cfg["app_key"] else "")
     return {"api_host": cfg["host"], "app_key_masked": masked,
             "has_key_in_db": bool(db_app_key),
             "sign_algo": cfg["algo"],
             "configured": bool(cfg["app_key"] and cfg["private_key"]),
-            "last_error": futu_quote.last_error()}
+            "last_error": futu_auth.last_error()}
 
 
 @router.post("/futu")
@@ -352,17 +352,18 @@ async def save_futu_config(data: FutuConfig):
         await set_config("futu_private_key", "")
     elif data.private_key.strip():
         await set_config("futu_private_key", data.private_key.strip())
-    from services import futu_quote
-    futu_quote.invalidate_ctx()
-    cfg = await futu_quote.futu_config()
-    return {"message": "保存成功", "configured": bool(cfg["app_key"] and cfg["private_key"])}
+    from services import futu_auth
+    futu_auth.invalidate_ctx()
+    cfg = await futu_auth.futu_config()
+    return {"message": "保存成功",
+            "configured": bool(cfg["app_key"] and cfg["private_key"])}
 
 
 @router.post("/futu/test")
 async def test_futu_config():
     """探活: 打 server-time 验证连通性(未配置凭证也能测网络通不通)。"""
-    from services import futu_quote
-    return await futu_quote.futu_probe()
+    from services import futu_auth
+    return await futu_auth.futu_probe()
 
 
 # --- Risk Config ---
