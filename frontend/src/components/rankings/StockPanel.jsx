@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { prefetchJSON, fetchJSON } from '../../hooks/useApi'
 import ProKline from '../ProKline'
+import StockLogo from '../StockLogo'
 import StockAskModal from '../StockAskModal'
 import GroupPicker from './GroupPicker'
 import { pctColor, boardOf, WL_DEFAULT } from './shared'
@@ -100,6 +101,8 @@ export default function StockPanel({ stock, watched, onToggleWatch, groups, myGr
         {/* 名字不给 shrink-0: 面板窄到连按钮都放不下时, 与其把右边的按钮挤出可视区(overflow
             被裁掉就等于按钮消失了), 不如让名字自己截断。简介比名字长得多, flex 收缩按基准
             尺寸分摊, 所以有简介时先收简介, 轮不到名字。 */}
+        {/* 基线对齐的行里 logo 用 self-center 挂正, 不跟着文字基线沉底 */}
+        <span className="self-center shrink-0"><StockLogo type="A" code={stock.code} name={stock.name} size={28} /></span>
         <span className="text-[14px] font-semibold text-text-bright whitespace-nowrap truncate min-w-0">
           {stock.name}
         </span>

@@ -21,7 +21,7 @@ const FX_HINT = '成交汇率(1 外币 = ? 人民币), 可选; 留空按成交�
 const isDerivCode = (code) => {
   const c = String(code || '').toUpperCase()
   if (!c || c.endsWith('.HK') || c.endsWith('.US') || c.startsWith('HK.') || c.startsWith('US.')) return false
-  if (!/^[A-Z0-9]{2,16}\.[A-Z]{2,5}$/.test(c)) return false
+  if (!/^[A-Z0-9-]{2,32}\.[A-Z]{2,5}$/.test(c)) return false
   const b = c.split('.')[0]
   return !(b.length === 6 && /^\d+$/.test(b))   // 6 位数字主体是 A股/ETF 新格式
 }

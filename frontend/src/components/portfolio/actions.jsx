@@ -3,22 +3,25 @@ import { fmtMoney } from '../../helpers'
 import { fetchJSON } from '../../hooks/useApi'
 
 // AssetActionsModal — 流水查看 + pending 确认.
+// API base 按行来源切: 固定收益行(_fixIncome)走 /api/fix-income, 其余场外走 /api/assets —
+// 两边 actions 端点返回形状同构 ({actions, state}), 弹窗 UI 完全共用。
 export function AssetActionsModal({ asset, onClose, onChanged }) {
   const [actions, setActions] = React.useState([])
   const [state, setState] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
   const [confirmTarget, setConfirmTarget] = React.useState(null)
   const [editTarget, setEditTarget] = React.useState(null)
+  const base = asset._fixIncome ? '/api/fix-income' : '/api/assets'
 
   const reload = React.useCallback(async () => {
     setLoading(true)
     try {
-      const d = await fetchJSON(`/api/assets/${asset.id}/actions`)
+      const d = await fetchJSON(`${base}/${asset.id}/actions`)
       setActions(d.actions || [])
       setState(d.state || null)
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
-  }, [asset.id])
+  }, [base, asset.id])
 
   React.useEffect(() => { reload() }, [reload])
 
@@ -30,7 +33,7 @@ export function AssetActionsModal({ asset, onClose, onChanged }) {
 
   const deleteAction = async (id) => {
     if (!confirm('确定删除这条流水？后续 cost/shares 会按剩余流水重新计算')) return
-    await fetchJSON(`/api/assets/${asset.id}/actions/${id}`, { method: 'DELETE' })
+    await fetchJSON(`${base}/${asset.id}/actions/${id}`, { method: 'DELETE' })
     onChanged?.()
     reload()
   }
@@ -43,7 +46,7 @@ export function AssetActionsModal({ asset, onClose, onChanged }) {
     if (!v || v <= 0) { alert('金额必须为正数'); return }
     if (Math.abs(v - cur) < 0.005) return
     try {
-      await fetchJSON(`/api/assets/${asset.id}/actions/${a.id}`, {
+      await fetchJSON(`${base}/${asset.id}/actions/${a.id}`, {
         method: 'PATCH', body: JSON.stringify({ amount: v }),
       })
       onChanged?.()
@@ -74,7 +77,7 @@ export function AssetActionsModal({ asset, onClose, onChanged }) {
         {state && (
           <div className="grid grid-cols-3 gap-2 mb-3 text-[11.5px]">
             <div className="bg-surface-3 rounded-md px-2 py-1.5">
-              <div className="text-text-dim text-[10px] mb-0.5">当前成本</div>
+              <div className="text-text-dim text-[10px] mb-0.5">{asset._fixIncome ? '剩余本金' : '当前成本'}</div>
               <div className="font-mono text-text">¥{fmtMoney(state.cost_amount)}</div>
             </div>
             {(asset.asset_type === 'FUND' || asset.asset_type === 'CRYPTO') && (
@@ -84,11 +87,17 @@ export function AssetActionsModal({ asset, onClose, onChanged }) {
               </div>
             )}
             <div className="bg-surface-3 rounded-md px-2 py-1.5">
-              <div className="text-text-dim text-[10px] mb-0.5">累计已实现</div>
+              <div className="text-text-dim text-[10px] mb-0.5">{asset._fixIncome ? '累计已实现(含利息)' : '累计已实现'}</div>
               <div className={`font-mono ${state.realized_pnl >= 0 ? 'text-bull-bright' : 'text-bear-bright'}`}>
                 {state.realized_pnl >= 0 ? '+' : ''}¥{fmtMoney(Math.abs(state.realized_pnl))}
               </div>
             </div>
+            {asset._fixIncome && (state.income_realized || 0) > 0 && (
+              <div className="bg-surface-3 rounded-md px-2 py-1.5">
+                <div className="text-text-dim text-[10px] mb-0.5">其中利息到账</div>
+                <div className="font-mono text-info">+¥{fmtMoney(state.income_realized)}</div>
+              </div>
+            )}
           </div>
         )}
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.market_data import normalize_stock_code, get_realtime_quotes
@@ -171,6 +171,33 @@ async def market_refresh(body: MarketRefreshReq):
             "quotes": quotes, "sectors": sectors}
 
 
+class ManualQuoteReq(BaseModel):
+    code: str
+    price: float
+    prev_close: float | None = None
+
+
+@router.post("/quote/manual")
+async def market_quote_manual(body: ManualQuoteReq):
+    """手动改价: 直接覆盖 quote_latest.price(标 data_source='manual'); 实时快照到达时自然覆盖回来。
+
+    用于"行情不可达/无报价标的"的人工兜底价(任意品种可用, 不只期权); 估值取价只读
+    quote_latest.price, 故手动价自动被市值/盈亏采用, 无需优先级分支。"""
+    code = (body.code or "").strip()
+    if not code:
+        raise HTTPException(400, "code 必填")
+    try:
+        price = float(body.price)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "price 必须是数字")
+    from database import set_manual_quote
+    try:
+        await set_manual_quote(code, price, prev_close=body.prev_close)
+    except Exception as e:
+        raise HTTPException(400, f"手动改价失败: {e}")
+    return {"ok": True, "code": code, "price": price}
+
+
 @router.get("/status")
 async def market_status_route():
     """顶栏三市场状态徽章: {A, HK, US} 各自 open(交易中) / closed(已收盘, 交易日但
@@ -179,6 +206,22 @@ async def market_status_route():
     有持仓可推的用户, 没持仓时徽章会永远停在初始值。"""
     from services.market_data import markets_status
     return {"statuses": markets_status()}
+
+
+@router.get("/logo")
+async def market_logo(code: str = ""):
+    """股票/基金 logo(PNG 128px, transparent): 本地 icons/ 磁盘缓存 → 未命中且配置了
+    LOGOSTREAM_API_KEY(config.env)时联网拉 logostream 落盘再回。
+    404 = 无 logo / 未配 key / 非股票码(场外基金/加密/期货), 前端 <img> onError
+    退回首字母圆标。浏览器侧 Cache-Control 一天: logo 基本不变, 二次进页面零请求。"""
+    from fastapi import Response
+    from services import logostream
+    got = await logostream.get_logo(code)
+    if not got:
+        return Response(status_code=404)
+    data, ctype = got
+    return Response(content=data, media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/trading-day")

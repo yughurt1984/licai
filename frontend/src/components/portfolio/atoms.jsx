@@ -238,9 +238,11 @@ export function TypeMiniInfo({ row }) {
   if (type === 'W') {
     const yieldRate = extra.annualYield ?? extra.impliedYield
     const isImplied = extra.annualYield == null && extra.impliedYield != null
+    // 固定收益(fix-income): 手动市值覆盖年化计提时显示 (手) 角标
+    const isManual = extra.valueSource === 'manual'
     // 反推 tooltip 触发器放在内容最前面 (ⓘ icon), 避免被 RowActions hover 覆盖
     return (
-      <span className="text-[11.5]px text-text-dim">
+      <span className="text-[11.5px] text-text-dim">
         {isImplied && (
           <Tooltip content={
             <div className="leading-relaxed">
@@ -253,13 +255,30 @@ export function TypeMiniInfo({ row }) {
             <span className="cursor-help text-text-muted mr-0.5">ⓘ</span>
           </Tooltip>
         )}
-        {extra.platform || '理财'}
+        {extra.platform || '固定收益'}
+        {isManual && (
+          <Tooltip content="按 App 显示余额手填的市值(优先于年化计提)">
+            <span className="ml-1 cursor-help text-accent text-[10px]">(手)</span>
+          </Tooltip>
+        )}
         {yieldRate != null && (
           <> · 年化 <span className="font-mono text-bull">
             {isImplied && '≈'}{(yieldRate * 100).toFixed(2)}%
           </span></>
         )}
         {extra.daysHeld != null && <> · 持有 <span className="font-mono">{extra.daysHeld}天</span></>}
+        {/* 固定收益特有: 到期日 / 剩余天数 (fix-income 账本行) */}
+        {extra.daysToMaturity != null && (
+          <Tooltip content="剩余天数 = 距到期日(或按期限反推)">
+            <span className="cursor-help">
+              {' '}· <span className="font-mono">剩 {extra.daysToMaturity}天</span>
+              {extra.maturityDate && <span className="text-text-muted"> ({String(extra.maturityDate).slice(5)})</span>}
+            </span>
+          </Tooltip>
+        )}
+        {/* 已到期/结清的定格态 */}
+        {extra.status === 'matured' && <span className="ml-1 text-accent">已到期</span>}
+        {extra.status === 'closed' && <span className="ml-1 text-text-muted">已结清</span>}
       </span>
     )
   }

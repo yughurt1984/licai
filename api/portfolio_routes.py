@@ -55,6 +55,7 @@ class ActionCreate(BaseModel):
     fx_rate: Optional[float] = None  # 港美股成交日汇率(每 1 原币折人民币), 按结单填; 不填按成交日自动取
     direction: Optional[str] = None  # 期货/期权: LONG | SHORT (OPEN/CLOSE 必带)
     contract_multiplier: Optional[float] = None  # 期货/期权: 本笔乘数
+    option_type: Optional[str] = None  # 期权类型 CALL / PUT(与 direction 正交)
 
 
 class ActionUpdate(BaseModel):
@@ -1723,11 +1724,17 @@ def stockCodeIsEtf(code: str) -> bool:
 async def create_holding(data: HoldingCreate):
     main_at = (data.main_assets_type or "").strip().lower() or None
     is_deriv = is_derivative_kind(main_at)
+    opt_type = None                       # 期权类型(CALL/PUT); 非期权恒为 None
     if is_deriv:
         if (data.direction or "").upper() not in ("LONG", "SHORT"):
             raise HTTPException(400, "期货/期权必须指定方向(多/空)")
         if not (data.contract_multiplier and data.contract_multiplier > 0):
             raise HTTPException(400, "期货/期权必须填每手乘数")
+        is_opt = main_at == "options"
+        if is_opt:
+            if (data.option_type or "").upper() not in ("CALL", "PUT"):
+                raise HTTPException(400, "期权必须指定类型(CALL/PUT)")
+            opt_type = data.option_type.upper()
         stock_code = data.stock_code.strip().upper()      # thscode 原样(CU2601.SHF), 不走股票 normalize
         if not (data.shares and float(data.shares) > 0):
             raise HTTPException(400, "手数必须大于 0")
@@ -1797,11 +1804,13 @@ async def create_holding(data: HoldingCreate):
     if existing:
         await update_holding(stock_code, _direction=direction, stock_name=name,
                              contract_multiplier=holding_mult, main_assets_type=main_at,
-                             sub_assets_type=sat)
+                             sub_assets_type=sat,
+                             **({"strike_price": data.strike_price} if data.strike_price is not None else {}))
     else:
         await add_holding(stock_code, name, data.shares, data.cost_price,
                           direction=direction, contract_multiplier=holding_mult, main_assets_type=main_at,
-                          sub_assets_type=sat, purchase_date=data.trade_date)
+                          sub_assets_type=sat, purchase_date=data.trade_date,
+                          strike_price=data.strike_price, option_type=opt_type)
     # 1b) 如果前端传了券商, 在 recompute 之前写入, 这样 _recompute_holding 能用正确的费率
     if data.broker:
         await update_holding(stock_code, broker=data.broker, _direction=direction)
@@ -1815,6 +1824,7 @@ async def create_holding(data: HoldingCreate):
         broker=(data.broker or None),
         fx_rate=_fx, fee=data.fee,
         direction=direction, contract_multiplier=mult,
+        option_type=opt_type,
     )
     await _recompute_holding(stock_code, direction=direction)
     return {"message": "开仓成功", "stock_code": stock_code, "stock_name": name}
@@ -1840,8 +1850,8 @@ async def modify_holding(stock_code: str, data: HoldingUpdate, direction: str = 
         kwargs["cost_price"] = data.cost_price
     if data.broker is not None:
         kwargs["broker"] = data.broker
-    if data.last_price is not None:       # 期权: 手填最新价(浮动盈亏用)
-        kwargs["last_price"] = data.last_price
+    if data.strike_price is not None:     # 期权: 行权价(合约固定属性)
+        kwargs["strike_price"] = data.strike_price
 
     await update_holding(stock_code, _direction=existing.get("direction"), **kwargs)
     return {"message": "更新成功"}
@@ -2070,6 +2080,7 @@ async def create_action(stock_code: str, data: ActionCreate):
         # 不再对普通多头特判成 NULL(否则新流水会被 流水列表/重算 的 direction 过滤漏掉)。
         direction=_direction,
         contract_multiplier=mult if (is_open_close and not is_short_stock) else None,
+        option_type=(data.option_type or "").upper() if data.option_type else None,
     )
     await _recompute_holding(stock_code, direction=_direction)
     return {"message": "记录已添加"}

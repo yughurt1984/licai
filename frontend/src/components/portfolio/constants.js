@@ -1,7 +1,7 @@
 export const TYPE_META = {
   A: { label: '股票',   short: '股', tintVar: '--color-accent',     desc: 'A股 / 港股 / 美股' },
   F: { label: '基金',   short: '基', tintVar: '--color-info',       desc: '公募 / ETF / LOF' },
-  W: { label: '理财',   short: '理', tintVar: '--color-bull',       desc: '银证理财 (T+30 锁定)' },
+  W: { label: '固定收益', short: '固', tintVar: '--color-bull',     desc: '理财 / 债券 (固定收益)' },
   M: { label: '现金',   short: '现', tintVar: '--color-text-dim',   desc: 'T+0 货币基金 / 银行活期' },
   C: { label: '加密',   short: '加', tintVar: '--color-warn',       desc: 'BTC / ETH / …' },
   R: { label: '机器人', short: '量', tintVar: '--color-text-dim',   desc: '量化 / 跟投' },
@@ -24,12 +24,13 @@ export const TYPE_COLOR = {
 export const TYPE_ORDER = ['A', 'F', 'W', 'M', 'C', 'R', 'T', 'O']
 
 export const ASSET_TYPE_TO_KEY = { FUND: 'F', CRYPTO: 'C', BOT: 'R', WEALTH: 'W', CASH: 'M' }
+// W 桶已由 fix-income(固定收益) 大类驱动(fix_income_assets 账本), WEALTH 只是老数据兼容标记。
 
 // 持仓视图的展示桶(A/F/W/M/C/R/T/O) → 录入入口的大类(assets_class)。
-// 仅用于「快速添加」按钮按当前筛选桶直接打开对应大类表单; 期货/期权同属 derivatives。
+// 仅用于「快速添加」按钮按当前筛选桶直接打开对应大类表单; 期货/期权同归 derivatives。
 // 注意: 这是展示桶→大类的元映射, 不是资产清单硬编码; 资产种类/中类/小类本身全来自 assets_classify。
 export const BUCKET_TO_CLASS = {
-  A: 'stock', F: 'fund', W: 'wealth', M: 'cash',
+  A: 'stock', F: 'fund', W: 'fix-income', M: 'cash',
   C: 'crypto', R: 'bot', T: 'derivatives', O: 'derivatives',
 }
 
@@ -45,6 +46,7 @@ export const SUB_TO_TYPE = {
   cn_futures: 'T', hk_futures: 'T', us_futures: 'T',
   cn_options: 'O', hk_options: 'O', us_options: 'O', hk_warrant: 'O',
   crypto_perpetual: 'C', crypto_spot: 'C',
+  cn_wealth: 'W', cn_bond: 'W',   // 固定收益(fix-income): 理财 / 债券
 }
 
 // 由 assets_classify 行(后端随持仓透传)推导展示类型 —— 单一事实来源。
@@ -56,8 +58,9 @@ export function typeFromClassify(cls = {}) {
   if (ac === 'fund') return 'F'                   // 兜底(中类未带 fund 字样)
   if (ac === 'crypto') return 'C'
   if (ac === 'cash_equal') return 'M'              // 纯现金等价物(非货基)
+  if (ac === 'fix-income') return 'W'              // 固定收益(理财/债券, valuation_type=yield)
   if (ac === 'derivatives') return /fut/.test(mt) ? 'T' : 'O'   // 期货/期权同属衍生品, 按中类拆
-  return null   // fix-income / commodity / forex / insurance: 暂无独立展示桶
+  return null   // commodity / forex / insurance: 暂无独立展示桶
 }
 
 export function typeOfSub(sub, cls) {

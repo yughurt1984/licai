@@ -5,6 +5,8 @@ import { AssetActionsModal } from './actions'
 import { AddAShareForm } from './forms/AddAShareForm'
 import { AddFundForm } from './forms/AddFundForm'
 import { AddFuturesForm } from './forms/AddFuturesForm'
+import { AddFixIncomeForm } from './forms/AddFixIncomeForm'
+import { FixIncomeEditRow } from './forms/fix_income'
 import { AssetEntryMenu } from './forms/AssetEntryMenu'
 import { FuturesLotRow } from './forms/FuturesLotRow'
 import { EditAssetRow } from './forms/EditAssetRow'
@@ -19,6 +21,7 @@ export function PortfolioModals({
   open, show, hide, brokers,
   onAdd,                 // A股 新增完成: 通知外层刷新 holdings
   onAssetsChanged,       // 资产类改动: 重载 /api/assets
+  onFixIncomeChanged,    // 固定收益改动: 重载 /api/fix-income
   onRealizedChanged,     // 影响已实现的改动(加减仓/流水)
   onThesisSaved,         // 买入逻辑存好: 重拉有逻辑的代码集合
 }) {
@@ -54,8 +57,15 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {/* 其余大类(理财/现金/加密/机器人/商品/外汇/保险…): 表单待单独开发 */}
-      {addCls && addCls !== 'menu' && !['stock', 'fund', 'derivatives'].includes(addCls) && (
+      {/* 固定收益(理财/债券): 中类(理财/债券)从 assets_classify fix-income 大类自动同步,
+          提交走 /api/fix-income(fix_income_assets 账本) */}
+      {addCls === 'fix-income' && (
+        <AddFixIncomeForm sub={addSub || undefined}
+          onDone={() => { hide('add'); onFixIncomeChanged?.() }}
+          onCancel={() => hide('add')} />
+      )}
+      {/* 其余大类(现金/加密/机器人/商品/外汇/保险…): 表单待单独开发 */}
+      {addCls && addCls !== 'menu' && !['stock', 'fund', 'derivatives', 'fix-income'].includes(addCls) && (
         <div className="px-6 py-4 bg-surface-2/50 border-b border-border text-[12.5px] text-text-muted">
           「{addCls}」添加表单待单独开发。
         </div>
@@ -66,6 +76,13 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('edit'); onAssetsChanged() }}
           onCancel={() => hide('edit')} />
+      )}
+
+      {/* 固定收益: 资产行编辑(名称/年化/起息日/到期日/付息方式/风险等级/状态...) */}
+      {open.editFix && (
+        <FixIncomeEditRow asset={open.editFix}
+          onDone={() => { hide('editFix'); onFixIncomeChanged?.() }}
+          onCancel={() => hide('editFix')} />
       )}
 
       {open.addLot && (

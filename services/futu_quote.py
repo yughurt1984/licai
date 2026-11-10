@@ -45,6 +45,63 @@ def invalidate_ctx():
     _cooldown_until = 0.0
 
 
+# ── 分红派息事件(corporate-actions/dividends) ─────────────────────────────
+def _futu_date(v) -> str | None:
+    """富途日期 YYYY/MM/DD → ISO(YYYY-MM-DD); 空返回 None。"""
+    import datetime as _dt
+    try:
+        return _dt.datetime.strptime(str(v or ""), "%Y/%m/%d").date().isoformat()
+    except ValueError:
+        return None
+
+
+async def dividends_sync(futu_code: str) -> Optional[list[dict]]:
+    """富途分红派息事件(futu_code 前缀形态 HK.00700 / US.AAPL):
+    [{ex_date, pay_date, per_share, currency, declared, source=futu}], 除净日降序。
+    只取 process=Implementation(已实施), 预案不要。有凭证走签名请求, 没凭证试匿名
+    (文档示例免鉴权)。拉不到 → None。"""
+    cfg = await futu_config()
+    path = f"/api/v1.0/quote/{futu_code}/corporate-actions/dividends"
+    headers = {}
+    if cfg.get("app_key") and cfg.get("private_key"):
+        try:
+            headers = build_auth_headers("GET", path, "", b"",
+                                         cfg["app_key"], cfg["private_key"], cfg.get("algo") or "ed25519")
+        except Exception:
+            headers = {}                      # 签名失败按匿名试(文档示例免鉴权)
+
+    def _req() -> Optional[list]:
+        r = _session.get((cfg.get("host") or "https://webapi.futunn.com") + path,
+                         headers=headers or None, timeout=10)
+        if r.status_code != 200:
+            return None
+        j = r.json()
+        if j.get("ret_code") != 0:
+            return None
+        return (j.get("data") or {}).get("dividend_list") or []
+
+    rows = await asyncio.to_thread(_req)
+    if rows is None:
+        return None
+    out = []
+    for row in rows:
+        if (row.get("process") or "") != "Implementation":
+            continue                          # 预案(Plan)不要
+        ex = _futu_date(row.get("ex_date"))
+        if not ex:
+            continue
+        try:
+            ps = float(row.get("dividend_per_share") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ps <= 0:
+            continue
+        out.append({"ex_date": ex, "pay_date": _futu_date(row.get("dividend_payable_date")),
+                    "per_share": ps, "currency": str(row.get("currency") or ""),
+                    "declared": str(row.get("statement") or ""), "source": "futu"})
+    return out
+
+
 # ── 代码转换(futu 专用, 绝不落库) ─────────────────────────────────────────
 # 标准码是「代码.市场」(00700.HK / SNDK.US, 与 symbol_dict/ths/tickflow 同构); futu 是
 # 「市场.代码」(HK.00700)。转换只发生在本模块内: 请求前把标准码翻成 futu 码, 响应转回

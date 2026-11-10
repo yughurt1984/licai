@@ -102,9 +102,10 @@ def test_dispatch_routes_by_market(monkeypatch):
         assert futu_code in ("HK.00700", "US.AAPL")
         return [{"ex_date": "2026-05-15", "pay_date": None, "per_share": 5.3,
                  "currency": "HKD", "declared": "x", "source": "futu"}]
-    from services import ths_fuyao, futu_quote
+    from services import ths_fuyao
     monkeypatch.setattr(ths_fuyao, "corp_actions_sync", fake_a)
-    monkeypatch.setattr(futu_quote, "dividends_sync", fake_futu)
+    # dividends.py 把适配器导入成了模块级名字(futu_dividends_sync), patch 点在 dv 上
+    monkeypatch.setattr(dv, "futu_dividends_sync", fake_futu)
     dv._fcache.clear()
     assert asyncio.run(dv._events_for("600519.SH"))[0]["source"] == "fuyao-ths"
     assert asyncio.run(dv._events_for("00700.HK"))[0]["source"] == "futu"

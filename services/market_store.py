@@ -80,15 +80,25 @@ async def save_quotes(rows: list[dict]) -> int:
     rows = [r for r in rows or [] if r.get("code")]
     if not rows:
         return 0
-    # name 兜底: 行情源没给名字时, 用底稿 symbol_dict 的名字补, 保证 quote_latest.name 非空
+    # name 兜底: 行情源没给名字时, 先查底稿 symbol_dict, 再退回持仓表名称(期权开仓现拼无 symbol_dict 底稿,
+    # 但 holdings.stock_name 落库时带名), 保证 quote_latest.name 非空。quote_latest 是全局快照(无 user_id),
+    # 同名标的在各用户持仓里名称一致, 取 MAX 即可。
     need = [r for r in rows if not (r.get("name") or "").strip()]
     if need:
         try:
             pool0 = await get_pool()
-            nrows = await pool0.fetch(
-                "SELECT code, name FROM ledger.symbol_dict WHERE code = ANY($1)",
-                list({r["code"] for r in need}))
-            nmap = {n["code"]: n["name"] for n in nrows}
+            codes = list({r["code"] for r in need})
+            nmap = {}
+            sd = await pool0.fetch(
+                "SELECT code, name FROM ledger.symbol_dict WHERE code = ANY($1)", codes)
+            nmap.update({n["code"]: n["name"] for n in sd if n["name"]})
+            missing = [c for c in codes if not nmap.get(c)]
+            if missing:
+                hd = await pool0.fetch(
+                    "SELECT code, MAX(stock_name) AS name FROM ledger.holdings "
+                    "WHERE code = ANY($1) AND stock_name IS NOT NULL AND stock_name <> '' "
+                    "GROUP BY code", missing)
+                nmap.update({h["code"]: h["name"] for h in hd if h["name"]})
             for r in need:
                 if nmap.get(r["code"]):
                     r["name"] = nmap[r["code"]]

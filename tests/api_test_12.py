@@ -2,12 +2,13 @@ import requests
 import json
 
 def test_twelvedata_etfs():
-    url = "https://api.twelvedata.com/time_series"
+    url = "https://api.twelvedata.com/funds"
     params = {
         "apikey": "2c3a9ed97e55403f9aafc00a0c22aad0",
-        "symbol": "QQQ",
-        "currency": "USD",
-        "interval":"1min"
+        "isin": "KYG875721634",
+        #"symbol": "00000.SZ",
+
+
     }
     try:
         resp = requests.get(url, params=params, timeout=20)

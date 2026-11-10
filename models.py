@@ -15,6 +15,8 @@ class HoldingCreate(BaseModel):
     main_assets_type: Optional[str] = None  # 中类(common_share/futures/options/...): 钉住的引擎列; 期货/期权走开仓语义
     direction: Optional[str] = None   # LONG(多) | SHORT(空) — 期货/期权必带; 股票做空传 SHORT(多头不落方向)
     contract_multiplier: Optional[float] = None  # 每手乘数(沪铜 5 / 期权合约单位 10000)
+    strike_price: Optional[float] = None      # 期权/权证行权价(合约固定属性; 仅 options/warrant 用)
+    option_type: Optional[str] = None         # 期权类型 CALL / PUT(与 direction 正交, 合约属性)
     sub_assets_type: Optional[str] = None  # 资产小类(assets_classify 键): 落库并由它推导大类/引擎列
 
 
@@ -23,7 +25,7 @@ class HoldingUpdate(BaseModel):
     shares: Optional[float] = None
     cost_price: Optional[float] = None
     broker: Optional[str] = None
-    last_price: Optional[float] = None   # 期权手填最新价(浮动盈亏用它)
+    strike_price: Optional[float] = None   # 期权行权价(合约固定属性)
 
 
 class HoldingResponse(BaseModel):
@@ -35,7 +37,7 @@ class HoldingResponse(BaseModel):
     cost_price: float
     current_price: Optional[float] = None
     purchase_date: Optional[str] = None     # 建仓日期(来自首笔流水 trade_date)
-    last_price: Optional[float] = None      # 期权手填最新价兜底; 股票/期货走实时报价不落这
+    strike_price: Optional[float] = None      # 期权/权证行权价; 股票/期货走实时报价不落这
     fx_rate: float = 1.0
     fx_time: Optional[str] = None
     fx_source: Optional[str] = None

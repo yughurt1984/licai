@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { fetchJSON, prefetchJSON } from '../hooks/useApi'
+import StockLogo from './StockLogo'
 import RotationBoard from './RotationBoard'
 import GroupPicker from './rankings/GroupPicker'
 import StockPanel from './rankings/StockPanel'
@@ -696,6 +697,7 @@ export default function Rankings() {
                 <span className="text-[10px] font-mono text-text-muted w-5 shrink-0 text-right">{r._idx ?? i + 1}</span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
+                    <StockLogo type="A" code={r.code} name={r.name} size={20} />
                     <span className="text-[12.5px] text-text-bright truncate">{r.name}</span>
                     {tab === 'structure' && r.phase && (
                       <span className={`text-[8.5px] px-1 rounded shrink-0 ${r.phase === '强势' ? 'bg-bear/15 text-bear-bright' : 'bg-accent/15 text-accent'}`}>{r.phase}</span>

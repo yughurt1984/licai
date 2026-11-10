@@ -9,7 +9,10 @@ export default function EditModal({ holding, onClose, onChange }) {
   const [code, setCode] = useState(holding.stock_code)
   const [shares, setShares] = useState(holding.shares)
   const [cost, setCost] = useState(holding.cost_price)
-  const [lastPrice, setLastPrice] = useState(holding.last_price ?? '')
+  const [strikePrice, setStrikePrice] = useState(holding.strike_price ?? '')
+  const [quotePrice, setQuotePrice] = useState(holding.current_price ?? '')
+  const [quoteSaving, setQuoteSaving] = useState(false)
+  const [quoteMsg, setQuoteMsg] = useState('')
   const [saving, setSaving] = useState(false)
   // 港美股没有 100 股一手的规则(港股每手股数因股而异), 按 1 股步进; 成本价按原币
   const mkt = /^HK\.?/i.test(code.trim()) ? 'HK' : /^US\./i.test(code.trim()) ? 'US' : 'A'
@@ -21,7 +24,7 @@ export default function EditModal({ holding, onClose, onChange }) {
     try {
       if (lockCode) {
         const body = { shares: parseFloat(shares), cost_price: parseFloat(cost) }
-        if (typeOfSub(holding.sub_assets_type) === 'O' && lastPrice !== '') body.last_price = parseFloat(lastPrice)
+        if (typeOfSub(holding.sub_assets_type) === 'O' && strikePrice !== '') body.strike_price = parseFloat(strikePrice)
         await api.updateHolding(code.trim().toUpperCase(), body, holding.direction)
       } else {
         const nextCode = code.trim().toUpperCase()
@@ -38,6 +41,18 @@ export default function EditModal({ holding, onClose, onChange }) {
       alert(e.message || '操作失败')
     }
     setSaving(false)
+  }
+
+  const applyQuote = async () => {
+    if (quotePrice === '') return
+    setQuoteSaving(true); setQuoteMsg('')
+    try {
+      await api.updateQuote(holding.stock_code, { price: parseFloat(quotePrice) })
+      setQuoteMsg('已更新报价')
+      onChange()
+    } catch (e) {
+      setQuoteMsg(e.message || '失败')
+    } finally { setQuoteSaving(false) }
   }
 
   const handleDelete = async () => {
@@ -84,11 +99,23 @@ export default function EditModal({ holding, onClose, onChange }) {
           )}
           {typeOfSub(holding.sub_assets_type) === 'O' && (
             <div>
-              <label className="text-[12px] text-text-dim block mb-1">最新价 <span className="text-text-muted text-[11px]">行情不可达时手填</span></label>
+              <label className="text-[12px] text-text-dim block mb-1">行权价 <span className="text-text-muted text-[11px]">期权合约固定属性</span></label>
               <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
-                step={0.0001} value={lastPrice} onChange={e => setLastPrice(e.target.value)} />
+                step={0.0001} value={strikePrice} onChange={e => setStrikePrice(e.target.value)} />
             </div>
           )}
+          <div>
+            <label className="text-[12px] text-text-dim block mb-1">手动报价 <span className="text-text-muted text-[11px]">覆盖实时价(次日有报价自动回退)</span></label>
+            <div className="flex gap-2">
+              <input type="number" className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
+                step={0.0001} value={quotePrice} onChange={e => setQuotePrice(e.target.value)} placeholder="填现价" />
+              <button onClick={applyQuote} disabled={quoteSaving || quotePrice === ''}
+                className="px-3 py-2 rounded-lg bg-accent/15 text-accent text-[13px] hover:bg-accent/25 disabled:opacity-50 cursor-pointer">
+                {quoteSaving ? '保存中' : '应用'}
+              </button>
+            </div>
+            {quoteMsg && <p className="text-[11px] text-text-muted mt-1">{quoteMsg}</p>}
+          </div>
         </div>
 
         <div className="flex gap-2 pt-1">

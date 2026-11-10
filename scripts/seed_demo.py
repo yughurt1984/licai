@@ -60,28 +60,7 @@ DEMO_ASSETS = [
         "asset_type": "FUND", "code": "000217", "name": "华安黄金ETF联接C",
         "platform": "公募平台", "cost_amount": 6000, "shares": 3000, "buy_days_ago": 40,
     },
-    # WEALTH (3 只, 名称泛化)
-    {
-        "asset_type": "WEALTH", "code": "DEMO001",
-        "name": "稳健型理财 1 号 (演示)",
-        "platform": "银行 A", "cost_amount": 5000,
-        "annual_yield_rate": 0.025,
-        "start_date": (date.today() - timedelta(days=60)).strftime("%Y-%m-%d"),
-    },
-    {
-        "asset_type": "WEALTH", "code": "DEMO002",
-        "name": "日开型理财 (演示)",
-        "platform": "银行 B", "cost_amount": 10000,
-        "annual_yield_rate": 0.022,
-        "start_date": (date.today() - timedelta(days=30)).strftime("%Y-%m-%d"),
-    },
-    {
-        "asset_type": "WEALTH", "code": "DEMO003",
-        "name": "30 天滚动型 (演示)",
-        "platform": "银行 C", "cost_amount": 8000,
-        "annual_yield_rate": 0.020,
-        "start_date": (date.today() - timedelta(days=15)).strftime("%Y-%m-%d"),
-    },
+    # WEALTH (理财) 已迁入固定收益账本 → 见下方 DEMO_FIX_INCOME
     # CASH (3 只, 货币基金/活期, 名称泛化)
     {
         "asset_type": "CASH", "code": "mmf-a", "name": "货币基金 A",
@@ -105,6 +84,33 @@ DEMO_ASSETS = [
     },
 ]
 
+# 固定收益 (fix-income 大类: 理财/债券, fix_income_assets 账本)
+# sub_assets_type: cn_wealth=理财 / cn_bond=债券 (assets_classify 种子行)
+DEMO_FIX_INCOME = [
+    {
+        "code": "DEMO001", "name": "稳健型理财 1 号 (演示)",
+        "sub_assets_type": "cn_wealth", "main_assets_type": "bank_wealth",
+        "platform": "银行 A", "principal": 5000,
+        "annual_yield_rate": 0.025, "value_date": (date.today() - timedelta(days=60)).strftime("%Y-%m-%d"),
+        "term_days": 93, "interest_type": "bullet", "risk_level": "R2",
+    },
+    {
+        "code": "DEMO002", "name": "日开型理财 (演示)",
+        "sub_assets_type": "cn_wealth", "main_assets_type": "bank_wealth",
+        "platform": "银行 B", "principal": 10000,
+        "annual_yield_rate": 0.022, "value_date": (date.today() - timedelta(days=30)).strftime("%Y-%m-%d"),
+        "interest_type": "monthly", "risk_level": "R1",
+    },
+    {
+        "code": "019547.SH", "name": "24国债09 (演示)",
+        "sub_assets_type": "cn_bond", "main_assets_type": "bond",
+        "platform": "证券账户", "principal": 8000,
+        "annual_yield_rate": 0.020, "value_date": (date.today() - timedelta(days=15)).strftime("%Y-%m-%d"),
+        "maturity_date": (date.today() + timedelta(days=350)).strftime("%Y-%m-%d"),
+        "term_days": 365, "interest_type": "annual", "risk_level": "R1",
+    },
+]
+
 
 # ---- 主流程 (PG 版: 备份/恢复走 pg_dump/pg_restore, 写入走 database API) ----
 
@@ -112,6 +118,7 @@ DEMO_ASSETS = [
 # ask_*/tool_gap/prompt_rule/user_memory —— 配置与基础设施要保留)
 _DEMO_TABLES = [
     "holdings", "position_actions", "external_assets", "external_asset_actions",
+    "fix_income_assets", "fix_income_asset_actions",
     "unwind_plans", "unwind_tranches", "custom_alerts", "alert_config",
     "cashflow_monthly", "morning_briefings", "portfolio_snapshots",
     "watchlist", "watchlist_group", "position_thesis", "thesis_revision",
@@ -222,7 +229,31 @@ async def seed_into():
                 aid, "BUY", amount=cost_amount, shares=a["shares"],
                 unit_price=unit or round(cost_amount / a["shares"], 4),
                 trade_date=d0, note="initial (demo)")
-    print(f"✓ 已写入 {len(DEMO_HOLDINGS)} 只 A股 + {len(DEMO_ASSETS)} 笔外部资产到 PostgreSQL")
+
+    # 固定收益(理财/债券): fix_income_assets + 种子 BUY 流水 (本金账本)
+    from database import add_fix_income_asset, add_fix_income_action, recompute_fix_income_asset
+    for f in DEMO_FIX_INCOME:
+        fid = await add_fix_income_asset(
+            code=f["code"], name=f["name"], principal=0,
+            sub_assets_type=f.get("sub_assets_type"),
+            main_assets_type=f.get("main_assets_type"),
+            platform=f.get("platform", ""),
+            manual_value=f.get("manual_value"),
+            annual_yield_rate=f.get("annual_yield_rate"),
+            value_date=f.get("value_date"),
+            maturity_date=f.get("maturity_date"),
+            term_days=f.get("term_days"),
+            interest_type=f.get("interest_type", "bullet"),
+            risk_level=f.get("risk_level"),
+            note="demo",
+        )
+        await add_fix_income_action(
+            fid, "BUY", amount=f["principal"],
+            yield_rate=f.get("annual_yield_rate"),
+            trade_date=f.get("value_date"), note="initial (demo)")
+        await recompute_fix_income_asset(fid)
+    print(f"✓ 已写入 {len(DEMO_HOLDINGS)} 只 A股 + {len(DEMO_ASSETS)} 笔外部资产"
+          f" + {len(DEMO_FIX_INCOME)} 笔固定收益到 PostgreSQL")
 
 
 def _demo_dsn() -> str:

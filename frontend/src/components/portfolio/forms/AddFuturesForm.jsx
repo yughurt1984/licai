@@ -32,6 +32,8 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
   const [lots, setLots] = useState('1')
   const [multiplier, setMultiplier] = useState('')
   const [price, setPrice] = useState('')
+  const [strikePrice, setStrikePrice] = useState('')
+  const [optionType, setOptionType] = useState('CALL')  // 期权类型 CALL/PUT(合约属性, 与 direction 正交)
   const [fee, setFee] = useState('')                  // 留空 = 按分类比例费率自动(回退券商档案), 后端同口径
   const [broker, setBroker] = useState('')
   const [tradeDate, setTradeDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -93,8 +95,14 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
 
   // 合约代码拼接: 品种(symbol_dict.code, 如 IF/CU) + 月份(YYMM) + 交易所后缀
   // symbol_dict.suffix 由你直接维护为同花顺后缀(SHF/CFE...), 原样拼接; 期货品种只查库, 报价那一步才用 ticker 取价
-  const thscode = product && month
-    ? `${product.code}${month}${product.suffix ? '.' + product.suffix : ''}`.toUpperCase()
+  // 期权拼码: 品种+年月-C/P-行权价.后缀 (如 IO2701-C-4000.CFE)
+  // C/P 由独立 optionType 决定, 与 direction(权利方/义务方) 正交: 四态都支持(买看涨/卖看涨/买看跌/卖看跌)
+  const cp = optionType === 'PUT' ? 'P' : 'C'
+  const strikeNum = parseFloat(strikePrice)
+  const thscode = product && month && (!isOpt || strikeNum > 0)
+    ? (isOpt
+        ? `${product.code}${month}-${cp}-${strikeNum}.${product.suffix || ''}`.toUpperCase()
+        : `${product.code}${month}${product.suffix ? '.' + product.suffix : ''}`.toUpperCase())
     : ''
   // 保证金估算(仅供参考): 开仓价 × 每手乘数 × 手数 × 保证金率 —— 期货公司在交易所基础上加收
   // (保证金率来自 assets_classify 品种分类行, 经 /products/search JOIN 带出)
@@ -112,10 +120,12 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
     if (!thscode) return setErr('合约代码拼接失败: 检查品种行的交易所后缀是否已维护')
     const sh = parseFloat(lots)
     if (!(sh > 0)) return setErr('手数必须大于 0')
-    const mult = parseFloat(multiplier)
-    if (!(mult > 0)) return setErr('请填每手乘数')
+    // 期权页隐藏乘数输入 → 每手乘数改从品种行 trade_amount 自动取(需先在 symbol_dict 维护)
+    const mult = parseFloat(multiplier) || (isOpt && product?.trade_amount ? parseFloat(product.trade_amount) : 0)
+    if (!(mult > 0)) return setErr(isOpt ? '期权品种未配置每手乘数: 请在 symbol_dict 维护 trade_amount' : '请填每手乘数')
     const px = parseFloat(price)
     if (!(px > 0)) return setErr('请填开仓价格')
+    if (isOpt && !(strikeNum > 0)) return setErr('请填行权价')
     setBusy(true); setErr('')
     try {
       const body = {
@@ -124,6 +134,7 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
         shares: sh,
         cost_price: px,
         main_assets_type: isOpt ? 'options' : 'futures',
+        ...(isOpt ? { strike_price: strikeNum, option_type: optionType } : {}),
         direction,
         contract_multiplier: mult,
         trade_date: tradeDate,
@@ -167,7 +178,7 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
         )}
         <div className="flex flex-col gap-0.5">
           <label className="text-[11px] text-text-muted">{isOpt ? '期权品种' : '期货品种'}</label>
-          <input className={`${inp} w-[72px] font-sans`} autoFocus placeholder="CU / 沪铜"
+          <input className={`${inp} w-[56px] font-sans`} autoFocus placeholder="CU / 沪铜"
             value={query} onChange={e => setQuery(e.target.value)} />
         </div>
         <div className="flex flex-col gap-0.5 flex-1 min-w-[90px] max-w-[108px]">
@@ -176,9 +187,13 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
             value={name} onChange={e => setName(e.target.value)} />
         </div>
         <div className="flex flex-col gap-0.5">
-          <label className="text-[11px] text-text-muted">方向</label>
+          <label className="text-[11px] text-text-muted">{isOpt ? '方向(权利方/义务方)' : '方向'}</label>
           <div className="flex gap-0.5">
-            {[['LONG', '多', '买涨: 价格涨=盈利'], ['SHORT', '空', '卖跌: 价格跌=盈利']].map(([d, label, tip]) => (
+            {(isOpt
+              ? [['LONG', '权利方', '买期权(权利方): 付权利金, 最大亏损=权利金'],
+                 ['SHORT', '义务方', '卖期权(义务方/写权): 收权利金, 有履约义务(卖方保证金由券商另行计)']]
+              : [['LONG', '多', '买涨: 价格涨=盈利'], ['SHORT', '空', '卖跌: 价格跌=盈利']]
+            ).map(([d, label, tip]) => (
               <button key={d} onClick={() => setDirection(d)} title={tip}
                 className={`px-3 py-1.5 rounded text-[14px] font-semibold border transition-colors cursor-pointer
                   ${direction === d
@@ -189,28 +204,47 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
             ))}
           </div>
         </div>
+        {isOpt && (
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[11px] text-text-muted">类型(C/P)</label>
+            <div className="flex gap-0.5">
+              {[['CALL', 'C 认购'], ['PUT', 'P 认沽']].map(([t, label]) => (
+                <button key={t} onClick={() => setOptionType(t)} title={t === 'CALL' ? '认购期权(CALL)' : '认沽期权(PUT)'}
+                  className={`px-2.5 py-1.5 rounded text-[13px] font-semibold border transition-colors cursor-pointer
+                    ${optionType === t
+                      ? 'bg-accent/20 text-accent border-accent/60'
+                      : 'border-border text-text-dim hover:text-text'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-col gap-0.5">
           <label className="text-[11px] text-text-muted">月份</label>
           <select className={`${inp} w-[64px]`} value={month} onChange={e => setMonth(e.target.value)}>
             {months.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
+        {isOpt && field('行权价', strikePrice, setStrikePrice, '合约行权价', '0.001', 'number', 'w-[72px]')}
         <div className="flex flex-col gap-0.5">
           <label className="text-[11px] text-text-muted">合约代码</label>
-          <span className={`${inp} w-[100px] !bg-surface-3/60 text-text-bright select-all text-center`}
+          <span className={`${inp} w-[136px] !bg-surface-3/60 text-text-bright select-all text-center`}
             title={thscode || '选品种+月份后自动拼接'}>{thscode || '—'}</span>
         </div>
         {field('手数', lots, setLots, '1', '1')}
-        {field('乘数', multiplier, setMultiplier, product?.trade_amount ? String(product.trade_amount) : '5', '1')}
-        {field('开仓价', price, setPrice, '现价', '0.01', 'number', '', true)}
+        {!isOpt && field('乘数', multiplier, setMultiplier, product?.trade_amount ? String(product.trade_amount) : '5', '1')}
+        {field('开仓价', price, setPrice, '现价', '0.01', 'number', 'w-[78px]')}
         {field('手续费', fee, setFee, feeAuto != null ? feeAuto.toFixed(1) : '自动', '0.01')}
-        <div className="flex flex-col gap-0.5">
-          <label className="text-[11px] text-text-muted truncate" title="开仓价 × 乘数 × 手数 × 保证金率(交易所口径)">保证金</label>
-          <span className={`${inp} w-[92px] !bg-surface-3/40 text-warn text-right select-all`}
-            title="开仓价 × 每手乘数 × 手数 × 保证金率(交易所口径, 期货公司加收)">
-            {marginEst != null ? `¥${marginEst.toFixed(0)}` : '—'}
-          </span>
-        </div>
+        {!isOpt && (
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[11px] text-text-muted truncate" title="开仓价 × 乘数 × 手数 × 保证金率(交易所口径)">保证金</label>
+            <span className={`${inp} w-[92px] !bg-surface-3/40 text-warn text-right select-all`}
+              title="开仓价 × 每手乘数 × 手数 × 保证金率(交易所口径, 期货公司加收)">
+              {marginEst != null ? `¥${marginEst.toFixed(0)}` : '—'}
+            </span>
+          </div>
+        )}
         <div className="flex flex-col gap-0.5">
           <label className="text-[11px] text-text-muted">券商</label>
           <select className={`${inp} w-[96px] font-sans`} value={broker} onChange={e => setBroker(e.target.value)}>

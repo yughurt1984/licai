@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
+import StockLogo from './StockLogo'
 import StockKlineModal from './StockKlineModal'
 
 // 股池: 盘中看上一个交易日各格子里的票今天怎么样; 收盘落档后默认看今天涨停的这批(明天的观察名单), 可切回。
@@ -47,6 +48,7 @@ function Pool({ g, open, onToggle, onPick }) {
         {rows.map(x => (
           <button key={x.代码} onClick={() => onPick?.(x)}
             className="w-full flex items-center gap-2 px-2 py-[3px] rounded hover:bg-surface-3/70 text-left">
+            <StockLogo type="A" code={x.代码} name={x.名称} size={16} />
             <span className="text-[11.5px] text-text w-[68px] shrink-0 truncate">{x.名称}</span>
             <span className="text-[9.5px] text-text-muted font-mono w-[52px] shrink-0">
               {x.几进几 || `${x.连板}板`}

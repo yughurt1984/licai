@@ -4,8 +4,11 @@ import json
 def test_eodhd_id_mapping():
     base_url = "https://eodhd.com/api/id-mapping"
     params = {
-        "filter[symbol]": "603111.SH",
-        "page[limit]": 100,
+        #"filter[symbol]": "600517.SSE",
+        #"filter[isin]": "CNE000001G20",
+        #"filter[ex]":
+        "filter[figi]": "BBG00YMWRPM1",
+        "page[limit]": 10,
         "page[offset]": 0,
         "api_token": "691168c7e8a240.71383926",
         "fmt": "json"

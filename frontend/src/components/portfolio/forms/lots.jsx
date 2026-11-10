@@ -7,6 +7,7 @@ import { isEtfCode } from '../helpers'
 // OTC 基金 (场外): 只填本金 + 日期, 写 pending 流水, T+1 净值出来后回流水"确认"补份额
 // 场内 ETF / CRYPTO: 三选二 (本金/份额/单价) + 手续费 + 日期, 立即 confirmed
 // WEALTH/CASH: 本金 + 日期 (+ WEALTH 可填本笔起投日 / 年化)
+// 固定收益(_fixIncome 标记): 同 WEALTH 口径(本金 + 本笔起息日 + 本笔年化), 走 /api/fix-income
 // ============================================================
 export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
   const [principal, setPrincipal] = useState('')
@@ -16,7 +17,7 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
   const [feeTouched, setFeeTouched] = useState(false)
   const [lotStartDate, setLotStartDate] = useState(new Date().toISOString().slice(0, 10))
   const [lotTime, setLotTime] = useState('')     // 成交时刻 HH:MM (可选, 供分时图打点)
-  const [lotYield, setLotYield] = useState('')   // WEALTH: 加投年化 %
+  const [lotYield, setLotYield] = useState('')   // WEALTH/固定收益: 加投年化 %
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -29,12 +30,13 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
   const t = asset.asset_type
   const isFund = t === 'FUND'
   const isCrypto = t === 'CRYPTO'
-  const isWealth = t === 'WEALTH'
+  const isFixIncome = !!asset._fixIncome            // 固定收益行(normalizeFixIncomeAsset 带标记)
+  const isWealth = t === 'WEALTH' || isFixIncome    // 本金配对记账同口径 (UI 分支复用)
   const isOtcFund = isFund && !isOnchainFundKind(fundKindOf(asset))
   const isShareBased = isFund || isCrypto
 
   // --- Live preview ---
-  const oldCost = parseFloat(asset.cost_amount) || 0
+  const oldCost = parseFloat(isFixIncome ? asset.principal : asset.cost_amount) || 0
   const oldShares = parseFloat(asset.shares) || 0
   const oldPending = parseFloat(asset.pending_amount) || 0
   const p = parseFloat(principal) || 0
@@ -104,8 +106,10 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
   } else if (p > 0) {
     if (isWealth) {
       const today = new Date()
+      // 固定收益的计息起点叫 value_date(起息日); WEALTH 是 start_date(起投日)
+      const startDateRaw = isFixIncome ? (asset.value_date || asset.created_at) : (asset.start_date || asset.created_at)
       let oldStart
-      try { oldStart = new Date(asset.start_date || asset.created_at) } catch { oldStart = today }
+      try { oldStart = new Date(startDateRaw) } catch { oldStart = today }
       const daysOld = Math.max(0, Math.floor((today - oldStart) / 86400000))
       let lotStart
       try { lotStart = new Date(lotStartDate) } catch { lotStart = today }
@@ -115,8 +119,8 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
       const newStart = new Date(today.getTime() - Math.round(wDays) * 86400000)
       preview = {
         新累计本金: '¥' + fmtMoney(newCost),
-        新有效起投日: newStart.toISOString().slice(0, 10),
-        '(原起投日)': asset.start_date || '--',
+        新有效起息日: newStart.toISOString().slice(0, 10),
+        '(原起息日)': (startDateRaw || '').slice(0, 10) || '--',
       }
       if (lotYield !== '' && asset.annual_yield_rate != null) {
         const blended = (oldCost * asset.annual_yield_rate + p * (parseFloat(lotYield) / 100)) / newCost
@@ -150,6 +154,7 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
       // 这样流水编辑里能看到/改手续费, 不会"消失"。
       if (feeNum > 0) body.fee = feeNum
     } else if (isWealth) {
+      // WEALTH 与 固定收益(_fixIncome) 同口径: 本金 + 本笔起息日 + 本笔年化(加权混合)
       if (!(p > 0)) { setErr('请输入本金'); return }
       body = { principal: p }
       if (lotStartDate) body.lot_start_date = lotStartDate
@@ -162,7 +167,10 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
     if (lotTime) body.trade_time = lotTime
     setBusy(true)
     try {
-      const r = await fetchJSON(`/api/assets/${asset.id}/add-lot`, {
+      const url = isFixIncome
+        ? `/api/fix-income/${asset.id}/add-lot`
+        : `/api/assets/${asset.id}/add-lot`
+      const r = await fetchJSON(url, {
         method: 'POST', body: JSON.stringify(body),
       })
       if (r.message === 'lot added') onDone?.()
@@ -242,7 +250,9 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
 
         <div className={isWealth ? 'grid grid-cols-2 gap-2' : ''}>
           <div>
-            <label className="text-[11.5px] text-text-dim block mb-1">{isWealth ? '本笔起投日' : '日期'}</label>
+            <label className="text-[11.5px] text-text-dim block mb-1">
+              {isFixIncome ? '本笔起息日' : isWealth ? '本笔起投日' : '日期'}
+            </label>
             <input type="date" value={lotStartDate} onChange={e => setLotStartDate(e.target.value)}
               className="bg-bg border border-border rounded-lg px-3 py-2 text-[13px] font-mono outline-none focus:border-accent w-full" />
             {isShareBased && (
@@ -294,8 +304,11 @@ export function AddLotRow({ asset, onDone, onCancel, brokers = [] }) {
 // OTC 基金 (场外): 只填份额 + 日期, 写 pending 流水, 等 T+1 净值出来后回来"确认"
 // ETF/CRYPTO: 三选二 (amount/shares/unit_price), 直接写 confirmed
 // WEALTH/CASH: 仅 amount
+// 固定收益(_fixIncome): 同 WEALTH 口径(金额 + 可选利息拆分), 走 /api/fix-income/{id}/redeem
 export function ReduceLotRow({ asset, onDone, onCancel }) {
   const t = asset.asset_type
+  const isFixIncome = !!asset._fixIncome            // 固定收益行: 本金账本, 赎回走 fix-income 路由
+  const isPrincipalBased = t === 'WEALTH' || t === 'CASH' || isFixIncome
   const isShareBased = t === 'FUND' || t === 'CRYPTO'
   const isOtcFund = t === 'FUND' && !isOnchainFundKind(fundKindOf(asset))
 
@@ -357,7 +370,7 @@ export function ReduceLotRow({ asset, onDone, onCancel }) {
     } else if (isShareBased) {
       if (!finalAmount || finalAmount <= 0) { setErr('金额 / 份额 / 单价 至少填两个'); return }
     } else {
-      // WEALTH / CASH 仅金额
+      // WEALTH / CASH / 固定收益 仅金额
       if (!finalAmount || finalAmount <= 0) { setErr('赎回金额必须为正数'); return }
     }
     setBusy(true)
@@ -374,12 +387,15 @@ export function ReduceLotRow({ asset, onDone, onCancel }) {
           if (finalUnit) body.unit_price = Number(finalUnit.toFixed(6))
         }
       }
-      // WEALTH/CASH 拆出利息部分 (可选), 写入 realized_pnl
-      if ((t === 'WEALTH' || t === 'CASH') && interestPart !== '') {
+      // WEALTH/CASH/固定收益 拆出利息部分 (可选), 写入 realized_pnl
+      if (isPrincipalBased && interestPart !== '') {
         const ip = parseFloat(interestPart) || 0
         if (ip > 0) body.interest_part = Number(ip.toFixed(2))
       }
-      await fetchJSON(`/api/assets/${asset.id}/reduce-lot`, {
+      const url = isFixIncome
+        ? `/api/fix-income/${asset.id}/redeem`
+        : `/api/assets/${asset.id}/reduce-lot`
+      await fetchJSON(url, {
         method: 'POST', body: JSON.stringify(body),
       })
       onDone?.()
@@ -399,7 +415,7 @@ export function ReduceLotRow({ asset, onDone, onCancel }) {
           <button onClick={onCancel} className="text-text-dim hover:text-text text-[18px] leading-none px-2 cursor-pointer">×</button>
         </div>
         <div className="text-[11px] text-text-dim">
-          当前: cost ¥{fmtMoney(parseFloat(asset.cost_amount || 0))}
+          当前: {isFixIncome ? '本金' : 'cost'} ¥{fmtMoney(parseFloat((isFixIncome ? asset.principal : asset.cost_amount) || 0))}
           {isShareBased && asset.shares && <> · shares {parseFloat(asset.shares).toFixed(4)}</>}
           {isOtcFund && (
             <span className="ml-2 px-1.5 py-[1px] rounded bg-warn/15 text-warn text-[10px] border border-warn/40">OTC 场外基金</span>
@@ -427,7 +443,7 @@ export function ReduceLotRow({ asset, onDone, onCancel }) {
                 value={amount} onChange={e => setAmount(e.target.value)}
                 className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] font-mono text-bear-bright outline-none focus:border-accent" />
             </div>
-            {(t === 'WEALTH' || t === 'CASH') && (
+            {isPrincipalBased && (
               <div>
                 <label className="text-[11.5px] text-text-dim block mb-1">
                   其中利息 ¥ (可选)

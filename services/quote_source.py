@@ -52,16 +52,18 @@ class QuoteRow(BaseModel):
     change_pct: float | None = None
     currency: str = "CNY"
     quote_time: str = ""
-    source: str = ""                            # fuyao / futu / sina
+    source: str = ""                            # fuyao / futu / sina / massive
+    sub_assets_type: str = ""                   # 显式小类(US 期货/期权用; 空则回退 market→SUBTYPE_BY_MARKET)
     info: dict = Field(default_factory=dict)    # 源特有字段透传(不进规范语义)
 
     def to_store_row(self) -> dict:
         """QuoteRow → market.quote_latest 行(market_store.save_quotes 的入参形状)。"""
+        sub = self.sub_assets_type or SUBTYPE_BY_MARKET.get(self.market, "")
         return {
             "code": self.code,
             "ticker": _quote_ticker(self.code),
             "name": self.name,
-            "sub_assets_type": SUBTYPE_BY_MARKET.get(self.market, ""),
+            "sub_assets_type": sub,
             "price": self.price,
             "open": self.open, "high": self.high, "low": self.low,
             "prev_close": self.prev_close,

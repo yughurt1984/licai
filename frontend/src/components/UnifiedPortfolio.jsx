@@ -6,7 +6,7 @@ import Tooltip from './Tooltip'
 import { AllocationDonut, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './portfolio/atoms'
 import { FAMILY_LABEL, TYPE_COLOR, TYPE_ORDER, TYPE_META, typeFromClassify } from './portfolio/constants'
 import { buildFamilyIndex, formatCurrencyMoney, riskFamiliesOf } from './portfolio/helpers'
-import { aggregate, normalizeAsset, normalizeHolding } from './portfolio/model'
+import { aggregate, normalizeAsset, normalizeFixIncomeAsset, normalizeHolding } from './portfolio/model'
 import { HoldingRow } from './portfolio/HoldingRow'
 import { PortfolioModals } from './portfolio/PortfolioModals'
 import { ClosedPositionsBlock, SummaryStrip } from './portfolio/summary'
@@ -91,6 +91,15 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
     } catch {} finally { setAssetsLoaded(true) }
   }, [])
 
+  // 固定收益(fix-income: 理财/债券)走独立账本 /api/fix-income, 不在 /api/assets 里。
+  const [fixAssets, setFixAssets] = useState([])
+  const loadFixAssets = useCallback(async () => {
+    try {
+      const d = await fetchJSON('/api/fix-income')
+      setFixAssets(d.assets || [])
+    } catch {}
+  }, [])
+
   // 一键确认所有到期申购: 后端按每条 trade_date 拉当日净值自动结算份额。
   const settlePending = useCallback(async () => {
     setSettling(true); setSettleMsg('')
@@ -140,13 +149,14 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
 
   useEffect(() => {
     loadAssets()
+    loadFixAssets()
     loadRealized()
     loadTodayPnl()
     // Crypto & OKX bots are 24/7 markets; use shorter interval. Server-side
     // caches handle upstream rate limits (crypto 30s, fund 120s).
-    const t = setInterval(() => { loadAssets(); loadRealized(); loadTodayPnl() }, 20000)
+    const t = setInterval(() => { loadAssets(); loadFixAssets(); loadRealized(); loadTodayPnl() }, 20000)
     return () => clearInterval(t)
-  }, [loadAssets, loadRealized, loadTodayPnl])
+  }, [loadAssets, loadFixAssets, loadRealized, loadTodayPnl])
 
   useEffect(() => {
     fetchJSON('/api/market/trading-day').then(setTradingDay).catch(() => {})
@@ -156,18 +166,21 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
 
   // 交易流水编辑后 (dataVersion 变化): 立即重载已实现/已清仓/资产, 不用等 20s 轮询
   useEffect(() => {
-    if (dataVersion > 0) { loadRealized(); loadAssets(); loadTodayPnl() }
-  }, [dataVersion, loadRealized, loadAssets, loadTodayPnl])
+    if (dataVersion > 0) { loadRealized(); loadAssets(); loadFixAssets(); loadTodayPnl() }
+  }, [dataVersion, loadRealized, loadAssets, loadFixAssets, loadTodayPnl])
 
   const rows = useMemo(() => {
     // 0 持仓的股票/基金 不在主列表显示, 走 "已清仓" 区块
     const a = (holdings || []).filter(h => (h.shares || 0) > 0).map(normalizeHolding)
-    // BOT/CASH 常驻; 理财(WEALTH)/基金/加密 已清仓(无成本/无市值/无在途)的不进主列表, 走"已清仓"区块
+    // BOT/CASH 常驻; 基金/加密 已清仓(无成本/无市值/无在途)的不进主列表, 走"已清仓"区块
     const e = (assets || []).filter(x => x.asset_type === 'BOT' || x.asset_type === 'CASH'
       || (x.shares || 0) > 0 || (x.cost_amount || 0) > 0
       || (x.current_value || 0) > 0 || (x.pending_amount || 0) > 0).map(normalizeAsset)
-    return [...a, ...e]
-  }, [holdings, assets])
+    // 固定收益(W 桶): 本金或市值 > 0 的在持行; 已到期/结清(principal=0 且 mv=0)不进主列表
+    const fi = (fixAssets || []).filter(x => (x.principal || 0) > 0 || (x.current_value || 0) > 0)
+      .map(normalizeFixIncomeAsset)
+    return [...a, ...e, ...fi]
+  }, [holdings, assets, fixAssets])
 
   const filtered = useMemo(
     () => (filter === 'ALL' || !activeTab) ? rows : rows.filter(r => activeTab.buckets.has(r.type)),
@@ -286,7 +299,13 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
 
   const removeAsset = async (row) => {
     if (!confirm(`删除 ${row.name}？`)) return
-    // 证券持仓(A股/期货/期权)是 holdings 表 → 按 code(+方向) 删; 场外资产走 assets 路由
+    // 证券持仓(A股/期货/期权)是 holdings 表 → 按 code(+方向) 删; 固定收益走 fix-income 路由;
+    // 其余场外资产走 assets 路由
+    if (row.src === 'fix-income') {
+      await fetchJSON(`/api/fix-income/${row._raw.id}`, { method: 'DELETE' })
+      loadFixAssets()
+      return
+    }
     if (row.type === 'A' || row.type === 'T' || row.type === 'O') {
       await api.deleteHolding(row._raw.stock_code, row._raw.direction)
       onHoldingsChanged?.()
@@ -298,8 +317,9 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
 
   const handleEdit = (row) => {
     // 持仓行(A股/期货/期权/基金, src=holding) → App 的 EditModal(shares/成本/最新价/删除);
-    // 其余是场外资产(src=asset) → EditAssetRow
+    // 固定收益(src=fix-income) → FixIncomeEditRow; 其余场外资产(src=asset) → EditAssetRow
     if (row.src === 'holding') onEdit?.(row._raw)
+    else if (row.src === 'fix-income') show('editFix', row._raw)
     else show('edit', row._raw)
   }
   const handleAddLot = (row) => {
@@ -370,7 +390,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         <div className="flex flex-col gap-3 w-full md:flex-1 md:w-auto min-w-0 md:min-w-[340px]">
           <div className="flex items-baseline gap-3">
             <h2 className="text-[15]px font-semibold text-text-bright tracking-wide m-0">持仓总览</h2>
-            <span className="text-[12]px text-text-dim">股票 · 基金 · 理财 · 现金 · 加密 · 机器人</span>
+            <span className="text-[12]px text-text-dim">股票 · 基金 · 固定收益 · 现金 · 加密 · 机器人</span>
           </div>
           {isEmpty
             ? <div className="text-text-dim text-[13]px py-2">还没有持仓,点击下方「+ 添加」开始</div>
@@ -470,7 +490,8 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         open={open} show={show} hide={hide} brokers={brokers}
         onAdd={onAdd}
         onAssetsChanged={loadAssets}
-        onRealizedChanged={() => { loadAssets(); loadRealized() }}
+        onFixIncomeChanged={loadFixAssets}
+        onRealizedChanged={() => { loadAssets(); loadFixAssets(); loadRealized() }}
         onThesisSaved={loadThesisCodes} />
 
       {/* Column headers */}

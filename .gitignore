@@ -30,6 +30,7 @@ static/index.html
 static/manifest.json
 static/sw.js
 static/icon-*.svg
+tests/
 
 # --- Logs ---
 logs/
@@ -87,3 +88,6 @@ scripts/.tmp_pgdata/
 futu_*.pem
 *_ed25519.pem
 config.env
+
+# --- 股票 logo 磁盘缓存(logostream 下载, 可随时重下) ---
+icons/

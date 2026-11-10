@@ -556,8 +556,10 @@ async def close_asset(asset_id: int):
 
 @router.post("")
 async def create_asset(data: AssetCreate):
-    if data.asset_type not in {"FUND", "CRYPTO", "BOT", "WEALTH", "CASH", "FUT", "OPT"}:
-        raise HTTPException(400, "asset_type must be FUND / CRYPTO / BOT / WEALTH / CASH / FUT / OPT")
+    # WEALTH(理财) 已退出本账本: 固定收益走 /api/fix-income (fix_income_assets 账本)。
+    if data.asset_type not in {"FUND", "CRYPTO", "BOT", "CASH", "FUT", "OPT"}:
+        raise HTTPException(400, "asset_type must be FUND / CRYPTO / BOT / CASH / FUT / OPT"
+                                 " (理财请走 /api/fix-income)")
 
     # 分类路由(assets_classify.valuation_type): quote/nav=市价/净值估值 → 持仓账本
     # (holdings/position_actions); yield/manual=固定收益/手动估值 → 场外账本(本表)。

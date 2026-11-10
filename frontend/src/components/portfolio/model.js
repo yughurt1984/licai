@@ -126,6 +126,55 @@ export function normalizeAsset(a) {
   }
 }
 
+// Normalize 固定收益资产 (fix_income_assets, /api/fix-income) → unified row (W 桶)。
+// 固定收益没有"今日波动": mv = 本金 + 应计利息(单利计提或手动市值), pnl = 应计利息,
+// today=null 不进当日盈亏 —— 与 aggregate 里 W 属 T+1 市场不计周末的口径一致。
+export function normalizeFixIncomeAsset(a) {
+  const q = a.quote || {}
+  const mv = a.current_value || 0
+  const principal = a.principal || 0
+  return {
+    id: `W-fix-${a.id}`,
+    src: 'fix-income',            // 行来源标记: fix_income_assets(/api/fix-income) —— 走固定收益链路
+    type: 'W',
+    category: null,
+    code: a.code,
+    name: a.name,
+    mv,
+    cost: principal,
+    pnl: a.pnl ?? (mv - principal),
+    pnlPct: a.pnl_pct,
+    today: null,
+    _raw: a,
+    broker: null,
+    extra: {
+      _fixIncome: true,           // 弹窗表单按它切 API base (/api/fix-income vs /api/assets)
+      assetIdRaw: a.id,
+      platform: a.platform,
+      sub: a.sub_assets_type,
+      main: a.main_assets_type,
+      currency: a.currency || 'CNY',
+      principal,
+      annualYield: q.annual_yield_rate ?? a.annual_yield_rate,
+      rateType: q.rate_type,
+      valueDate: q.value_date,
+      daysHeld: q.days_held,
+      maturityDate: q.maturity_date,
+      daysToMaturity: q.days_to_maturity,
+      termDays: q.term_days,
+      interestType: q.interest_type,
+      expectedMaturityValue: q.expected_maturity_value,
+      accruedInterest: a.accrued_interest,
+      valueSource: q.value_source,
+      status: q.status || a.status,
+      realizedPnl: a.ledger?.realized_pnl,
+      incomeRealized: a.ledger?.income_realized,
+      manualValue: a.manual_value,
+      note: a.note,
+    },
+  }
+}
+
 // Aggregate by type → totals per group + grand total.
 // `aShareTradingDay` controls whether T+1 markets (A-share, fund) contribute today.
 // Crypto/Bot are 24/7 so they always contribute.

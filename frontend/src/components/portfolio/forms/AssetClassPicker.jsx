@@ -63,7 +63,7 @@ export function useAllAssetClasses() {
  * 这样换 main 后币种自动吸附到合法值(优先股只有 USD → 自动落 USD), 用户永远选不出
  * 无效组合; picked* 保留原始选择, 切回别的 main 时原币种若重新合法会自动恢复。
  */
-export function useAssetClass(assetsClass, { preferMain = '', preferCurrency = 'CNY', lockedMain = '' } = {}) {
+export function useAssetClass(assetsClass, { preferMain = '', preferCurrency = 'CNY', lockedMain = '', requireValuation = '' } = {}) {
   const [rows, setRows] = useState([])
   const [err, setErr] = useState('')
   const [pickedMain, setPickedMain] = useState(lockedMain || preferMain)
@@ -84,8 +84,14 @@ export function useAssetClass(assetsClass, { preferMain = '', preferCurrency = '
     return () => { dead = true }
   }, [assetsClass])
 
+  // requireValuation: 只保留指定估值类型的小类(如固定收益表单只要 yield —— 同一大类下
+  // quote 型小类(交易所债/可转债)属持仓账本, 不该出现在本金+年化表单里), 数据驱动不写死。
   // assetsClass 为空(不接分类的表单)时视为无目录, 不留上一个大类的残留
-  const liveRows = useMemo(() => (assetsClass ? rows : []), [assetsClass, rows])
+  const liveRows = useMemo(() => {
+    if (!assetsClass) return []
+    if (!requireValuation) return rows
+    return rows.filter(r => String(r.valuation_type || '').trim().toLowerCase() === requireValuation)
+  }, [assetsClass, rows, requireValuation])
 
   const effective = useMemo(() => {
     if (!liveRows.length) return { main: lockedMain || pickedMain, currency: pickedCurrency }

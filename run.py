@@ -18,6 +18,7 @@ from api.portfolio_routes import router as portfolio_router
 from api.market_routes import router as market_router
 from api.settings_routes import router as settings_router
 from api.assets_routes import router as assets_router
+from api.fix_income_routes import router as fix_income_router
 from api.briefing_routes import router as briefing_router
 from api.broker_routes import router as broker_router
 from api.auth_routes import router as auth_router
@@ -158,6 +159,7 @@ app.include_router(portfolio_router)
 app.include_router(market_router)
 app.include_router(settings_router)
 app.include_router(assets_router)
+app.include_router(fix_income_router)
 app.include_router(briefing_router)
 app.include_router(broker_router)
 app.include_router(auth_router)

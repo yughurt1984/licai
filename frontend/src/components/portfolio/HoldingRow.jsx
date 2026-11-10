@@ -1,4 +1,5 @@
 import Tooltip from '../Tooltip'
+import StockLogo from '../StockLogo'
 import { fmtMoney, fmtPct, priceColor } from '../../helpers'
 import { ExchangeChip, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './atoms'
 import { TYPE_COLOR } from './constants'
@@ -7,7 +8,7 @@ import { formatCurrencyMoney } from './helpers'
 // 交易方向徽标(做多红/做空绿, A股习惯涨=红): 期货/期权双向行 + 股票双向行(做多/做空)
 function DirectionBadge({ direction }) {
   return (
-    <span className={`text-[10]px px-1 py-[1px] rounded border font-semibold
+    <span className={`whitespace-nowrap text-[10]px px-1 py-[1px] rounded border font-semibold
       ${direction === 'LONG'
         ? 'bg-bull/15 text-bull border-bull/40' : 'bg-bear/15 text-bear border-bear/40'}`}>
       {direction === 'LONG' ? '做多' : '做空'}
@@ -35,6 +36,7 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
     }}>
     <div className="flex flex-col gap-0.5 min-w-0">
       <div className="flex items-center gap-1.5 min-w-0">
+        <StockLogo type={row.type} code={row.code} name={row.name} size={28} />
         <span className="text-[14]px font-semibold text-text-bright truncate">{row.name}</span>
         <TypeChip type={row.type} compact />
         {/* 期货/期权: 交易所徽标(上期/大商/…, 外盘后缀原样) — 与股票行的 沪/深/北 市场徽标同一位置;
@@ -104,10 +106,18 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
       </div>
       <span className="font-mono text-[11]px text-text-muted truncate">{row.code}</span>
     </div>
-    {/* 交易方向(统一列, 名称·代码 与 市值之间): 期货/期权/股票 双向行均显示 做多/做空;
-        交易所徽标在名称区, 不挤在这 */}
-    <div className="flex items-center">
-      {row.extra?.direction ? <DirectionBadge direction={row.extra.direction} /> : null}
+    {/* 交易方向(统一列, 名称·代码 与 市值之间): 股票/期货 显示 做多/做空;
+        期权在此基础上追加 权利方/义务方 标签(与做多/做空正交的另一维度), 上下堆叠避免挤压折行 */}
+    <div className="flex flex-col items-start gap-1">
+      {row.extra?.direction && <DirectionBadge direction={row.extra.direction} />}
+      {row.type === 'O' && row.extra?.direction && (
+        <span className="whitespace-nowrap text-[10]px px-1 py-[1px] rounded border font-semibold bg-accent/15 text-accent border-accent/40"
+          title={row.extra.direction === 'LONG'
+            ? '权利方: 买入期权, 付权利金, 最大亏损=权利金'
+            : '义务方: 卖出/写期权, 收权利金, 有履约义务'}>
+          {row.extra.direction === 'LONG' ? '权利' : '义务'}
+        </span>
+      )}
     </div>
     <div className="text-right flex flex-col items-end">
       <span className="font-mono text-[13.5]px text-text-bright tabular-nums">

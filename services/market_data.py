@@ -199,11 +199,12 @@ def invalidate_data_source_cache():
 
 def _source_registry() -> dict:
     """assets_classify 报价/标的信息源名 → QuoteSource 适配器(小写键; ths=fuyao 的历史别名)。"""
-    from services import ths_fuyao, futu_quote, sina_quote, tickflow
+    from services import ths_fuyao, futu_quote, sina_quote, tickflow, massive_quote
     return {
         "ths": ths_fuyao.SOURCE, "fuyao": ths_fuyao.SOURCE,
         "tickflow": tickflow.SOURCE,
         "futu": futu_quote.SOURCE,
+        "massive": massive_quote.SOURCE,
         "sina": sina_quote.SOURCE,
     }
 
@@ -240,27 +241,59 @@ async def _classify_sources() -> dict[str, tuple]:
 
 
 def _dict_code_probes(code: str) -> list[str]:
-    """标准码 → symbol_dict 候选码。全库统一「代码.市场」后底稿与内部同构, 单形态即可。"""
+    """标准码 → symbol_dict 候选码。全库统一「代码.市场」后底稿与内部同构, 单形态即可;
+
+    期货合约另补「品种码」(去月份/年份数字, 如 HTI2611.HK → HTI), 让合约码借品种行的
+    sub_assets_type 完成路由:CN 期货走 ths thscode 已能识别, 此兜底覆盖 futu 系的 HK/US
+    期货/期权合约(它们不是 ths thscode, 且按约定 symbol_dict 只登记品种不登记合约)。"""
     c = (code or "").strip().upper()
-    return [c] if c else []
+    if not c:
+        return []
+    probes = [c]
+    body = c.split(".")[0]
+    m = re.match(r"^([A-Za-z]+)\d", body)   # 字母开头且后接数字 = 合约(品种+月份), 如 HTI2611 / RB2401
+    if m:
+        variety = m.group(1)
+        if variety != c:
+            probes.append(variety)
+    return probes
 
 
 async def _code_sub_map(codes: list[str], stored: dict | None = None) -> dict[str, str]:
     """codes → {code: sub_assets_type}。
 
-    symbol_dict 为主注册表(导入脚本/行情自动登记都在这); quote_latest 已存行的小类兜底
-    (冷启动新码两边都还没有 → 不指派, 走标准链)。"""
+    优先级(后者不覆盖前者):
+    ① quote_latest 已存行的小类(上次抓取已确认, 最可信);
+    ② holdings 持仓行的小类(用户建仓时显式分类, 权威 —— 直接信任, 免依赖 symbol_dict 登记);
+    ③ symbol_dict 注册表(精确匹配合约码 + 合约码→品种码回退, 如 HTI2611.HK→HTI)。
+    ①② 信任用户与历史抓取; ③ 为未持仓/新码的兜底(symbol_dict 是权威注册表, 需先登记品种)。"""
     out: dict[str, str] = {}
+    # ① quote_latest 已存行的小类
     for sym, r in (stored or {}).items():
         st = (r.get("sub_assets_type") or "").strip() if isinstance(r, dict) else ""
         if st:
             out[sym] = st
-    # 期货/期权 thscode: 底稿/行情行都可能没有小类(合约行首次出现), 按码形兜底
-    from services.ths_fuyao import is_thscode as _is_ths, ths_kind as _ths_kind
-    for c in codes:
-        c = str(c or "").strip().upper()
-        if c and c not in out and _is_ths(c):
-            out[c] = "cn_options" if _ths_kind(c) == "opt" else "cn_futures"
+    # ② holdings 持仓行的小类(用户建仓时分类, 权威; 覆盖 symbol_dict 缺失/未登记场景)
+    remaining = [str(c or "").strip().upper() for c in codes if str(c or "").strip() and c not in out]
+    if remaining:
+        try:
+            from database import get_db
+            db = await get_db()
+            try:
+                cur = await db.execute(
+                    "SELECT code, sub_assets_type FROM ledger.holdings "
+                    f"WHERE code IN ({','.join('?' * len(remaining))})",
+                    tuple(remaining))
+                for r in await cur.fetchall():
+                    c = str(r[0] or "").strip().upper()
+                    st = (str(r[1]).strip() if r[1] else "")
+                    if c and st and c not in out:
+                        out[c] = st
+            finally:
+                await db.close()
+        except Exception as e:
+            print(f"[market_data] holdings 小类查询失败: {e}")
+    # ③ symbol_dict 注册表(精确 + 合约码→品种码回退)
     probes: dict[str, str] = {}      # symbol_dict 码 → 内部标准码
     for c in codes:
         if c in out:

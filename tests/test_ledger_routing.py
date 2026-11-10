@@ -123,8 +123,17 @@ def test_yield_fund_goes_to_external(catalog):
 
 
 def test_no_sub_skips_routing_check(temp_db):
-    """不传小类的老调用方(CRYPTO/BOT/WEALTH/CASH 手填流程)不受路由校验影响。"""
+    """不传小类的老调用方(CRYPTO/BOT/CASH 手填流程)不受路由校验影响。"""
     res = asyncio.run(create_asset(AssetCreate(
-        asset_type="WEALTH", code="lc001", name="测试理财",
-        cost_amount=50000.0, annual_yield_rate=0.025)))
+        asset_type="CASH", code="cash001", name="测试现金",
+        cost_amount=5000.0, annual_yield_rate=0.015)))
     assert res["message"] in ("added", "merged")
+
+
+def test_wealth_rejected_from_external(temp_db):
+    """理财(WEALTH)已退出场外账本: 固定收益走 /api/fix-income (fix_income_assets)。"""
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(create_asset(AssetCreate(
+            asset_type="WEALTH", code="lc001", name="测试理财",
+            cost_amount=50000.0, annual_yield_rate=0.025)))
+    assert "fix-income" in ei.value.detail

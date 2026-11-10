@@ -45,7 +45,7 @@ _SESSION.mount("https://", _DefaultCertsAdapter())
 
 # thscode 形态: 合约主体.交易所后缀(字母 2-5), 如 CU2601.SHF / 10005738.SH / 850002.TI。
 # HK.00700/US.AAPL 后缀是数字或带 US./HK. 前缀, 天然不匹配。
-_THS_RE = re.compile(r"^[A-Za-z0-9]{2,16}\.[A-Z]{2,5}$")
+_THS_RE = re.compile(r"^[A-Za-z0-9-]{2,32}\.[A-Z]{2,5}$")   # 主体允许连字符(期权拼码 TICKER-C/P-STRIKE)
 
 
 def is_thscode(code: str) -> bool:
@@ -293,10 +293,13 @@ async def quote(thscode: str) -> Optional[dict]:
 
 
 def _looks_option(thscode: str) -> bool:
-    """期权判定(启发式): 交易所后缀 .SH/.SZ 的纯数字主体多为 ETF 期权; 商品/股指期权归 futures 档。
-    只影响 asset_type 标注与端点选择, 不影响数值。"""
+    """期权判定: ① 拼码形态 TICKER-C/P-STRIKE(品种月份-认购/认沽-行权价) 必为期权;
+    ② 交易所后缀 .SH/.SZ 的纯数字主体多为 ETF 期权。只影响端点选择(/api/options vs futures)
+    与 asset_type 标注, 不影响数值。"""
     up = thscode.upper()
     body, _, exch = up.partition(".")
+    if "-C-" in body or "-P-" in body:
+        return True
     if exch in ("SH", "SZ") and body.isdigit():
         return True
     return False

@@ -195,15 +195,16 @@ async function saveWealth(d) {
   if (!(principal > 0)) throw new Error('投入本金必须大于 0')
   const name = String(d.name || '').trim() || '理财产品'
   const y = num(d.annualYieldPct)
-  await fetchJSON('/api/assets', {
+  // 理财已迁入固定收益账本 (fix_income_assets, /api/fix-income); sub 默认理财中类 cn_wealth
+  await fetchJSON('/api/fix-income', {
     method: 'POST',
     body: JSON.stringify({
-      asset_type: 'WEALTH',
       code: String(d.code || '').trim() || name, name,
       platform: d.broker || d.platform || '',
-      cost_amount: principal,
+      principal,
       annual_yield_rate: y != null ? y / 100 : null,
-      start_date: d.startDate || d.tradeDate || null,
+      value_date: d.startDate || d.tradeDate || null,
+      sub_assets_type: 'cn_wealth',
     }),
   })
   return `登记理财 ${name} ¥${principal.toFixed(2)}`

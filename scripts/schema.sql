@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS holdings (
                                          --   大类命名归口 assets_classify, 算账分支不跟人工改分类漂移
     contract_multiplier DOUBLE PRECISION DEFAULT 1,  -- 期货/期权: 每手乘数, 建仓时钉住(流水每笔另有历史值;
                                          --   symbol_dict 是品种当前标准值, 重灌/调整不改写已钉住的)
-    last_price NUMERIC(18,6),            -- 期权最新价兜底(行情不可达时手填); 期货走报价管线不落这
+    strike_price NUMERIC(18,6),          -- 期权/权证行权价(合约固定属性; 仅 main_assets_type in options/warrant/hk_warrant 用); 手动兜底报价走 quote_latest.price 不落这
     purchase_date DATE,                  -- 建仓日期
     created_at TIMESTAMP DEFAULT utc_now_ts(),
     updated_at TIMESTAMP DEFAULT utc_now_ts(),
