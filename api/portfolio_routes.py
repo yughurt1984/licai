@@ -325,6 +325,7 @@ async def list_holdings() -> list[HoldingResponse]:
             sub_assets_type=h.get("sub_assets_type"),
             assets_class=h.get("assets_class"),
             sub_assets_type_name=h.get("sub_assets_type_name"),
+            assets_type_name=h.get("assets_type_name"),
             direction=h.get("direction"),
             contract_multiplier=h.get("contract_multiplier"),
             margin_value=margin_value,

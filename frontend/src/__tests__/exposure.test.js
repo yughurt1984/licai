@@ -106,12 +106,12 @@ describe('riskFamiliesOf — 后端没回来时的关键词兜底', () => {
     expect(riskFamiliesOf({ type: 'A', name: '山金国际' })).toEqual([])
   })
 
-  it('基金按已归好的 category.id 映射', () => {
-    expect(riskFamiliesOf({ type: 'F', category: { id: 'silver' } })).toEqual(['silver', 'metals'])
-    expect(riskFamiliesOf({ type: 'F', category: { id: 'gold' } })).toEqual(['gold'])
-    expect(riskFamiliesOf({ type: 'F', category: { id: 'overseas' } })).toEqual(['overseas'])
-    expect(riskFamiliesOf({ type: 'F', category: { id: 'aindex' } })).toEqual(['cn_broad'])
-    expect(riskFamiliesOf({ type: 'F', category: { id: 'other' } })).toEqual([])
+  it('基金兜底也认名字(分类改造后 category.id 是中类, 分不出主题)', () => {
+    expect(riskFamiliesOf({ type: 'F', name: '白银LOF', category: { id: 'LOF', label: 'LOF' } })).toEqual(['silver', 'metals'])
+    expect(riskFamiliesOf({ type: 'F', name: '黄金ETF', category: { id: 'ETF', label: 'ETF' } })).toEqual(['gold'])
+    expect(riskFamiliesOf({ type: 'F', name: '纳斯达克100', category: { id: 'ETF', label: 'ETF' } })).toEqual(['overseas'])
+    expect(riskFamiliesOf({ type: 'F', name: '沪深300ETF', category: { id: 'ETF', label: 'ETF' } })).toEqual(['cn_broad'])
+    expect(riskFamiliesOf({ type: 'F', name: '贵州茅台ETF', category: { id: 'ETF', label: 'ETF' } })).toEqual([])
     expect(riskFamiliesOf({ type: 'F' })).toEqual([])
   })
 

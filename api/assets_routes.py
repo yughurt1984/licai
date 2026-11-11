@@ -18,6 +18,27 @@ from services import okx_client
 
 router = APIRouter(prefix="/api/assets", tags=["external-assets"])
 
+# assets_classify 全表(sub_assets_type → 中类), 60s 缓存。行数 <30, 拉全表比逐行查便宜。
+_cls_cache: dict = {"data": {}, "ts": 0.0}
+
+
+async def _classify_by_sub() -> dict:
+    """{sub_assets_type: {main: main_assets_type, name: assets_type_name}}。"""
+    import time as _t
+    if _cls_cache["data"] and _t.time() - _cls_cache["ts"] < 60:
+        return _cls_cache["data"]
+    from database import get_db
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "SELECT sub_assets_type, main_assets_type, assets_type_name FROM assets_classify")
+        data = {r[0]: {"main": r[1], "name": r[2]}
+                for r in await cur.fetchall() if r[0]}
+    except Exception:
+        data = {}
+    _cls_cache["data"], _cls_cache["ts"] = data, _t.time()
+    return data
+
 
 from services.external_assets import _is_onchain_etf, fund_kind_of
 
@@ -450,6 +471,15 @@ async def list_assets():
     """List all external assets with current values enriched."""
     rows = await list_external_assets()
     enriched = await asyncio.gather(*[_enrich(r) for r in rows])
+
+    # 透传 assets_classify 的中类(main_assets_type + 中文名): 前端基金行按它分类展示,
+    # 不再按名字关键词猜。sub 为键全表 <30 行, 60s 缓存(与 market_routes._get_code_suffixes 同款)。
+    cls_map = await _classify_by_sub()
+    for a in enriched:
+        c = cls_map.get((a.get("sub_assets_type") or "").strip())
+        if c:
+            a["main_assets_type"] = c["main"]
+            a["assets_type_name"] = c["name"]
 
     # 场内 ETF 未设券商时不强行回退某家(已无默认券商概念), 显示为「无」。
 

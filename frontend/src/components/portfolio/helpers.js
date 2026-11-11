@@ -1,5 +1,5 @@
 import { fmtMoney, isOnchainEtf } from '../../helpers'
-import { A_SECTORS, FUND_CATEGORIES, MIN_HOLDER_PCT } from './constants'
+import { A_SECTORS, FUND_MAIN_LABEL, MIN_HOLDER_PCT } from './constants'
 
 export function stockMarketOfCode(code = '') {
   const c = String(code).toUpperCase()
@@ -64,8 +64,14 @@ export function fxSourceLabel(source) {
   return source || '汇率'
 }
 
-export function fundCategoryOf(name = '') {
-  for (const c of FUND_CATEGORIES) if (c.match.test(name)) return c
+// 基金种类: 唯一标准是 assets_classify.main_assets_type —— 后端透传中类名
+// (assets_type_name: ETF/LOF/场外基金/…)和 main_assets_type 键, 这里只做取值与兜底,
+// 不再按名字关键词猜分类(名字匹配不严谨, 已删, 见 2026-11 分类改造)。
+export function fundCategoryOf(h = {}) {
+  const label = String(h.assets_type_name || '').trim()
+  if (label) return { id: label, label }
+  const main = String(h.main_assets_type || '').trim()
+  if (main && main !== 'common_share') return { id: main, label: FUND_MAIN_LABEL[main] || main }
   return { id: 'other', label: '其他' }
 }
 
@@ -121,12 +127,15 @@ export function riskFamiliesOf(row) {
     return fams
   }
   if (row.type === 'F') {
-    const cid = row.category?.id
-    if (cid === 'silver') return ['silver', 'metals']
-    if (cid === 'gold') return ['gold']
-    if (cid === 'commodity') return ['metals']
-    if (cid === 'overseas') return ['overseas']
-    if (cid === 'aindex') return ['cn_broad']
+    // 分类改造后 category.id 是 assets_classify 中类(etf_fund/otc_fund/…), 分不出主题,
+    // 所以家族兜底和 A 股分支一样直接认名字 —— 这里只是"后端还没返回时"的兜底角标,
+    // 不是展示分类, 名字匹配的粗糙度可以接受(与上面 A 股分支同一精神)。
+    const name = row.name || ''
+    if (/白银|银ETF/.test(name)) return ['silver', 'metals']
+    if (/黄金|金ETF/.test(name)) return ['gold']
+    if (/原油|能源|煤炭|豆粕|商品/.test(name)) return ['metals']
+    if (/QDII|纳斯达克|纳指|标普|恒生|中概|海外|日经|全球|港美/.test(name)) return ['overseas']
+    if (/沪深300|中证500|中证1000|中证2000|上证50|创业板|科创|双创|中证|国证|红利/.test(name)) return ['cn_broad']
     return []
   }
   return []

@@ -43,11 +43,6 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
             多空方向(做多/做空)在后面"交易方向"列统一展示, 不挤在这里 */}
         {(row.type === 'T' || row.type === 'O') && <ExchangeChip code={row.code} />}
         {row.type === 'A' && <MarketChip market={row.extra?.market} code={row.code} />}
-        {row.broker && (
-          <span className="text-[10]px px-1 py-[1px] rounded bg-info/15 text-info border border-info/40 shrink-0 whitespace-nowrap font-medium">
-            {row.broker}
-          </span>
-        )}
         {row.extra?.okxSynced && !row.extra?.okxStopped && (
           <Tooltip content="OKX 自动同步中">
             <span className="text-bull cursor-help text-[13]px leading-none">🔗</span>
@@ -104,7 +99,15 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
           </Tooltip>
         )}
       </div>
-      <span className="font-mono text-[11]px text-text-muted truncate">{row.code}</span>
+      {/* 券商标签放代码行: 名称行元素多, 长券商名会挤占名称; 代码行宽裕 */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="font-mono text-[11]px text-text-muted truncate">{row.code}</span>
+        {row.broker && (
+          <span className="text-[10]px px-1 py-[1px] rounded bg-info/15 text-info border border-info/40 shrink-0 whitespace-nowrap font-medium">
+            {row.broker}
+          </span>
+        )}
+      </div>
     </div>
     {/* 交易方向(统一列, 名称·代码 与 市值之间): 股票/期货 显示 做多/做空;
         期权在此基础上追加 权利方/义务方 标签(与做多/做空正交的另一维度), 上下堆叠避免挤压折行 */}

@@ -16,7 +16,8 @@ export function normalizeHolding(h) {
     id: `${rowType}-${h.stock_code}-${h.direction || ''}`,
     src: 'holding',               // 行来源标记: holdings(/api/portfolio) —— 流水/编辑/加减仓走持仓链路
     type: rowType,
-    category: rowType === 'A' ? stockCategoryOf(h) : rowType === 'F' ? fundCategoryOf(h.stock_name) : null,
+    // 分类: A 股按后端东财一级行业; 基金按 assets_classify 中类(assets_type_name/main_assets_type)
+    category: rowType === 'A' ? stockCategoryOf(h) : rowType === 'F' ? fundCategoryOf(h) : null,
     code: h.stock_code,
     name: h.stock_name,
     broker: h.broker || null,
@@ -70,7 +71,8 @@ export function normalizeAsset(a) {
   } else if (q?.change_pct != null) {
     today = q.change_pct
   }
-  const cat = key === 'F' ? fundCategoryOf(a.name) : null
+  // /api/assets 现透传 main_assets_type + assets_type_name(assets_classify 中类), 同持仓一个口径
+  const cat = key === 'F' ? fundCategoryOf(a) : null
   return {
     id: `${key}-${a.id}`,
     src: 'asset',                 // 行来源标记: external_assets(/api/assets) —— 走场外链路

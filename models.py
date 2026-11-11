@@ -56,6 +56,7 @@ class HoldingResponse(BaseModel):
     assets_class: Optional[str] = None             # 大类(stock/fund/...), 来自 assets_classify, 前端展示分类派生源
     main_assets_type: Optional[str] = None         # 中类(mm_fund/futures/...); 衍生品按它拆 期货/期权
     sub_assets_type_name: Optional[str] = None     # 小类中文名(徽标展示)
+    assets_type_name: Optional[str] = None         # 中类中文名(基金种类: ETF/LOF/场外基金/…; 基金分类展示用)
     direction: Optional[str] = None               # LONG | SHORT (期货/期权)
     contract_multiplier: Optional[float] = None   # 每手乘数
     margin_value: Optional[float] = None          # 期货: 保证金占用 = 名义市值×品种保证金率(symbol_dict), 总资产的资产贡献口径; 期权/股票为 None

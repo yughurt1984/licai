@@ -395,12 +395,16 @@ export function AllocationDonut({ groups, totalMv }) {
   const cx = size / 2
   const circ = 2 * Math.PI * r
   const order = TYPE_ORDER.filter(t => groups[t])
+  // 分段间隙: 相邻弧之间留 2px 缝, 干净的 SaaS 分段感; 单段(一色占满)时不需要。
+  // 极小分段(raw ≤ GAP)不裁到 0 —— 保留至少 1px 的存在感, 数据不隐形
+  const GAP = order.length > 1 ? 2 : 0
   let offset = 0
   const arcs = order.map(type => {
     const frac = groups[type].weight
-    const length = frac * circ
-    const arc = { type, frac, length, offset, color: TYPE_COLOR[type] }
-    offset += length
+    const raw = frac * circ
+    const length = raw > GAP ? raw - GAP : Math.min(raw, 1)
+    const arc = { type, frac, length, offset: offset + GAP / 2, color: TYPE_COLOR[type] }
+    offset += raw
     return arc
   })
   return (

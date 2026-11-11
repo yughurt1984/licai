@@ -1175,7 +1175,7 @@ def _norm_holding_row(r: dict) -> dict:
 
 # holdings 行 LEFT JOIN assets_classify: 把分类目录的大类/中类/小类名透传给前端,
 # 前端展示分类(股票/基金/期货/...)统一以 assets_classify 为准(不再逐个小类硬编码枚举)。
-_HOLDING_SELECT = "h.*, c.assets_class, c.sub_assets_type_name"
+_HOLDING_SELECT = "h.*, c.assets_class, c.assets_type_name, c.sub_assets_type_name"
 _HOLDING_JOIN = "FROM holdings h LEFT JOIN assets_classify c ON c.sub_assets_type = h.sub_assets_type"
 
 

@@ -11,14 +11,16 @@ export const TYPE_META = {
 
 // Fallback color hex for donut strokes (Tailwind arbitrary values can't use var() easily)
 export const TYPE_COLOR = {
-  A: '#c8a876', // accent (sand)
-  F: '#85a0b4', // info (slate blue)
-  W: '#5fa86c', // bull (理财稳定收益绿)
-  M: '#7a9b8e', // sage teal (现金/T+0 流动性)
-  C: '#d4a05c', // warn (amber)
-  R: '#8a8378', // text-dim grey
-  T: '#cf5c5c', // bear red (期货杠杆/风险)
-  O: '#6b8eb3', // steel blue (期权)
+  // twelvedata 风格冷色板(取自其官方 CSS 变量): 品牌蓝锚定, 8 类色相互不混淆。
+  // 只标识"资产类别", 不表达涨跌 —— 涨跌语义仍走 bear/bull 系 token
+  A: '#2469f0', // 股票: 品牌蓝 (twelvedata --blue)
+  F: '#17a2b8', // 基金: 青蓝 (twelvedata --cyan)
+  W: '#2cc97e', // 固收: 稳定绿 (twelvedata --green)
+  M: '#94a3b8', // 现金: 中性灰蓝 (流动性, 不抢眼)
+  C: '#fd7e14', // 加密: 橙 (twelvedata --orange, 高波动)
+  R: '#6f42c1', // 机器人: 紫 (twelvedata --purple, 量化)
+  T: '#e3342f', // 期货: 红 (twelvedata --danger, 杠杆风险)
+  O: '#e83e8c', // 期权: 品红 (twelvedata --pink, 衍生品, 与期货红区分)
 }
 
 export const TYPE_ORDER = ['A', 'F', 'W', 'M', 'C', 'R', 'T', 'O']
@@ -90,25 +92,17 @@ export const STOCK_MARKETS = {
   US: { label: '美股', placeholder: 'AAPL', hint: '美股Ticker', minShares: 0.0001, step: 'any' },   // 美股可碎股(最多 4 位小数)
 }
 
-// Fund subcategory: derived from name keywords. 顺序即匹配优先级 —— 具体主题在前,
-// 宽基在后(否则 "创业板人工智能ETF" 会被 "创业板" 抢成宽基)。
-export const FUND_CATEGORIES = [
-  { id: 'gold',     label: '黄金',     match: /黄金|金ETF/ },
-  { id: 'silver',   label: '白银',     match: /白银|银ETF/ },
-  { id: 'bond',     label: '债券',     match: /债券|利率债|国债|信用债|可转债|纯债/ },
-  { id: 'cash',     label: '货币',     match: /货币|活期|现金/ },
-  { id: 'overseas', label: '海外股票', match: /QDII|纳斯达克|纳指|标普|道琼斯|美股|港股|恒生|中概|海外|日经|德国|法国|全球|港美/ },
-  { id: 'semi',     label: '半导体',   match: /半导体|芯片|集成电路|存储/ },
-  { id: 'ai',       label: '人工智能', match: /人工智能|智能|算力|机器人|AI/ },
-  { id: 'tmt',      label: '科技TMT',  match: /通信|信息|数字经济|科技|计算机|软件|传媒|游戏|电子|互联|云计算|大数据/ },
-  { id: 'newenergy',label: '新能源',   match: /新能源|光伏|锂电|储能|电池|风电|绿电|高端制造/ },
-  { id: 'military', label: '军工',     match: /军工|国防|航天|航空/ },
-  { id: 'medical',  label: '医药',     match: /医药|生物|医疗|疫苗|创新药|医疗器械|CXO/ },
-  { id: 'consumer', label: '消费',     match: /消费|食品|白酒|酒|家电|零售|养殖|农业|旅游/ },
-  { id: 'finance',  label: '金融',     match: /证券|券商|银行|保险|金融|地产/ },
-  { id: 'commodity',label: '大宗商品', match: /原油|能源|煤炭|有色|铜|铁矿|豆粕|商品/ },
-  { id: 'aindex',   label: 'A股宽基',  match: /沪深300|中证500|中证1000|中证2000|上证50|创业板|科创50|科创100|科创板|双创|A股|中证|国证|MSCI|价值|红利|低波/ },
-]
+// 基金种类分类的唯一标准是 assets_classify.main_assets_type(后端透传 main_assets_type
+// + assets_type_name 中文名)。这里只是后端字段缺失时的兜底标签, 不做名字关键词匹配 ——
+// 原来按名字猜主题(黄金/半导体/消费…)已删: 名字匹配不严谨, 见 2026-11 分类改造。
+export const FUND_MAIN_LABEL = {
+  etf_fund: 'ETF',
+  lof_fund: 'LOF',
+  reits_fund: 'REITS',
+  mm_fund: '场内货币基金',
+  private_fund: '私募基金',
+  otc_fund: '场外基金',
+}
 
 // A-share industry: keyword-driven. 优先匹配后端拉的真实行业字符串
 // (e.g. "电气设备-电源设备")，否则回退到股票名兜底。
