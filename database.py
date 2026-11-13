@@ -279,7 +279,12 @@ CREATE TABLE IF NOT EXISTS symbol_dict (
     ticker TEXT,                         -- 裸码: 600111 / 00700 / CU(搜股匹配键)
     name TEXT NOT NULL,
     sub_assets_type TEXT NOT NULL,       -- 资产小类 → assets_classify.sub_assets_type(a_comm_stock/cn_futures/...)
-    suffix TEXT,                         -- 标准码后缀(点号后段): SH/SZ/BJ/HK/US/SHF/DCE/CZC/CFE/INE/GFE...
+    exchange TEXT,                       -- 交易所代码(如 XSHG/XSHE/XHKG; 区别于 suffix 市场后缀)
+    suffix TEXT,   
+    isin TEXT,                           -- ISIN(ISO 6166, 12 位, A 股 CNE...)
+    figi TEXT,                           -- FIGI(12 位, OpenFigi)
+    cusip TEXT,                          -- CUSIP(9 位, 美国/加拿大证券)
+    morningstar TEXT,                    -- Morningstar 证券标识符-- 标准码后缀(点号后段): SH/SZ/BJ/HK/US/SHF/DCE/CZC/CFE/INE/GFE...
     industry_sw TEXT,                    -- 申万行业
     industry_gics TEXT,                  -- GICS 行业
     trade_amount INTEGER,                -- 每手数量/合约乘数(期货品种行): 沪铜 5 / 期权 10000
@@ -290,6 +295,8 @@ CREATE TABLE IF NOT EXISTS symbol_dict (
     data_source TEXT,                    -- 信息来源(最后更新本行的源): tickflow/ths/futu/import; 空=老数据未记录
     delivery_code TEXT,                  -- 期权交割标的代码(由 variety_code 去尾 O 派生, 如 RBO→RB 对应螺纹钢期货品种)
     delivery_name TEXT,                  -- 交割标的中文名(按 delivery_code 在 symbol_dict 匹配底层品种名)
+
+    
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_symbol_dict_sub_assets_type ON symbol_dict(sub_assets_type);
@@ -740,6 +747,11 @@ _EXTRA_COLUMNS = [
     ("symbol_dict", "data_source", "TEXT"),                     # 信息来源(tickflow/ths/futu/import)
     ("symbol_dict", "delivery_code", "TEXT"),                   # 期权交割标的代码(去尾 O, 如 RBO→RB)
     ("symbol_dict", "delivery_name", "TEXT"),                   # 交割标的中文名(按 delivery_code 在 symbol_dict 匹配)
+    ("symbol_dict", "isin", "TEXT"),                            # ISIN(ISO 6166, 12 位)
+    ("symbol_dict", "figi", "TEXT"),                            # FIGI(12 位, OpenFigi)
+    ("symbol_dict", "cusip", "TEXT"),                           # CUSIP(9 位, 美/加证券)
+    ("symbol_dict", "morningstar", "TEXT"),                     # Morningstar 证券标识符
+    ("symbol_dict", "exchange", "TEXT"),                        # 交易所代码(XSHG/XSHE/XHKG; 区别于 suffix)
     ("assets_classify", "code_suffix", "TEXT"),                 # 标准码市场后缀(HK/US/JP/OF; A股留空=码形推)
     ("assets_classify", "valuation_type", "TEXT"),              # 估值类型 quote/nav/yield/manual(值人工维护)
     ("holdings", "option_type", "TEXT"),                        # 期权类型 CALL/PUT(合约属性, 由合约码 C/P 段解析)

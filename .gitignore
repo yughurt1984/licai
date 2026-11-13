@@ -4,6 +4,7 @@ portfolio.db-*
 backups/
 *.db
 ask_media/
+tests/
 
 # --- Python ---
 venv/
@@ -30,7 +31,7 @@ static/index.html
 static/manifest.json
 static/sw.js
 static/icon-*.svg
-tests/
+
 
 # --- Logs ---
 logs/
