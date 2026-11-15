@@ -3,16 +3,17 @@ import { A_SECTORS, FUND_CATEGORIES, MIN_HOLDER_PCT } from './constants'
 
 export function stockMarketOfCode(code = '') {
   const c = String(code).toUpperCase()
-  // 标准码「代码.市场」(00700.HK / SNDK.US); 前缀形态是迁移前存量, 兼容读
+  // 标准码「代码.市场」(00700.HK / SNDK.US / 7203.JP); 前缀形态是迁移前存量, 兼容读
   if (c.endsWith('.HK') || c.startsWith('HK.')) return 'HK'
   if (c.endsWith('.US') || c.startsWith('US.')) return 'US'
+  if (c.endsWith('.JP') || c.startsWith('JP.')) return 'JP'
   return 'A'
 }
 
 // 按代码推原币(接口没带 currency 时兜底)
 export function currencyOfCode(code = '') {
   const m = stockMarketOfCode(code)
-  return m === 'HK' ? 'HKD' : m === 'US' ? 'USD' : 'CNY'
+  return m === 'HK' ? 'HKD' : m === 'US' ? 'USD' : m === 'JP' ? 'JPY' : 'CNY'
 }
 
 // 期货/期权 thscode 的交易所后缀 → 短名(徽标用, 与股票行的 沪/深/北 市场徽标同一排)。
@@ -42,12 +43,17 @@ export function stockCodeForMarket(market, code) {
     const body = raw.replace(/^US\./, '').replace(/\.US$/, '')
     return `${body}.US`
   }
+  if (market === 'JP') {
+    const body = raw.replace(/^JP\./, '').replace(/\.JP$/, '')
+    return `${body}.JP`
+  }
   return raw.replace(/^A\./, '')
 }
 
 export function currencySymbol(currency = 'CNY') {
   if (currency === 'USD') return 'US$'
   if (currency === 'HKD') return 'HK$'
+  if (currency === 'JPY') return 'JP¥'
   if (currency === 'U' || currency === 'USDT') return '$'   // 加密(assets_classify 里 USDT 记 'U')
   return '¥'
 }
@@ -82,6 +88,7 @@ export function stockCategoryOf(h) {
   const market = h.market || stockMarketOfCode(h.stock_code)
   if (market === 'HK') return { id: 'hk', label: '港股' }
   if (market === 'US') return { id: 'us', label: '美股' }
+  if (market === 'JP') return { id: 'jp', label: '日股' }
   return aShareCategoryOf(h.stock_name, h.sector)
 }
 

@@ -22,7 +22,7 @@ function Sparkline({ data, width = 64, height = 22 }) {
   const isUp = last >= first
   return (
     <svg width={width} height={height} className="shrink-0">
-      <polyline points={points} fill="none" stroke={isUp ? '#cf5c5c' : '#5fa86c'} strokeWidth="1.2" />
+      <polyline points={points} fill="none" stroke={isUp ? 'var(--color-up)' : 'var(--color-down)'} strokeWidth="1.2" />
     </svg>
   )
 }

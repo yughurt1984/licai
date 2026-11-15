@@ -315,6 +315,30 @@ async def save_tickflow_key(data: TickFlowKey):
     return {"message": "保存成功"}
 
 
+# ── yhf 行情源(Yahoo Finance API, yfapi.net; X-API-KEY 鉴权) ────────────────
+class YhfKey(BaseModel):
+    api_key: str
+
+
+@router.get("/yhf")
+async def get_yhf_key():
+    """yhf API key: 只回掩码, 不回明文。"""
+    key = await get_config("yhf_api_key") or ""
+    masked = (key[:4] + "****" + key[-2:]) if len(key) > 6 else ("****" if key else "")
+    return {"has_key": bool(key), "key_masked": masked}
+
+
+@router.post("/yhf")
+async def save_yhf_key(data: YhfKey):
+    key = (data.api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "API key 不能为空")
+    await set_config("yhf_api_key", key)
+    from services.yhf_quote import invalidate_key_cache
+    invalidate_key_cache()
+    return {"message": "保存成功"}
+
+
 # ── futu OpenAPI REST(港/美股行情源; https://open.futunn.com) ────────────────
 class FutuConfig(BaseModel):
     api_host: str = ""

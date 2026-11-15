@@ -100,7 +100,7 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
             </div>
           }>
             <span className="inline-flex items-center gap-0.5 text-[10.5]px font-semibold px-1 py-[1px] rounded shrink-0 cursor-help"
-              style={{ color: '#e58a8a', background: '#e58a8a18', border: '1px solid #e58a8a40' }}>↔ 同源</span>
+              style={{ color: 'var(--color-up-bright)', background: 'var(--color-up-bg)', border: '1px solid var(--color-up-border)' }}>↔ 同源</span>
           </Tooltip>
         )}
       </div>
@@ -260,7 +260,8 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
       )}
     </div>
     <div className="text-right licai-md-only">
-      <WeightBar weight={row.mv / (totalMv || 1)} color={TYPE_COLOR[row.type]} />
+      {/* 期货(type=T)按保证金口径计入占比, 与 totalMv(含保证金折扣)及环形图口径一致; 其余用名义市值 */}
+      <WeightBar weight={(row.type === 'T' && row.extra?.marginValue != null ? row.extra.marginValue : row.mv) / (totalMv || 1)} color={TYPE_COLOR[row.type]} />
     </div>
     <div className="relative pl-1 md:pl-2">
       {/* TypeMiniInfo: 桌面始终可见 (不再 hover 隐藏); 移动隐藏 */}

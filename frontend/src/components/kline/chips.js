@@ -5,7 +5,12 @@
 // (cover = 窗口内筹码占比, 低换手的票可能偏低)。
 // 全市场检验(私有研究): 浮盈/获利比例扣掉前期涨跌后对之后涨跌没有预测力 —— 这里只做事实展示。
 
-const PROFIT = 'rgba(207,92,92,0.55)', LOSS = 'rgba(95,168,108,0.55)'
+import { cssVar, withAlpha } from '../../colors'
+
+// 获利/套牢筹码: 跟随显示设置的涨跌色(红涨绿跌可交换) + 0.55 透明度。
+// drawChipCanvas 在图表每帧渲染时执行, 颜色现取 —— 主题切换由 ProKline 的重涂触发重画。
+const PROFIT = () => withAlpha(cssVar('--color-up', '#cf5c5c'), 0.55)
+const LOSS = () => withAlpha(cssVar('--color-down', '#5fa86c'), 0.55)
 export const CHIP_AVG = '#b39ddb'     // 平均成本: 淡紫, 与成本线(金)/昨收(灰蓝)区分
 export const CHIP_W = 110             // 独立筹码栏宽度(px)
 
@@ -85,11 +90,11 @@ export function drawChipCanvas(canvas, height, d) {
   for (const r of d.rows) {
     if (r.y1 == null || r.y2 == null) continue
     const top = Math.min(r.y1, r.y2), h = Math.max(1, Math.abs(r.y2 - r.y1) - 0.6)
-    ctx.fillStyle = r.profit ? PROFIT : LOSS
+    ctx.fillStyle = r.profit ? PROFIT() : LOSS()
     ctx.fillRect(left, top, (r.w / mx) * maxLen, h)
   }
   if (d.yPrice != null) {                        // 当日收盘价: 细实线
-    ctx.strokeStyle = 'rgba(230,230,235,0.55)'; ctx.lineWidth = 1
+    ctx.strokeStyle = withAlpha(cssVar('--color-text', '#35322b'), 0.35); ctx.lineWidth = 1
     ctx.beginPath(); ctx.moveTo(0, d.yPrice + 0.5); ctx.lineTo(W, d.yPrice + 0.5); ctx.stroke()
   }
   if (d.yAvg != null) {                          // 平均成本: 淡紫虚线 + 标注

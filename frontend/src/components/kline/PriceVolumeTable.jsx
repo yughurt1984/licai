@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchJSON } from '../../hooks/useApi'
 
-const BUY = '#e5484d'    // 主动买(外盘) 红 —— A股约定 红=多
-const SELL = '#30a46c'   // 主动卖(内盘) 绿
+const BUY = 'var(--color-up)'      // 主动买(外盘) —— 跟随显示设置的涨跌色
+const SELL = 'var(--color-down)'   // 主动卖(内盘)
 
 function fmtAmt(yuan) {
   if (!yuan) return '0'

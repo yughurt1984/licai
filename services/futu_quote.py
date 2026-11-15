@@ -106,17 +106,17 @@ async def dividends_sync(futu_code: str) -> Optional[list[dict]]:
 # 标准码是「代码.市场」(00700.HK / SNDK.US, 与 symbol_dict/ths/tickflow 同构); futu 是
 # 「市场.代码」(HK.00700)。转换只发生在本模块内: 请求前把标准码翻成 futu 码, 响应转回
 # 标准码后才进 QuoteRow/落库链 —— futu 码任何形态都不写数据库。
-_FUTU_MARKETS = ("HK", "US", "SH", "SZ")           # symbol_dict.suffix 允许拼接的市场段位
+_FUTU_MARKETS = ("HK", "US", "JP", "SH", "SZ")     # symbol_dict.suffix 允许拼接的市场段位
 
 
 def _std_code(futu_code: str) -> str:
-    """futu 码(HK.00700 / US.SNDK) → 标准码(00700.HK / SNDK.US)。futu 第一段是市场, 段交换, 兜底原样。"""
+    """futu 码(HK.00700 / US.SNDK / JP.7203) → 标准码(00700.HK / SNDK.US / 7203.JP)。futu 第一段是市场, 段交换, 兜底原样。"""
     c = (futu_code or "").strip().upper()
     if "." in c:
         mkt, body = c.split(".", 1)
         if mkt == "HK" and body.isdigit():
             body = body.zfill(5)                   # futu 有时不带前导零(如 HK.700)
-        if mkt in ("HK", "US") and body:
+        if mkt in ("HK", "US", "JP") and body:
             return f"{body}.{mkt}"
     return c
 
@@ -128,7 +128,7 @@ def _to_futu_code(code: str) -> str:
         body, mkt = c.split(".", 1)
         if mkt == "HK" and body.isdigit():
             body = body.zfill(5)
-        if mkt in ("HK", "US") and body:
+        if mkt in ("HK", "US", "JP") and body:
             return f"{mkt}.{body}"
     return c
 
@@ -223,7 +223,7 @@ def _snapshot_sync(codes: list[str], cfg: dict, sym_map: dict[str, str] | None =
                     "volume": float(it.get("volume") or 0),
                     "turnover": float(it.get("turnover") or 0),
                     "update_time": int(it.get("update_time") or 0),
-                    "currency": "HKD" if code.endswith(".HK") else "USD",
+                    "currency": _quote_currency(code),
                 })
             except Exception:
                 continue
@@ -240,6 +240,16 @@ def _quote_time_bj(update_time_ms: int) -> str:
         return dt.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return ""
+
+
+def _quote_currency(std_code: str) -> str:
+    """标准码 → 计价币种(HKD/JPY, 其余按 USD; A 股段位 SH/SZ 由上游 _norm_params 层不经过本源)。"""
+    c = (std_code or "").strip().upper()
+    if c.endswith(".HK"):
+        return "HKD"
+    if c.endswith(".JP"):
+        return "JPY"
+    return "USD"
 
 
 async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
@@ -268,7 +278,7 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
             code = str(it.get("code") or "").upper()
             if not code or not it.get("price"):
                 continue
-            mkt = "HK" if code.endswith(".HK") else "US"
+            mkt = _std_code(code).rsplit(".", 1)[-1] if "." in code else "US"
             out.append(QuoteRow(
                 code=code, market=mkt,
                 name=it.get("name") or "", price=float(it["price"]),
@@ -276,7 +286,7 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
                 prev_close=it.get("prev_close"),
                 volume=it.get("volume") or 0, amount=it.get("turnover") or 0,
                 change_pct=it.get("change_pct"),
-                currency=it.get("currency") or ("HKD" if mkt == "HK" else "USD"),
+                currency=it.get("currency") or _quote_currency(code),
                 quote_time=_quote_time_bj(it.get("update_time") or 0), source="futu"))
         except Exception:
             continue

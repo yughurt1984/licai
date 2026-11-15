@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
+import { cssVar } from '../colors'
 import { fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 import SentimentDetailModal from './SentimentDetailModal'
 
 // 情绪 → 色温 (A股 红暖绿冷)
+// 涨跌相关的情绪色存 CSS 变量名(跟显示设置的红涨绿跌/主题走), 其余保留独立 hex;
+// moodC() 统一解析成具体色值 —— 下面有 `c + '1a'` 这类 hex 拼接, 不能直接给 var() 字符串。
 const MOOD_COLOR = {
-  '情绪高潮': '#cf5c5c', '回暖/进攻': '#d98a6a',
-  '分歧/震荡': '#d4a05c', '退潮/亏钱效应': '#5fa86c', '数据不足': '#85a0b4',
+  '情绪高潮': '--color-up', '回暖/进攻': '#d98a6a',
+  '分歧/震荡': '--color-warn', '退潮/亏钱效应': '--color-down', '数据不足': '#85a0b4',
 }
 const pctColor = (v) => v == null ? 'text-text-dim' : v > 0 ? 'text-bear-bright' : v < 0 ? 'text-bull-bright' : 'text-text-dim'
 
@@ -38,7 +41,7 @@ function CycleStrip() {
       <div className="flex items-baseline gap-2 mb-1">
         <span className="text-[10.5px] text-text-muted">情绪周期 · 近{n}个交易日</span>
         <span className="text-[9.5px] text-text-dim">
-          <span className="text-bear">■</span>涨停(上) <span className="text-bull">■</span>跌停(下) <span style={{ color: '#c8a876' }}>—</span>赚钱效应
+          <span className="text-bear">■</span>涨停(上) <span className="text-bull">■</span>跌停(下) <span style={{ color: 'var(--color-accent)' }}>—</span>赚钱效应
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" style={{ height: 'auto' }}>
@@ -50,18 +53,18 @@ function CycleStrip() {
           return (
             <g key={r.date}>
               <title>{`${r.date}${r.partial ? '(盘中)' : ''}  涨停${r.n_zt} 跌停${r.n_dt} 炸板率${r.zbl_rate}% 最高${r.max_lb}板 赚钱效应${r.money_effect == null ? '—' : (r.money_effect > 0 ? '+' : '') + r.money_effect + '%'}`}</title>
-              <rect x={x(i) - bw / 2} y={midY - hu} width={bw} height={Math.max(hu, 0.5)} fill="#cf5c5c" opacity={op} />
-              <rect x={x(i) - bw / 2} y={midY} width={bw} height={Math.max(hd, 0.5)} fill="#5fa86c" opacity={op} />
+              <rect x={x(i) - bw / 2} y={midY - hu} width={bw} height={Math.max(hu, 0.5)} fill="var(--color-up)" opacity={op} />
+              <rect x={x(i) - bw / 2} y={midY} width={bw} height={Math.max(hd, 0.5)} fill="var(--color-down)" opacity={op} />
               {r.max_lb >= 4 && (
-                <text x={x(i)} y={midY - hu - 3} textAnchor="middle" fontSize="8.5" fill="#c8a876">{r.max_lb}板</text>
+                <text x={x(i)} y={midY - hu - 3} textAnchor="middle" fontSize="8.5" fill="var(--color-accent)">{r.max_lb}板</text>
               )}
               {(i === 0 || i === n - 1 || i === Math.floor(n / 2)) && (
-                <text x={x(i)} y={H - 4} textAnchor="middle" fontSize="8.5" fill="#6b7280">{r.date.slice(5)}</text>
+                <text x={x(i)} y={H - 4} textAnchor="middle" fontSize="8.5" fill="var(--color-text-muted)">{r.date.slice(5)}</text>
               )}
             </g>
           )
         })}
-        {mePts && <polyline points={mePts} fill="none" stroke="#c8a876" strokeWidth="1.6" opacity="0.9" />}
+        {mePts && <polyline points={mePts} fill="none" stroke="var(--color-accent)" strokeWidth="1.6" opacity="0.9" />}
       </svg>
     </div>
   )
@@ -92,7 +95,8 @@ export default function SentimentThermometer() {
 
   if (loading) return <SkeletonCard rows={3} label="情绪加载中" />
   if (!d || !d.n_zt) return null
-  const c = MOOD_COLOR[d.mood] || '#85a0b4'
+  const moodRaw = MOOD_COLOR[d.mood]
+  const c = (moodRaw && moodRaw.startsWith('--')) ? cssVar(moodRaw, '#85a0b4') : (moodRaw || '#85a0b4')
   const v = d.volume || {}
 
   return (

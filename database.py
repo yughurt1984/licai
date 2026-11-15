@@ -72,16 +72,16 @@ CREATE TABLE IF NOT EXISTS holdings (
     name TEXT NOT NULL DEFAULT '',
     sub_assets_type TEXT,                -- 关联 assets_classify.sub_assets_type(该表主键, sub→大类/中类/费率
                                          --   均可查: 大类统一命名从目录派生); 建仓表单所选小类
-    shares NUMERIC(18,6),                -- numeric 而非 int4: 美股碎股(4 位小数)是既有功能
-    cost_price NUMERIC(18,6),            -- 成本价(每次流水后按综合成本法重算覆盖)
+    shares DOUBLE PRECISION,                -- double 而非 int4: 美股碎股(4 位小数)是既有功能
+    cost_price REAL,            -- 成本价(每次流水后按综合成本法重算覆盖)
     direction SMALLINT CHECK (direction IN (0, 1)),  -- 1=多(LONG) 0=空(SHORT); 多头股票为 NULL(等价多)
-    broker_id BIGINT,                    -- 本持仓券商 → brokers.id(brokers 主键是 BIGINT;
+    broker_id smallint,                    -- 本持仓券商 → brokers.id(brokers 主键是 BIGINT;
                                          --   读写边界映射成券商名, 应用层继续按名字消费)
     main_assets_type TEXT DEFAULT 'common_share',  -- 引擎列(中类, 钉住): 建仓时取 assets_classify.main_assets_type,
                                                   --   不再由 sub→main 推导; 算账分支不跟人工改分类漂移
-    contract_multiplier DOUBLE PRECISION DEFAULT 1,  -- 期货/期权: 每手乘数, 建仓时钉住(流水每笔另有历史值;
+    contract_multiplier REAL DEFAULT 1,  -- 期货/期权: 每手乘数, 建仓时钉住(流水每笔另有历史值;
                                          --   symbol_dict 是品种当前标准值, 重灌/调整不改写已钉住的)
-    strike_price NUMERIC(18,6),          -- 期权/权证行权价(合约固定属性; 仅 main_assets_type in options/warrant/hk_warrant 用); 手动兜底报价走 quote_latest.price 不落这
+    strike_price REAL,          -- 期权/权证行权价(合约固定属性; 仅 main_assets_type in options/warrant/hk_warrant 用); 手动兜底报价走 quote_latest.price 不落这
     purchase_date DATE,                  -- 建仓日期
     created_at TIMESTAMP DEFAULT utc_now_ts(),
     updated_at TIMESTAMP DEFAULT utc_now_ts(),
@@ -204,13 +204,13 @@ CREATE TABLE IF NOT EXISTS position_actions (
     code TEXT NOT NULL,                  -- 标准化代码: 600519.SH / HK.00700 / US.AAPL / CU2601.SHF
     ticker TEXT NOT NULL,                -- 纯标的代码(无市场后缀): 600519 / 00700 / CU2601, 建仓时按 code 派生
     action_type TEXT NOT NULL,           -- OPEN/CLOSE/BUY/SELL/DIVIDEND/ADD/SPLIT/BONUS/REDUCE...
-    price NUMERIC(18,6) NOT NULL,        -- 交易价格
-    shares NUMERIC(18,6) NOT NULL,       -- 交易数量(美股碎股 4 位小数)
+    price REAL NOT NULL,        -- 交易价格
+    shares DOUBLE PRECISION NOT NULL,       -- 交易数量(美股碎股 4 位小数)
     direction TEXT,                      -- 期货/期权/股票空头: LONG | SHORT; 股票多头为 NULL(等价多)
-    contract_multiplier SMALLINT,        -- 期货/期权: 每手乘数(历史准确), NULL=非衍生品
-    fx_rate NUMERIC(18,6),               -- 港美股成交日汇率(每 1 原币折人民币); NULL → 按当前汇率折算
-    fee NUMERIC(18,6),                   -- 手续费(CNY)覆盖; NULL = 用 estimate_trade_fee 自动算
-    broker_id BIGINT,                    -- 本笔成交券商 → brokers.id(NULL=用持仓券商)
+    contract_multiplier REAL,        -- 期货/期权: 每手乘数(历史准确), NULL=非衍生品
+    fx_rate REAL,               -- 港美股成交日汇率(每 1 原币折人民币); NULL → 按当前汇率折算
+    fee REAL,                   -- 手续费(CNY)覆盖; NULL = 用 estimate_trade_fee 自动算
+    broker_id smallint,                    -- 本笔成交券商 → brokers.id(NULL=用持仓券商)
     note TEXT DEFAULT '',
     trade_date TEXT,
     trade_time TEXT,                     -- 成交时刻 HH:MM (可选); NULL → 用 created_at 推断
@@ -272,14 +272,34 @@ CREATE TABLE IF NOT EXISTS watchlist_group (
 -- 全市场代码↔名称字典(个股 + 场内基金 + 期货品种): 搜股的匹配底表。
 -- 现拉一次要 20s+(stock_info_a_code_name 17 个分页 + ETF 表), 每次重启都重付, 首次
 -- 搜索被阻塞几十秒。落盘后重启即时可用, 过期只在后台刷。
+-- 交易所字典(ISO 10383 MIC + 各数据源市场码): symbol_dict.exchange_mic 外链 mic。
+-- suffix_ths/.../suffix_ninjas 为各源对该交易所使用的市场码(可空); 由人工按 assets_classify
+-- 实际配置的 main/back_instruments_source 维护哪些列。查询时按 mic 现算, 单一真相。
+CREATE TABLE IF NOT EXISTS exchange (
+    exchange        TEXT NOT NULL,       -- 交易所名/代码(人工维护, 区别于 mic 这一列名)
+    name            TEXT NOT NULL,       -- 中文名(如 上海证券交易所)
+    region          TEXT NOT NULL,       -- 地区(如 CN/HK/US)
+    mic             TEXT NOT NULL,       -- ISO 10383 MIC(如 XSHG); 主键
+    comm_acronym    TEXT NOT NULL,       -- 通用简称(如 SSE/SH)
+    suffix_ths      TEXT,                -- 同花顺对该交易所的市场码(可空)
+    suffix_futu     TEXT,                -- 富途
+    suffix_yhfinance TEXT,               -- Yahoo Finance
+    suffix_eodhd    TEXT,                -- EODHD(如 SHG)
+    suffix_massive  TEXT,                -- Massive
+    suffix_ninjas   TEXT,                -- API Ninjas
+    yhf_suffix      TEXT,                -- yhf(Yahoo Finance API, yfapi.net; 美股裸 ticker=空)
+    comment         TEXT,
+    PRIMARY KEY (mic)
+);
+
 -- 分类与费率不在本表: sub_assets_type 关联 assets_classify(人工维护的分类目录),
 -- 币种/保证金率/开平仓费率都从那边按小类取。
 CREATE TABLE IF NOT EXISTS symbol_dict (
     code TEXT PRIMARY KEY,               -- 股票: 600111.SH / 00700.HK; 期货/期权品种: CU / IO(品种级, 合约按品种+月份拼)
-    ticker TEXT,                         -- 裸码: 600111 / 00700 / CU(搜股匹配键)
+    ticker TEXT NOT NULL,                         -- 裸码: 600111 / 00700 / CU(搜股匹配键)
     name TEXT NOT NULL,
     sub_assets_type TEXT NOT NULL,       -- 资产小类 → assets_classify.sub_assets_type(a_comm_stock/cn_futures/...)
-    exchange TEXT,                       -- 交易所代码(如 XSHG/XSHE/XHKG; 区别于 suffix 市场后缀)
+    exchange_mic TEXT,                   -- 交易所 MIC(ISO 10383), 外链 exchange(mic); 区别于 suffix 逻辑市场
     suffix TEXT,   
     isin TEXT,                           -- ISIN(ISO 6166, 12 位, A 股 CNE...)
     figi TEXT,                           -- FIGI(12 位, OpenFigi)
@@ -287,20 +307,21 @@ CREATE TABLE IF NOT EXISTS symbol_dict (
     morningstar TEXT,                    -- Morningstar 证券标识符-- 标准码后缀(点号后段): SH/SZ/BJ/HK/US/SHF/DCE/CZC/CFE/INE/GFE...
     industry_sw TEXT,                    -- 申万行业
     industry_gics TEXT,                  -- GICS 行业
-    trade_amount INTEGER,                -- 每手数量/合约乘数(期货品种行): 沪铜 5 / 期权 10000
+    trade_amount REAL,                -- 每手数量/合约乘数(期货品种行): 沪铜 5 / 期权 10000
     margin_rate DOUBLE PRECISION,        -- 保证金率(品种级, 0.10=10%; ths varieties 回填/人工维护)
     open_fee_rate DOUBLE PRECISION,      -- 开仓费率(比例, ×名义金额, 0.0001=万一)
     close_fee_rate DOUBLE PRECISION,     -- 平昨费率(比例)
     close_today_fee_rate DOUBLE PRECISION, -- 平今费率(比例)
-    data_source TEXT,                    -- 信息来源(最后更新本行的源): tickflow/ths/futu/import; 空=老数据未记录
     delivery_code TEXT,                  -- 期权交割标的代码(由 variety_code 去尾 O 派生, 如 RBO→RB 对应螺纹钢期货品种)
     delivery_name TEXT,                  -- 交割标的中文名(按 delivery_code 在 symbol_dict 匹配底层品种名)
+    FOREIGN KEY (exchange_mic) REFERENCES exchange(mic),
+    data_source TEXT,                    -- 信息来源(最后更新本行的源): tickflow/ths/futu/import/scripts/manul; 空=老数据未记录
 
-    
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_symbol_dict_sub_assets_type ON symbol_dict(sub_assets_type);
 CREATE INDEX IF NOT EXISTS idx_symbol_dict_suffix ON symbol_dict(suffix);
+CREATE INDEX IF NOT EXISTS idx_symbol_dict_exchange_mic ON symbol_dict(exchange_mic);
 
 -- 资产分类目录(**人工维护**): 三级分类(大类/中类/小类) + 每小类的计价币种、交易属性与费率。
 -- symbol_dict.sub_assets_type → 本表 sub_assets_type(PK)。新增一类资产改这张表, 不改代码。
@@ -634,29 +655,36 @@ CREATE TABLE IF NOT EXISTS brokers (
     user_id BIGINT NOT NULL DEFAULT 0,   -- 属主(0=无主/全局, 多用户隔离)
     name TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'A股',    -- 券商类型: A股/港股/美股/港股期权/美股期权/期货/Crypto
-    stock_rate DOUBLE PRECISION NOT NULL,
+    stock_rate REAL NOT NULL,
     stock_unit TEXT NOT NULL DEFAULT '笔',            -- 股票费率计价单位: 笔/股/张
-    stock_min DOUBLE PRECISION NOT NULL,
-    etf_rate DOUBLE PRECISION,           -- 基金费率(小数); NULL = 同股票费率
+    stock_min REAL NOT NULL,
+    etf_rate REAL,           -- 基金费率(小数); NULL = 同股票费率
     etf_unit TEXT NOT NULL DEFAULT '笔',              -- 基金费率计价单位: 笔/股/张
-    etf_min DOUBLE PRECISION NOT NULL DEFAULT 0,
-    opt_rate DOUBLE PRECISION NOT NULL DEFAULT 0,     -- 期权费(金额, 按 opt_unit 计)
+    etf_min REAL NOT NULL DEFAULT 0,
+    opt_rate REAL NOT NULL DEFAULT 0,     -- 期权费(金额, 按 opt_unit 计)
     opt_unit TEXT NOT NULL DEFAULT '张',              -- 期权费计价单位: 笔/股/张
-    opt_min DOUBLE PRECISION NOT NULL DEFAULT 0,      -- 最低期权费
-    platform_fee DOUBLE PRECISION NOT NULL DEFAULT 0, -- 平台费(按笔, 原币)
-    platform_min DOUBLE PRECISION NOT NULL DEFAULT 0, -- 最低平台费
-    fut_rate DOUBLE PRECISION NOT NULL DEFAULT 0,     -- 期货/期权手续费(每手, 原币; 0=逐笔手填覆盖)
-    fut_min DOUBLE PRECISION NOT NULL DEFAULT 0,      -- 期货/期权最低手续费
+    opt_min REAL NOT NULL DEFAULT 0,      -- 最低期权费
+    platform_fee REAL NOT NULL DEFAULT 0, -- 平台费(按笔, 原币)
+    platform_min REAL NOT NULL DEFAULT 0, -- 最低平台费
+    fut_rate REAL NOT NULL DEFAULT 0,     -- 期货/期权手续费(每手, 原币; 0=逐笔手填覆盖)
+    fut_min REAL NOT NULL DEFAULT 0,      -- 期货/期权最低手续费
     UNIQUE (user_id, name, type)   -- 同名券商可按类型并存(如 富途证券 同时作港股/美股)
 );
 
 -- 多用户: 账号与会话。开放注册(本机/局域网部署), 密码 pbkdf2_hmac(sha256) 哈希;
 -- 会话表存 token 的 sha256(cookie 里放原文), 30 天滑动过期。
+-- email: 注册主方式(用户名+邮箱+验证码); 老用户 email 为 NULL, 账户页补绑。
+-- wechat_openid: 微信注册/登录预留列(未接 key, 恒 NULL)。
+-- avatar: 头像 data URL(png/jpeg, ≤200KB, 应用层校验)。
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     display_name TEXT DEFAULT '',
+    email TEXT,
+    email_verified SMALLINT DEFAULT 0,
+    wechat_openid TEXT,
+    avatar TEXT,
     created_at TIMESTAMP DEFAULT utc_now_ts(),
     updated_at TIMESTAMP DEFAULT utc_now_ts()
 );
@@ -669,6 +697,19 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_seen_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+-- 邮箱验证码(注册/绑定邮箱)。6 位数字码, 10 分钟过期, 用后即 consume;
+-- 限频(60s 冷却 + 每日上限)在应用层按 created_at 计数实现。
+CREATE TABLE IF NOT EXISTS email_code (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    email TEXT NOT NULL,
+    code TEXT NOT NULL,
+    purpose TEXT NOT NULL DEFAULT 'register',   -- register=注册 | bind=登录后绑定
+    expires_at TEXT,                            -- UTC 'YYYY-MM-DD HH:MM:SS'
+    created_at TIMESTAMP DEFAULT utc_now_ts(),
+    consumed SMALLINT DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_email_code_email ON email_code(email, purpose);
 
 -- 行情数据库 (market schema): 有每日报价的标的最新快照 + 历史汇率。
 -- K 线暂不做独立行情表(ledger.kline_cache 仍是应用内日K缓存); 现金/理财无报价,
@@ -722,12 +763,15 @@ async def init_db():
         await db.commit()
         await _align_date_column_types(db)
         await _ensure_schema_columns(db)
+        await _ensure_users_email_unique(db)
         await _seed_fix_income_classify(db)
         await _migrate_code_format(db)
         await _migrate_quote_sources(db)
         await _migrate_fees_to_symbol_dict(db)
         await _migrate_code_suffix(db)
         await _migrate_exchange_to_suffix(db)
+        await _migrate_exchange_mic(db)
+        await _migrate_exchange_fk(db)
         await _migrate_holdings_strike(db)
     finally:
         await db.close()
@@ -751,11 +795,17 @@ _EXTRA_COLUMNS = [
     ("symbol_dict", "figi", "TEXT"),                            # FIGI(12 位, OpenFigi)
     ("symbol_dict", "cusip", "TEXT"),                           # CUSIP(9 位, 美/加证券)
     ("symbol_dict", "morningstar", "TEXT"),                     # Morningstar 证券标识符
-    ("symbol_dict", "exchange", "TEXT"),                        # 交易所代码(XSHG/XSHE/XHKG; 区别于 suffix)
+    ("symbol_dict", "update_source", "TEXT"),                   # 最近一次更新本行内容的数据源
+    ("exchange", "yhf_suffix", "TEXT"),                         # yhf(Yahoo Finance API)对该交易所的市场码; 美股裸 ticker=空
     ("assets_classify", "code_suffix", "TEXT"),                 # 标准码市场后缀(HK/US/JP/OF; A股留空=码形推)
     ("assets_classify", "valuation_type", "TEXT"),              # 估值类型 quote/nav/yield/manual(值人工维护)
     ("holdings", "option_type", "TEXT"),                        # 期权类型 CALL/PUT(合约属性, 由合约码 C/P 段解析)
     ("position_actions", "option_type", "TEXT"),                # 同上, 流水级历史准确
+    # 账户中心(2026-11): 邮箱注册/微信预留/头像。老库 users 补列; 新库 SCHEMA 直建。
+    ("users", "email", "TEXT"),
+    ("users", "email_verified", "SMALLINT DEFAULT 0"),
+    ("users", "wechat_openid", "TEXT"),
+    ("users", "avatar", "TEXT"),
 ]
 
 
@@ -767,6 +817,15 @@ async def _ensure_schema_columns(db) -> None:
         if not (await cur.fetchone())[0]:
             await db.execute(f'ALTER TABLE ledger."{table}" ADD COLUMN "{col}" {ddl}')
             logging.debug("[db] %s.%s: 已补列(%s)", table, col, ddl)
+    await db.commit()
+
+
+async def _ensure_users_email_unique(db) -> None:
+    """users.email 唯一(部分索引, NULL 不限——老用户未绑邮箱)。放在 _ensure_schema_columns
+    之后跑: 老库先补列再建索引; 新库 SCHEMA 未含此索引, 这里统一落(幂等)。"""
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique "
+        "ON ledger.users(email) WHERE email IS NOT NULL")
     await db.commit()
 
 
@@ -810,6 +869,49 @@ async def _migrate_exchange_to_suffix(db) -> None:
         await db.commit()
     except Exception as e:
         print(f"[db] 迁移 exchange→suffix 跳过(不挡启动): {str(e)[:160]}")
+
+
+async def _migrate_exchange_mic(db) -> None:
+    """symbol_dict.exchange → exchange_mic(外链 exchange.mic)。幂等。"""
+    try:
+        cur = await db.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='ledger' AND table_name='symbol_dict'")
+        cols = {r[0] for r in await cur.fetchall()}
+        if "exchange" in cols and "exchange_mic" not in cols:
+            await db.execute(
+                "ALTER TABLE ledger.symbol_dict RENAME COLUMN exchange TO exchange_mic")
+            await db.execute("DROP INDEX IF EXISTS idx_symbol_dict_exchange")
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_symbol_dict_exchange_mic "
+                "ON ledger.symbol_dict(exchange_mic)")
+            print("[db] symbol_dict.exchange → exchange_mic")
+        elif "exchange_mic" in cols and "exchange" not in cols:
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_symbol_dict_exchange_mic "
+                "ON ledger.symbol_dict(exchange_mic)")
+        await db.commit()
+    except Exception as e:
+        print(f"[db] 迁移 exchange→exchange_mic 跳过(不挡启动): {str(e)[:160]}")
+
+
+async def _migrate_exchange_fk(db) -> None:
+    """symbol_dict.exchange_mic → exchange(mic) 硬外键。幂等; exchange 表缺 mic 值时跳过不挡启动。"""
+    try:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM information_schema.table_constraints "
+            "WHERE table_schema='ledger' AND table_name='symbol_dict' "
+            "AND constraint_name='fk_symbol_dict_exchange_mic'")
+        if (await cur.fetchone())[0]:
+            return
+        await db.execute(
+            "ALTER TABLE ledger.symbol_dict ADD CONSTRAINT fk_symbol_dict_exchange_mic "
+            "FOREIGN KEY (exchange_mic) REFERENCES exchange(mic)")
+        await db.commit()
+        print("[db] symbol_dict.exchange_mic 外键已建(→ exchange.mic)")
+    except Exception as e:
+        print(f"[db] 外键未建立(请先在 exchange 表补齐 symbol_dict.exchange_mic 的 mic 值): "
+              f"{str(e)[:160]}")
 
 
 # holdings.last_price → strike_price(期权行权价)。旧 last_price 值本是"期权手填最新价",
@@ -1615,6 +1717,8 @@ PER_USER_KEYS = frozenset({
     "zsxq_mcp_url", "zsxq_groups",
     "max_daily_loss", "cashflow_savings_rate_target",
     "dividend_dismissed", "fee_schedules", "okx_credentials",
+    # 账户中心·显示偏好(账户页 → 显示设置): 主题/金额万单位/红涨绿跌
+    "pref_theme", "pref_wan_unit", "pref_updown_red",
 })
 
 
@@ -2849,7 +2953,9 @@ async def reorder_watchlist(codes: list[str], scope: str = "global", group: str 
 async def save_symbol_dict(rows: list[tuple]) -> int:
     """rows: [(code, name, ticker, sub_assets_type, suffix)] / 6 元组尾带 trade_amount /
     7 元组再尾带 margin_rate(期货品种行, ths varieties 回填) / 8 元组再尾带 data_source
-    (信息来源: tickflow/ths/futu/import; None = 不改动已存来源)。
+    (信息来源: tickflow/ths/futu/import; None = 不改动已存来源) /
+    11 元组再尾带 exchange_mic(由 suffix 现算的交易所 MIC, 外链 exchange.mic)。
+    exchange_mic 为 None 时不覆盖已存值(COALESCE); 数据源统一写 data_source(第 8 元)。
 
     code 为标准格式(股票=代码+市场如 600111.SH / 00700.HK, 美股=ticker), ticker 为裸码。
     sub_assets_type 必须是 assets_classify 里已登记的小类键(NOT NULL 约束)。
@@ -2867,21 +2973,25 @@ async def save_symbol_dict(rows: list[tuple]) -> int:
         # 期权交割标的(可选, 第 9/10 元): delivery_code=去尾 O 的标的代码, delivery_name=匹配出的标的名
         dcode = str(r[8]).strip().upper() if len(r) >= 9 and r[8] is not None else None
         dname = str(r[9]).strip() if len(r) >= 10 and r[9] is not None else None
-        return (c, n, t, sub, ex, ta, mr, ds, dcode, dname)
+        # 交易所 MIC(可选, 第 11 元, 由 suffix 现算, 外链 exchange.mic)
+        mic = str(r[10]).strip().upper() if len(r) >= 11 and r[10] is not None else None
+        return (c, n, t, sub, ex, ta, mr, ds, dcode, dname, mic)
 
     db = await get_db()
     try:
         await db.executemany(
             "INSERT INTO symbol_dict (code, name, ticker, sub_assets_type, suffix, trade_amount, margin_rate, "
-            "data_source, delivery_code, delivery_name, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,now()) "
+            "data_source, delivery_code, delivery_name, exchange_mic, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,now()) "
             "ON CONFLICT(code) DO UPDATE SET name=excluded.name, ticker=excluded.ticker, "
             "sub_assets_type=excluded.sub_assets_type, suffix=excluded.suffix, "
             "trade_amount=excluded.trade_amount, "
             "margin_rate=COALESCE(ledger.symbol_dict.margin_rate, excluded.margin_rate), "
             "data_source=COALESCE(excluded.data_source, ledger.symbol_dict.data_source), "
             "delivery_code=COALESCE(ledger.symbol_dict.delivery_code, excluded.delivery_code), "
-            "delivery_name=COALESCE(ledger.symbol_dict.delivery_name, excluded.delivery_name), updated_at=now()",
+            "delivery_name=COALESCE(ledger.symbol_dict.delivery_name, excluded.delivery_name), "
+            "exchange_mic=COALESCE(excluded.exchange_mic, ledger.symbol_dict.exchange_mic), "
+            "updated_at=now()",
             [_norm(r) for r in rows])
         await db.commit()
         return len(rows)
@@ -2959,7 +3069,7 @@ async def search_futures_products(q: str, asset_type: str = "", sub: str = "") -
     """
     bare = (q or "").strip()
     kw = f"%{bare}%"
-    sql = ("SELECT s.code, s.name, s.sub_assets_type AS asset_type, s.suffix, s.trade_amount, "
+    sql = ("SELECT s.code, s.name, s.ticker, s.sub_assets_type AS asset_type, s.suffix, s.trade_amount, "
            "s.margin_rate, s.open_fee_rate, s.close_fee_rate, s.close_today_fee_rate, "
            "c.currency FROM symbol_dict s "
            "LEFT JOIN assets_classify c ON c.sub_assets_type = s.sub_assets_type "

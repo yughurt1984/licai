@@ -199,12 +199,13 @@ def invalidate_data_source_cache():
 
 def _source_registry() -> dict:
     """assets_classify 报价/标的信息源名 → QuoteSource 适配器(小写键; ths=fuyao 的历史别名)。"""
-    from services import ths_fuyao, futu_quote, sina_quote, tickflow, massive_quote
+    from services import ths_fuyao, futu_quote, sina_quote, tickflow, massive_quote, yhf_quote
     return {
         "ths": ths_fuyao.SOURCE, "fuyao": ths_fuyao.SOURCE,
         "tickflow": tickflow.SOURCE,
         "futu": futu_quote.SOURCE,
         "massive": massive_quote.SOURCE,
+        "yhf": yhf_quote.SOURCE,
         "sina": sina_quote.SOURCE,
     }
 
@@ -756,11 +757,13 @@ def normalize_stock_code(stock_code: str) -> str:
     兼容旧形态输入: HK.00700 / US.AAPL 原样翻成标准形态(老库存量数据/用户手贴都能吃)。
     """
     raw = (stock_code or "").strip().upper()
-    # 旧形态(HK.00700 / US.AAPL)→ 标准形态(00700.HK / AAPL.US)
+    # 旧形态(HK.00700 / US.AAPL / JP.7203)→ 标准形态(00700.HK / AAPL.US / 7203.JP)
     if raw.startswith("HK.") and raw[3:].isdigit():
         return f"{raw[3:].zfill(5)}.HK"
     if raw.startswith("US.") and raw[3:].strip():
         return f"{raw[3:].strip()}.US"
+    if raw.startswith("JP.") and raw[3:].strip():
+        return f"{raw[3:].strip()}.JP"
     # HK 前缀无点老写法(HK00700)
     if raw.startswith("HK") and raw[2:].isdigit():
         return f"{raw[2:].zfill(5)}.HK"
@@ -769,6 +772,9 @@ def normalize_stock_code(stock_code: str) -> str:
         body = raw.split(".", 1)[0]
         return f"{body.zfill(5)}.HK"
     if re.fullmatch(r"[A-Z0-9]{1,8}\.US", raw):
+        return raw
+    # 日股: 标准码 7203.JP / 285A.JP 原样透传(2024 起东京所有上市码含字母尾, 不纯数字)
+    if re.fullmatch(r"[A-Z0-9]{1,6}\.JP", raw):
         return raw
     # 裸港股 1-5 位数字 → 00700.HK(用户常省前导零输 700; 纯 6 位是 A 股, 走下面的后缀规则)
     if re.fullmatch(r"\d{1,5}", raw):
@@ -783,12 +789,14 @@ def normalize_stock_code(stock_code: str) -> str:
 
 
 def split_stock_code(stock_code: str) -> tuple[str, str]:
-    """Return (market, symbol). market is A/HK/US; symbol 为裸码(600406 / 00700 / SNDK)。"""
+    """Return (market, symbol). market is A/HK/US/JP; symbol 为裸码(600406 / 00700 / SNDK / 7203)。"""
     code = normalize_stock_code(stock_code)
     if code.endswith(".HK"):
         return "HK", code[:-3]
     if code.endswith(".US"):
         return "US", code[:-3]
+    if code.endswith(".JP"):
+        return "JP", code[:-3]
     if "." in code:
         sym = code.split(".", 1)[0]
         if re.fullmatch(r"\d{6}", sym):
@@ -843,7 +851,7 @@ async def get_realtime_quotes(stock_codes: list[str], force: bool = False) -> di
         else:
             c = normalize_stock_code(c)
             g = split_stock_code(c)[0]
-        if g not in ("A", "HK", "US", "FUT", "OPT"):
+        if g not in ("A", "HK", "US", "JP", "FUT", "OPT"):
             continue
         groups.setdefault(g, []).append(c)
 

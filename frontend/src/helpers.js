@@ -1,3 +1,5 @@
+import { getPrefs } from './prefs'
+
 // 价格小数位按市场最小报价单位: A 股 2 位不变; 港股 10 元以下档位 0.001-0.01 → 3 位;
 // 美股 1 美元以下报价到 0.0001 → 4 位。code 可空(按 A 股处理)。
 export function fmtPrice(v, code) {
@@ -85,13 +87,16 @@ export function fmtPct(v) {
 export function fmtMoney(v) {
   if (v == null) return '--'
   const abs = Math.abs(v)
-  if (abs >= 10000) return (v / 10000).toFixed(2) + '万'
-  return v.toFixed(2)
+  // 显示偏好(账户页·显示设置): wanUnit 开 → ≥1万压缩为「万」; 关 → 千分位完整数字
+  if (getPrefs().wanUnit && abs >= 10000) return (v / 10000).toFixed(2) + '万'
+  return v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+// 涨跌色: 走 --color-up/--color-down 语义变量(红涨绿跌/绿涨红跌由显示设置交换),
+// 不再直接 bull/bear —— 这是全站涨跌用色的中心入口, 新代码一律用它。
 export function priceColor(v) {
   if (v == null || v === 0) return 'text-text-dim'
-  return v > 0 ? 'text-bear-bright' : 'text-bull-bright'
+  return v > 0 ? 'text-up-bright' : 'text-down-bright'
 }
 
 export function signalLabel(s) {

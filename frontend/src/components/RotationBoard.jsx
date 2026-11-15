@@ -18,7 +18,7 @@ function Spark({ series, w = 62, h = 18 }) {
     return `${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
   const up = vals[vals.length - 1] >= vals[0]
-  const color = up ? '#cf5c5c' : '#5fa86c'
+  const color = up ? 'var(--color-up)' : 'var(--color-down)'
   const [lx, ly] = pts.split(' ').pop().split(',')
   return (
     <svg width={w} height={h} className="shrink-0 block">

@@ -236,6 +236,18 @@ export function TypeMiniInfo({ row }) {
     )
   }
   if (type === 'W') {
+    // 固定收益桶里两类记账口径, 按行来源拆展示:
+    //   src=holding  → quote 型市价债券(holdings): 份额(张) · 成本净价, 同 A 股口径
+    //   src=fix-income → yield 型计提资产(fix_income_assets): 平台 · 年化 · 持有 · 到期
+    if (row.src === 'holding') {
+      const sh = Number(row._raw?.shares) || 0
+      const ca = Number(row._raw?.cost_price) || 0
+      return (
+        <span className="text-[11.5px] text-text-muted font-mono">
+          {sh} 张 · 成本 ¥{fmtPrice(ca)}/张 <span className="text-text-muted">(全价)</span>
+        </span>
+      )
+    }
     const yieldRate = extra.annualYield ?? extra.impliedYield
     const isImplied = extra.annualYield == null && extra.impliedYield != null
     // 固定收益(fix-income): 手动市值覆盖年化计提时显示 (手) 角标

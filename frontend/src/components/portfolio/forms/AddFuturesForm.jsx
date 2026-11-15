@@ -93,7 +93,9 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
     return () => clearTimeout(debounceRef.current)
   }, [query, isOpt, sub])
 
-  // 合约代码拼接: 品种(symbol_dict.code, 如 IF/CU) + 月份(YYMM) + 交易所后缀
+  // 合约代码拼接: 品种 ticker(symbol_dict.ticker, 如 IF/CU) + 月份(YYMM) + 交易所后缀
+  // 基底用 ticker(裸品种字母)而非 code: code 是全表唯一编号, 品种行可能带后缀(如 CU.SHF),
+  // 一旦带后缀拼出来会变成 CU.SHF2601.SHF 这种错码。
   // symbol_dict.suffix 由你直接维护为同花顺后缀(SHF/CFE...), 原样拼接; 期货品种只查库, 报价那一步才用 ticker 取价
   // 期权拼码: 品种+年月-C/P-行权价.后缀 (如 IO2701-C-4000.CFE)
   // C/P 由独立 optionType 决定, 与 direction(权利方/义务方) 正交: 四态都支持(买看涨/卖看涨/买看跌/卖看跌)
@@ -101,8 +103,8 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
   const strikeNum = parseFloat(strikePrice)
   const thscode = product && month && (!isOpt || strikeNum > 0)
     ? (isOpt
-        ? `${product.code}${month}-${cp}-${strikeNum}.${product.suffix || ''}`.toUpperCase()
-        : `${product.code}${month}${product.suffix ? '.' + product.suffix : ''}`.toUpperCase())
+        ? `${product.ticker}${month}-${cp}-${strikeNum}.${product.suffix || ''}`.toUpperCase()
+        : `${product.ticker}${month}${product.suffix ? '.' + product.suffix : ''}`.toUpperCase())
     : ''
   // 保证金估算(仅供参考): 开仓价 × 每手乘数 × 手数 × 保证金率 —— 期货公司在交易所基础上加收
   // (保证金率来自 assets_classify 品种分类行, 经 /products/search JOIN 带出)

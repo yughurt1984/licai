@@ -58,7 +58,6 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
   const [fee, setFee] = useState('')
   const [feeTouched, setFeeTouched] = useState(false)
   const [feeRatePct, setFeeRatePct] = useState('')   // FUND 申购费率 %, C 类填 0
-  const [hint, setHint] = useState('')
   // 场内基金的买入日期 / 场外的申购日期, 种子流水 start_date 用它
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().slice(0, 10))
   // FUND 细分类型(记账口径)由分类小类推导: etf(场内, 市价) / open(场外, NAV T+1) / reits(场内, tickflow)。
@@ -106,8 +105,10 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
     }
   }, [shares, unitPrice, fee, costTouched])
 
-  // 基金代码自动查名: 防抖后先查 ledger.symbol_dict 底表(纯本地零联网, /api/market/symbol-name
-  // 按 ticker/裸码 → code 顺序匹配), 底表没有再走行情接口兜底(顺带带出净值提示)。
+  // 基金代码自动查名: 防抖后查 /api/market/symbol-name 两级链(① ledger.symbol_dict 底表,
+  // 纯本地零联网; ② 底表没有 → instruments 源, 命中后端自动登记底稿)。触发门槛是**完整
+  // 6 位码**(正则锁死, 半截码永不触发)。quote/估值不在这条链里 —— 天天基金估值已下线,
+  // 名称查不到就手填。quote 行情在「确认」添加完成后才发起(与股票表单同口径)。
   const autoSeq = useRef(0)
   const autoTimer = useRef(null)
   useEffect(() => () => clearTimeout(autoTimer.current), [])
@@ -120,14 +121,7 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
       try {
         const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(c)}` +
           `&sub=${encodeURIComponent(matched?.sub_assets_type || '')}`)
-        if (seq === autoSeq.current && name) { setName(name); return }
-      } catch { /* 底表没有, 走行情接口兜底 */ }
-      try {
-        const q = await fetchJSON(`/api/assets/quote/fund/${c}`)
-        if (seq === autoSeq.current && q?.name) {
-          setName(q.name)
-          setHint(`✓ ${q.realtime ? '估值' : '昨净值'} ${q.est_nav || q.nav}`)
-        }
+        if (seq === autoSeq.current && name) setName(name)
       } catch { /* 查不到就留手填 */ }
     }, 350)
   }, [code])
@@ -342,12 +336,10 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
         </button>
       </div>
 
-      {hint && <div className={`text-[10px] font-mono ${hint.startsWith('✓') ? 'text-bull' : 'text-bear'}`}>{hint}</div>}
-
       {/* Pending hint: 场外基金填了申购金额但净值没填(当日申购 T+1) → 先记待确认 */}
       {isOtcFund && amt > 0 && !confShares && (
         <div className="text-[10.5px] font-mono text-accent">
-          💡 申购净值没填(当日申购 T+1 未公布) → 确认份额暂缺，¥{amt.toFixed(2)} 先记到 pending，净值公布后回来编辑补上自动结算。
+          💡 申购净值没填(当日申购 T+1 未公布) → 确认份额暂缺，¥{amt.toFixed(2)} 先记到 pending，净值公布后在该资产行编辑补上份额/净值确认。
         </div>
       )}
 

@@ -833,8 +833,8 @@ export default function Rankings() {
                   <svg width={bs.length * (bw + 1)} height={28} className="shrink-0">
                     {bs.map((b, i) => (
                       <g key={b.t}>
-                        {b.up > 0 && <rect x={i * (bw + 1)} y={mid - sc(b.up) / maxv * amp} width={bw} height={Math.max(sc(b.up) / maxv * amp, 0.5)} fill="#cf5c5c" opacity="0.85"><title>{b.t} 拉升类 {b.up}</title></rect>}
-                        {b.down > 0 && <rect x={i * (bw + 1)} y={mid} width={bw} height={Math.max(sc(b.down) / maxv * amp, 0.5)} fill="#5fa86c" opacity="0.85"><title>{b.t} 跳水类 {b.down}</title></rect>}
+                        {b.up > 0 && <rect x={i * (bw + 1)} y={mid - sc(b.up) / maxv * amp} width={bw} height={Math.max(sc(b.up) / maxv * amp, 0.5)} fill="var(--color-up)" opacity="0.85"><title>{b.t} 拉升类 {b.up}</title></rect>}
+                        {b.down > 0 && <rect x={i * (bw + 1)} y={mid} width={bw} height={Math.max(sc(b.down) / maxv * amp, 0.5)} fill="var(--color-down)" opacity="0.85"><title>{b.t} 跳水类 {b.down}</title></rect>}
                       </g>
                     ))}
                   </svg>

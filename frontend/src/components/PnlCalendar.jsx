@@ -22,9 +22,9 @@ const fmtSigned = (v) => v == null ? '--' : (v > 0 ? '+' : v < 0 ? '−' : '') +
 
 // 红盈绿亏(中国市场口径, 与 priceColor 一致)
 const tone = (v) => (v > 0
-  ? { text: '#e06666', bg: 'rgba(207,92,92,0.10)' }
+  ? { text: 'var(--color-up-bright)', bg: 'var(--color-up-bg)' }
   : v < 0
-    ? { text: '#4f9e63', bg: 'rgba(95,168,108,0.10)' }
+    ? { text: 'var(--color-down-bright)', bg: 'var(--color-down-bg)' }
     : { text: 'var(--color-text-dim)', bg: 'transparent' })
 
 export default function PnlCalendar() {

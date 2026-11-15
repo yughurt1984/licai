@@ -81,9 +81,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   useEffect(() => { loadThesisCodes() }, [loadThesisCodes])
   const [realized, setRealized] = useState({ stock: 0, asset: 0 })
   const [todayPnl, setTodayPnl] = useState(null)     // 券商口径当日盈亏(后端算)
-  const [settling, setSettling] = useState(false)
-  const [settleMsg, setSettleMsg] = useState('')
-
   const loadAssets = useCallback(async () => {
     try {
       const d = await fetchJSON('/api/assets')
@@ -99,20 +96,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       setFixAssets(d.assets || [])
     } catch {}
   }, [])
-
-  // 一键确认所有到期申购: 后端按每条 trade_date 拉当日净值自动结算份额。
-  const settlePending = useCallback(async () => {
-    setSettling(true); setSettleMsg('')
-    try {
-      const d = await fetchJSON('/api/assets/settle-pending', { method: 'POST' })
-      const parts = [`确认 ${d.settled || 0} 笔`]
-      if (d.skipped > 0) parts.push(`${d.skipped} 笔净值未出, 留着下次`)
-      setSettleMsg(parts.join(' · '))
-      await loadAssets()
-    } catch (e) {
-      setSettleMsg('失败: ' + e.message)
-    } finally { setSettling(false) }
-  }, [loadAssets])
 
   const loadRealized = useCallback(async () => {
     try {
@@ -400,29 +383,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         {!isEmpty && <AllocationDonut groups={agg.groups} totalMv={agg.totalMv} />}
       </div>
 
-      {/* 申购待确认 banner: 场外基金 T+1 净值出来后, 一键按当日净值自动结算所有 pending 申购 */}
-      {(() => {
-        const pendN = (assets || []).reduce((s, a) => s + (a.pending_actions_count || 0), 0)
-        if (pendN === 0 && !settleMsg) return null
-        return (
-          <div className="px-3 md:px-6 py-2.5 border-b border-border bg-accent/5 flex items-center gap-3 flex-wrap">
-            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[11]px shrink-0 bg-accent/15 text-accent border border-accent/50">⏳</span>
-            <span className="text-[12.5px] text-text">
-              {pendN > 0 ? `${pendN} 笔申购待确认份额` : '申购'}
-              {settleMsg && <span className="text-text-dim ml-2">· {settleMsg}</span>}
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              {pendN > 0 && (
-                <button onClick={settlePending} disabled={settling}
-                  className="px-3 py-1 rounded text-[12.5]px border border-accent/50 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50">
-                  {settling ? '确认中…' : '一键按净值确认'}
-                </button>
-              )}
-            </div>
-          </div>
-        )
-      })()}
-
       {/* Risk insights strip */}
       {!isEmpty && (insights.warnings.length > 0 || (expo?.warnings || []).length > 0) && (
         <div className="px-3 md:px-6 py-2.5 border-b border-border bg-surface-2/60 flex flex-col gap-1.5">
@@ -565,8 +525,8 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
               // FUND(基金)按行业子类分组; 股票桶(A)按**市场**分两层: A股 / 港股 / 美股
               // (以前 A 股按行业分组 —— 行业来自外网公司概况接口, 现改为整体三层)。
               if (type === 'A' && items.length > 1) {
-                const MK_LABEL = { A: 'A股', HK: '港股', US: '美股' }
-                const MK_ORDER = ['A', 'HK', 'US']
+                const MK_LABEL = { A: 'A股', HK: '港股', US: '美股', JP: '日股' }
+                const MK_ORDER = ['A', 'HK', 'US', 'JP']
                 const clusters = {}
                 for (const it of items) {
                   const mk = it.extra?.market || 'A'

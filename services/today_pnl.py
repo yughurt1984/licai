@@ -124,7 +124,8 @@ async def today_pnl() -> dict:
 async def _compute() -> dict:
     from database import (get_all_holdings, get_position_actions,
                           list_external_assets, list_external_actions, is_derivative_kind)
-    from services.market_data import get_realtime_quotes, normalize_stock_code, split_stock_code
+    from services.market_data import (get_realtime_quotes, normalize_stock_code,
+                                      split_stock_code, code_fx)
 
     day = _today_cst()
     items: list[dict] = []
@@ -185,13 +186,22 @@ async def _compute() -> dict:
         if opened_sh > 1e-9 and opened_amt > 0:
             pnl += (price - opened_amt / opened_sh) * mult * opened_sh * sign
         is_fut_row = is_derivative_kind(hrow.get("main_assets_type"))
-        fx = 1.0 if is_fut_row else float(q.get("fx_rate") or 1.0)
+        mkt_row = split_stock_code(hrow["stock_code"])[0]
+        # 币种折算: 港美期货(ES2612.US / HTI2611.HK)按行情 fx_rate, 没带则按 code 取汇率;
+        # 国内期货/期权恒 CNY。之前外币期货强置 fx=1, 当日盈亏按原币混进人民币合计。
+        fx = float(q.get("fx_rate") or 1.0)
+        if fx == 1.0 and mkt_row in ("HK", "US"):
+            try:
+                fx = float(code_fx(hrow["stock_code"]) or 1.0)
+            except Exception:
+                fx = 1.0
         if pnl:
             pnl *= fx
         items.append({
             "code": hrow["stock_code"], "type": (hrow.get("main_assets_type") or "common_share").upper(),
             "market": "FUT" if is_fut_row else split_stock_code(hrow["stock_code"])[0],
-            "currency": "CNY" if is_fut_row else (q.get("currency") or "CNY"), "fx_rate": fx,
+            "currency": ("CNY" if mkt_row not in ("HK", "US")
+                         else (q.get("currency") or ("HKD" if mkt_row == "HK" else "USD"))), "fx_rate": fx,
             "name": hrow.get("stock_name") or hrow["stock_code"],
             "today_pnl": round(pnl, 2),
             "shares": lots, "bought": opened_sh, "sold": 0,

@@ -95,8 +95,8 @@ async def save_quotes(rows: list[dict]) -> int:
             missing = [c for c in codes if not nmap.get(c)]
             if missing:
                 hd = await pool0.fetch(
-                    "SELECT code, MAX(stock_name) AS name FROM ledger.holdings "
-                    "WHERE code = ANY($1) AND stock_name IS NOT NULL AND stock_name <> '' "
+                    "SELECT code, MAX(name) AS name FROM ledger.holdings "
+                    "WHERE code = ANY($1) AND name IS NOT NULL AND name <> '' "
                     "GROUP BY code", missing)
                 nmap.update({h["code"]: h["name"] for h in hd if h["name"]})
             for r in need:

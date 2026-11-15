@@ -109,9 +109,9 @@ export default function KlineChart({ fetchByDays, initialSeries = [], defaultDay
   }
 
   const isUp = end >= start
-  const lineColor = isUp ? '#cf5c5c' : '#5fa86c'
-  const fillColor = isUp ? 'rgba(207,92,92,0.10)' : 'rgba(95,168,108,0.10)'
-  const colorPct = (v) => v == null ? 'text-text-dim' : v >= 0 ? 'text-bear-bright' : 'text-bull-bright'
+  const lineColor = isUp ? 'var(--color-up)' : 'var(--color-down)'
+  const fillColor = isUp ? 'var(--color-up-bg)' : 'var(--color-down-bg)'
+  const colorPct = (v) => v == null ? 'text-text-dim' : v >= 0 ? 'text-up-bright' : 'text-down-bright'
   const fmtPct = (v) => v == null ? '--' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%'
 
   return (
@@ -160,7 +160,7 @@ export default function KlineChart({ fetchByDays, initialSeries = [], defaultDay
               points.map((p, i) => {
                 if (p.yHigh == null || p.yLow == null || p.yOpen == null) return null
                 const up = p.close >= p.open
-                const col = up ? '#cf5c5c' : '#5fa86c'   // A股口径: 涨红 跌绿
+                const col = up ? 'var(--color-up)' : 'var(--color-down)'   // 涨跌色跟显示设置(红涨绿跌可交换)
                 const bodyTop = Math.min(p.yOpen, p.y)
                 const bodyH = Math.max(1, Math.abs(p.yOpen - p.y))
                 return (

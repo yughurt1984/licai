@@ -45,9 +45,9 @@ function fmtTime(s) {
 }
 
 const LEVEL_META = {
-  good: { label: '利好', icon: '🟢', color: '#cf5c5c' },   // A 股口径红 = 涨
-  bad:  { label: '利空', icon: '🔴', color: '#5fa86c' },   // 绿 = 跌
-  watch:{ label: '关注', icon: '🟡', color: '#d4a05c' },
+  good: { label: '利好', icon: '🟢', color: 'var(--color-up)' },   // 利好=涨色(跟显示设置)
+  bad:  { label: '利空', icon: '🔴', color: 'var(--color-down)' },   // 利空=跌色
+  watch:{ label: '关注', icon: '🟡', color: 'var(--color-warn)' },
 }
 
 function DigestCard() {
@@ -105,7 +105,7 @@ function DigestCard() {
               {data.highlights?.length > 0 && (
                 <div className="space-y-1.5">
                   {data.highlights.map((h, i) => {
-                    const meta = LEVEL_META[h.level] || { label: '关注', icon: '⚪', color: '#888' }
+                    const meta = LEVEL_META[h.level] || { label: '关注', icon: '⚪', color: 'var(--color-text-muted)' }
                     return (
                       <div key={i} className="text-[11.5px] leading-snug flex gap-2 items-baseline">
                         <span style={{ color: meta.color }} className="font-semibold text-[10.5px] whitespace-nowrap">

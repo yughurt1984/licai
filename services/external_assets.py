@@ -1,12 +1,11 @@
 """Price/value fetchers for funds, crypto, and trading bots.
 
-- FUND: 天天基金 realtime NAV estimate (场外公募/QDII/LOF/ETF联接)
+- FUND: 场内基金市价(ths fuyao 快照, 新浪兜底) / 场外基金净值(ths fuyao T+1 官方净值) / REITs(tickflow)
 - CRYPTO: OKX public market API (free, no key)
 - BOT: manual value (user updates periodically)
 """
 from __future__ import annotations
 import asyncio
-import json
 import re
 import time
 import os
@@ -27,132 +26,7 @@ _fund_cache: dict[str, tuple[dict, float]] = {}
 _crypto_cache: dict[str, tuple[dict, float]] = {}
 
 
-# --- Fund (天天基金) ---
-
-def _fetch_fund_name_sync(code: str) -> str:
-    """Get fund display name from pingzhongdata."""
-    try:
-        r = _requests.get(f"http://fund.eastmoney.com/pingzhongdata/{code}.js", timeout=6)
-        if r.ok:
-            m = re.search(r'fS_name\s*=\s*"([^"]+)"', r.text)
-            if m:
-                return m.group(1)
-    except Exception:
-        pass
-    return ""
-
-
-def _fetch_fund_nav_sync(code: str) -> dict | None:
-    """Latest published NAV via lsjz endpoint (works for QDII/LOF/closed funds)."""
-    url = f"https://api.fund.eastmoney.com/f10/lsjz?fundCode={code}&pageIndex=1&pageSize=1"
-    try:
-        r = _requests.get(url, timeout=6,
-                          headers={"Referer": "http://fundf10.eastmoney.com/",
-                                   "User-Agent": "Mozilla/5.0"})
-        d = r.json()
-        items = (d.get("Data") or {}).get("LSJZList") or []
-        if not items:
-            return None
-        it = items[0]
-        return {
-            "nav": float(it.get("DWJZ", 0) or 0),
-            "change_pct": float(it.get("JZZZL", 0) or 0),
-            "nav_date": it.get("FSRQ", ""),
-        }
-    except Exception as e:
-        print(f"[fund-nav] {code} failed: {e}")
-        return None
-
-
-def _fetch_fund_nav_on_date_sync(code: str, date_str: str) -> dict | None:
-    """某只基金在指定交易日的已确认净值 (lsjz 支持 start/end date)。
-    返回 {nav, nav_date} — 仅当该日确实有公布净值时; 否则 None (休市/未公布)。"""
-    url = (f"https://api.fund.eastmoney.com/f10/lsjz?fundCode={code}"
-           f"&pageIndex=1&pageSize=10&startDate={date_str}&endDate={date_str}")
-    try:
-        r = _requests.get(url, timeout=6,
-                          headers={"Referer": "http://fundf10.eastmoney.com/",
-                                   "User-Agent": "Mozilla/5.0"})
-        items = (r.json().get("Data") or {}).get("LSJZList") or []
-        for it in items:
-            if it.get("FSRQ") == date_str and float(it.get("DWJZ", 0) or 0) > 0:
-                return {"nav": float(it["DWJZ"]), "nav_date": date_str}
-        return None
-    except Exception as e:
-        print(f"[fund-nav-date] {code}@{date_str} failed: {e}")
-        return None
-
-
-def nav_date_for(trade_date: str, trade_time: str | None = None) -> str:
-    """场外基金申购/赎回按哪一天的净值确认: 交易日 15:00 前提交 → 当日净值; 15:00 及以后、
-    或提交在非交易日(周末/节假日) → 顺延到下一个交易日的净值。没有提交时间的(老记录)按当日。
-    交易日历与 A 股相同(QDII 也按国内交易日受理)。"""
-    from datetime import date, timedelta
-    from services.market_data import _is_a_share_trading_day
-    d = date.fromisoformat(str(trade_date)[:10])
-    t = str(trade_time or "").strip()
-    late = bool(t) and t[:5] >= "15:00"
-    if _is_a_share_trading_day(d) and not late:
-        return d.isoformat()
-    d += timedelta(days=1)
-    for _ in range(30):
-        if _is_a_share_trading_day(d):
-            return d.isoformat()
-        d += timedelta(days=1)
-    return d.isoformat()
-
-
-async def get_fund_nav_on_date(code: str, date_str: str) -> dict | None:
-    """异步: 取 code 在 date_str (YYYY-MM-DD) 的已确认净值, 无则 None。"""
-    return await asyncio.to_thread(_fetch_fund_nav_on_date_sync, bare_fund_code(code), date_str)
-
-
-def _fetch_fund_meta_sync(code: str) -> dict | None:
-    """Fallback: name from pingzhongdata + latest NAV from lsjz."""
-    name = _fetch_fund_name_sync(code)
-    if not name:
-        return None
-    nav_info = _fetch_fund_nav_sync(code) or {}
-    return {
-        "code": code,
-        "name": name,
-        "nav": round(float(nav_info.get("nav", 0) or 0), 4),
-        "est_nav": round(float(nav_info.get("nav", 0) or 0), 4),
-        "change_pct": float(nav_info.get("change_pct", 0) or 0),
-        "nav_date": nav_info.get("nav_date", ""),
-        "est_time": "",
-        "realtime": False,
-    }
-
-
-def _fetch_fund_sync(code: str) -> dict | None:
-    url = f"http://fundgz.1234567.com.cn/js/{code}.js"
-    try:
-        r = _requests.get(url, timeout=6, headers={"Referer": "http://fund.eastmoney.com/"})
-        text = r.text.strip()
-        m = re.match(r"jsonpgz\((.*)\);?", text)
-        if m:
-            payload = m.group(1).strip()
-            if payload:
-                d = json.loads(payload)
-                if d and d.get("fundcode"):
-                    nav = float(d.get("dwjz", 0))
-                    est = float(d.get("gsz", 0)) if d.get("gsz") else nav
-                    return {
-                        "code": d.get("fundcode", code),
-                        "name": d.get("name", ""),
-                        "nav": round(nav, 4),
-                        "est_nav": round(est, 4),
-                        "change_pct": float(d.get("gszzl", 0)) if d.get("gszzl") else 0.0,
-                        "nav_date": d.get("jzrq", ""),
-                        "est_time": d.get("gztime", ""),
-                        "realtime": True,
-                    }
-    except Exception as e:
-        print(f"[fund] realtime {code} failed: {e}")
-    # Fallback: scrape meta (QDII etc. often have no realtime estimate)
-    return _fetch_fund_meta_sync(code)
-
+# --- Fund (行情/净值一律走 ths fuyao/新浪/tickflow, 无天天基金) ---
 
 def _is_onchain_etf(code: str) -> bool:
     """场内 ETF / LOF 代码识别（深交所 1xxxxx / 上交所 5xxxxx）。
@@ -190,36 +64,14 @@ def is_onchain_fund(kind: str) -> bool:
     return kind in ("etf", "reits")
 
 
-# 基金全称缓存 (名字稳定, 长期缓存避免每次报价都打 pingzhongdata)
-_fund_name_cache: dict[str, str] = {}
-
-
-async def _onchain_fund_name(code: str, fallback: str) -> str:
-    """基金的展示名: 优先天天基金全称 (如 '半导体ETF国泰'), 拉不到回退 fallback。
-    全称缓存, 失败也缓存 fallback 避免反复重试。"""
-    code = bare_fund_code(code)      # 兼容 .OF 存档码
-    cached = _fund_name_cache.get(code)
-    if cached:
-        return cached
-    try:
-        full = await asyncio.to_thread(_fetch_fund_name_sync, code)
-    except Exception:
-        full = ""
-    name = full or fallback
-    if name:
-        _fund_name_cache[code] = name
-    return name
-
-
 async def _fetch_onchain_etf_quote(code: str) -> dict | None:
-    """场内基金现价。主源 ths fuyao 快照(基金行情接口), 拉不到回退 A股实时行情(新浪);
-    名字用天天基金全称 (行情接口的证券简称对不上基金全称)。"""
+    """场内基金现价。主源 ths fuyao 快照(基金行情接口), 拉不到回退 A股实时行情(新浪)。"""
     from services import ths_fuyao
     q = await ths_fuyao.fund_snapshot(code)
     if q and q.get("price"):
         return {
             "code": code,
-            "name": await _onchain_fund_name(code, ""),
+            "name": "",
             "nav": q["price"],          # 字段复用：场内场景下这是市价
             "est_nav": q["price"],
             "change_pct": q.get("change_pct") or 0,
@@ -237,7 +89,7 @@ async def _fetch_onchain_etf_quote(code: str) -> dict | None:
     price = q["price"]
     return {
         "code": code,
-        "name": await _onchain_fund_name(code, q.get("stock_name", "")),
+        "name": q.get("stock_name", ""),
         "nav": price,          # 字段复用：场内场景下这是市价
         "est_nav": price,
         "change_pct": q.get("change_pct", 0),
@@ -271,15 +123,14 @@ async def _fetch_open_nav_ths(code: str) -> dict | None:
     """场外基金净值: ths fuyao 净值接口(T+1 官方净值)。
 
     code 用存档码原样请求(019144.OF, ths_fuyao.fund_thscode 内部处理后缀);
-    接口不返回名称, 名称用天天基金全称兜底(有缓存)。"""
+    接口不返回名称, 留空由 save_quotes 兜底(symbol_dict/holdings)。"""
     from services import ths_fuyao
     n = await ths_fuyao.fund_nav(code)
     if not n or not n.get("nav"):
         return None
-    name = await _onchain_fund_name(code, "")
     return {
         "code": code,
-        "name": name,
+        "name": "",
         "nav": n["nav"],
         "est_nav": n["nav"],
         "change_pct": n.get("change_pct") or 0,
@@ -293,8 +144,9 @@ async def _fetch_open_nav_ths(code: str) -> dict | None:
 async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
     """kind: 'etf'|'open'|'reits' 显式基金类型(None=按代码段位兜底)。场外开放式即便代码像场内也走净值。
 
-    数据源: 场内基金(ETF/LOF) → ths fuyao 快照(新浪兜底); 场外 → ths fuyao 净值(天天基金兜底);
+    数据源: 场内基金(ETF/LOF) → ths fuyao 快照(新浪兜底); 场外 → ths fuyao T+1 官方净值;
     REITs → TickFlow 实时行情(用户显式选 'reits' 才走, 代码段位无法与场内基金区分)。
+    天天基金(fundgz/lsjz/pingzhongdata/F10)已全部下线, 不再有任何取数。
     """
     cached = _fund_cache.get(code)
     if cached and time.time() - cached[1] < _FUND_TTL:
@@ -304,7 +156,7 @@ async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
     from services.market_data import quote_auto_fetch
     if not quote_auto_fetch():
         return await _fund_from_store(code)
-    # 场外存档码(019144.OF)按处理后代码原样请求 ths; 天天基金/新浪兜底与 tickflow
+    # 场外存档码(019144.OF)按处理后代码原样请求 ths; 新浪兜底与 tickflow
     # 只要裸码, 用 bare。缓存/落库按原始 code 键, 新旧存档各自成行。
     bare = bare_fund_code(code)
     eff = kind or ("etf" if _is_onchain_etf(code) else "open")
@@ -319,7 +171,7 @@ async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
         except Exception as e:
             print(f"[fund] reits quote {code} failed: {e}")
         return await _fund_from_store(code)
-    # 场内 ETF/LOF 优先用 ths 快照(内部已带新浪兜底)；再拉不到回退天天基金 NAV
+    # 场内 ETF/LOF 优先用 ths 快照(内部已带新浪兜底)
     if eff == "etf":
         try:
             data = await _fetch_onchain_etf_quote(bare)
@@ -328,9 +180,9 @@ async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
                 await _store_fund_quote(code, data, str(data.get("source") or "ths"))
                 return data
         except Exception as e:
-            print(f"[fund] onchain quote {code} failed, fallback to NAV: {e}")
+            print(f"[fund] onchain quote {code} failed: {e}")
     else:
-        # 场外: ths 净值优先(按处理后代码 019144.OF 请求), 拉不到走天天基金兜底
+        # 场外: ths T+1 官方净值(按处理后代码 019144.OF 请求)
         try:
             data = await _fetch_open_nav_ths(code)
             if data:
@@ -338,7 +190,7 @@ async def get_fund_quote(code: str, kind: str | None = None) -> dict | None:
                 await _store_fund_quote(code, data, "ths")
                 return data
         except Exception as e:
-            print(f"[fund] ths nav {code} failed, fallback to eastmoney: {e}")
+            print(f"[fund] ths nav {code} failed: {e}")
     # 远端没取到 → PG 最后快照兜底
     return await _fund_from_store(code)
 
@@ -379,29 +231,6 @@ async def _fund_from_store(code: str) -> dict | None:
     if r.get("prev_close"):
         q["prev_close"] = r["prev_close"]
     return q
-
-
-async def search_fund_by_name(keyword: str, limit: int = 5) -> list[dict]:
-    """Query 天天基金 fund search. Returns list of {code, name, type}."""
-    def _sync():
-        url = "http://fund.eastmoney.com/FundSearch/api/FundSearchAPI.ashx"
-        try:
-            r = _requests.get(url, params={"callback": "", "key": keyword, "m": 4}, timeout=6)
-            text = r.text.strip()
-            # Response format: `{"key":"...","ErrorMsg":null,"Datas":{"Funds":[...]}}`
-            if text.startswith("("):
-                text = text[1:-1]
-            data = json.loads(text)
-            funds = (data.get("Datas") or {}).get("Funds") or []
-            return [{
-                "code": f.get("CODE"),
-                "name": f.get("NAME"),
-                "type": f.get("FundBaseInfo", {}).get("FTYPE") or f.get("CATEGORY"),
-            } for f in funds[:limit]]
-        except Exception as e:
-            print(f"[fund-search] {keyword} failed: {e}")
-            return []
-    return await asyncio.to_thread(_sync)
 
 
 # --- Crypto (OKX public) ---

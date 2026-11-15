@@ -102,8 +102,9 @@ app = FastAPI(title="全资产看板", lifespan=lifespan)
 from services.origin_guard import host_ok as _host_ok, LOCAL_HOSTS as _LOCAL_HOSTS
 from services.context import set_current_user as _set_current_user
 
-# /api 里不需要登录就能访问的路径(注册/登录本身, 以及给已开标签页检测 bundle 版本的)
-_AUTH_WHITELIST = {"/api/auth/login", "/api/auth/register", "/api/app-version"}
+# /api 里不需要登录就能访问的路径(注册/登录本身、注册用的邮箱验证码, 以及给已开
+# 标签页检测 bundle 版本的)。email-code 的 bind 用途在路由内部自行要求登录。
+_AUTH_WHITELIST = {"/api/auth/login", "/api/auth/register", "/api/auth/email-code", "/api/app-version"}
 
 
 async def _resolve_session_user(request):

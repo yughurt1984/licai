@@ -288,15 +288,9 @@ async def look_through(min_pct: float = 0.5, as_of: str | None = None) -> dict:
     # 这一层才是原来那套关键词最致命的漏洞: 「中金黄金」能靠名字认出是黄金, 「山金国际」
     # 认不出, 于是两只加起来近四成的贵金属敞口一条都不报。这里按东财行业归并, 名字里有
     # 没有金属字样都不影响。港美股底层拿不到 A 股行业表, 单独归一档并说明, 不硬凑。
-    # 行业表(东财全市场分页, 1h缓存)联网抓取 —— 纯 PG 模式不拉, 行业归"未知行业"(警告自动跳过)
+    # 行业层原本由东财行业表映射; 基金季报穿透已移除
+    # (_fund_underlyings 恒空), 行业层映射不到任何基金底层 → 恒空表, 归"未知行业"。
     imap = {}
-    from services.market_data import quote_auto_fetch
-    if quote_auto_fetch():
-        try:
-            from services.etf_xray import industry_map
-            imap = await asyncio.to_thread(industry_map)
-        except Exception:
-            imap = {}
     industries = _by_industry(items, funds, imap, total, uncovered)
 
     # ── 5) 基金两两重叠度(十大以内): Σ min(w_i, w_j) ──

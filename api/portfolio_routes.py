@@ -153,6 +153,22 @@ async def _recompute_holding(stock_code: str, direction: str | None = None):
         await update_holding(stock_code, shares=0, cost_price=0, _direction=direction)
 
 
+def _currency_of_code(code: str) -> str | None:
+    """合约码后缀 → 计价币种(同花顺 thscode 口径, 最准): .HK→HKD / .US→USD /
+    国内期货交易所(SHF/CFE/CZC/DCE/GFE/INE)→CNY。其余(含 A 股 .SH/.SZ/.BJ)返回 None,
+    交回行情自带 currency 或市场兜底。衍生品(期货/期权)必走此后缀判定, 避免被误标 CNY 不折汇。"""
+    c = (code or "").upper()
+    if c.endswith(".HK"):
+        return "HKD"
+    if c.endswith(".US"):
+        return "USD"
+    if c.endswith(".JP"):
+        return "JPY"
+    if c.endswith((".SHF", ".CFE", ".CZC", ".DCE", ".GFE", ".INE")):
+        return "CNY"
+    return None
+
+
 @router.get("")
 async def list_holdings() -> list[HoldingResponse]:
     holdings = await get_all_holdings()
@@ -186,7 +202,10 @@ async def list_holdings() -> list[HoldingResponse]:
         current_price = q["price"] if q else None
         change_pct = q["change_pct"] if q else None
         market = (q or {}).get("market") or split_stock_code(code)[0]
-        currency = (q or {}).get("currency") or ("HKD" if market == "HK" else "USD" if market == "US" else "CNY")
+        # 币种: 优先按合约码后缀判定(同花顺 thscode 口径最准: .HK→HKD / .US→USD / 国内所→CNY),
+        # 否则行情自带 currency, 再回退市场兜底 —— 避免期货/期权行情把 HK/US 衍生品误标 CNY 导致不折汇。
+        currency = _currency_of_code(code) or (q or {}).get("currency") or (
+            "HKD" if market == "HK" else "USD" if market == "US" else "CNY")
         fx_info = {
             "rate": (q or {}).get("fx_rate") or 1.0,
             "source": (q or {}).get("fx_source") or ("CNY" if currency == "CNY" else ""),
@@ -231,30 +250,37 @@ async def list_holdings() -> list[HoldingResponse]:
             lots = float(h["shares"] or 0)
             cost_v = round(float(h["cost_price"] or 0) * mult * lots, 2)
             original_cost_value = cost_v
-            cost_value = cost_v
-            fx_rate = 1.0
+            # 衍生品与股票同口径: 市值/成本/浮亏统一折人民币(原生值留 original_* 供前端
+            # 按原币展示), 不再强置 fx_rate=1.0 —— 否则 CN/HK/US 期货(CNY/USD/HKD)
+            # 被当同币种直接相加, 总市值/占比/环形图失真。
             if current_price:
-                market_value = round(current_price * mult * lots, 2)
-                original_market_value = market_value
+                mv_orig = round(current_price * mult * lots, 2)
+                original_market_value = mv_orig
                 if (_direction or "LONG") == "SHORT":
-                    unrealized_pnl = round(cost_v - market_value, 2)
+                    pnl_orig = round(cost_v - mv_orig, 2)
                     pnl_pct = (round((float(h["cost_price"]) - current_price) / float(h["cost_price"]) * 100, 2)
                                if h["cost_price"] else None)
                 else:
-                    unrealized_pnl = round(market_value - cost_v, 2)
+                    pnl_orig = round(mv_orig - cost_v, 2)
                     pnl_pct = (round((current_price - float(h["cost_price"])) / float(h["cost_price"]) * 100, 2)
                                if h["cost_price"] else None)
                 if change_pct is not None:
                     change_pct = round(change_pct * (-1 if (_direction or "LONG") == "SHORT" else 1), 3)
-            # 期货是杠杆交易, 总资产里的资产贡献 = 成本×保证金率 + 浮动盈亏
+                market_value = round(mv_orig * fx_rate, 2)
+                unrealized_pnl = round(pnl_orig * fx_rate, 2)
+            else:
+                market_value = None
+                unrealized_pnl = None
+            cost_value = round(cost_v * fx_rate, 2)
+            # 期货是杠杆交易: 计入总资产/占比的是保证金占用 = 名义市值(已折CNY) × 品种保证金率
             # (保证金率来自 assets_classify 按 sub_assets_type 关联的品种分类行);
             # 期权是权利金全额(买方), 不走保证金口径。分类行没配 margin_rate → None, 前端退回名义市值。
-            if h.get("main_assets_type") == "futures" and cost_v:
+            if h.get("main_assets_type") == "futures" and market_value is not None:
                 prod = re.match(r"^[A-Za-z]+", code)
                 p = await get_futures_product(prod.group(0)) if prod else None
                 rate = (p or {}).get("margin_rate")
                 if rate:
-                    margin_value = round(cost_v * float(rate) + (unrealized_pnl or 0), 2)
+                    margin_value = round(market_value * float(rate), 2)
 
         # ── 股票空头估值: 无乘数, 浮动/涨跌按方向镜像(价跌=赚)。
         # 汇兑对空头反向: 欠的是外币市值, 本币升值反而少亏 —— fx_pnl 取成本口径差的负号。

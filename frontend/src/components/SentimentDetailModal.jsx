@@ -102,14 +102,14 @@ function IntradayLine({ intra, metric, unit }) {
         <div className="relative flex-1">
           <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }} preserveAspectRatio="none"
             onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
-            {grid.map((g, k) => <line key={k} x1="0" y1={y(g)} x2={W} y2={y(g)} stroke="#000000" strokeOpacity={g === 0 ? 0 : 0.06} strokeWidth="0.6" strokeDasharray={g === 0 ? '' : '3 3'} />)}
+            {grid.map((g, k) => <line key={k} x1="0" y1={y(g)} x2={W} y2={y(g)} stroke="var(--color-text)" strokeOpacity={g === 0 ? 0 : 0.06} strokeWidth="0.6" strokeDasharray={g === 0 ? '' : '3 3'} />)}
             <polygon points={area} fill="#e8913a1e" />
             <line x1="0" y1={y0} x2={W} y2={y0} stroke="#5b8def" strokeWidth="1.2" />
             <polyline points={line} fill="none" stroke="#e8913a" strokeWidth="1.6" />
             {hp && (
               <>
-                <line x1={x(hi)} y1={padT} x2={x(hi)} y2={H - padB} stroke="#c8a876" strokeWidth="0.8" strokeDasharray="3 2" opacity="0.6" />
-                <circle cx={x(hi)} cy={y(pcts[hi])} r="2.8" fill="#e8913a" stroke="#1a1a1a" strokeWidth="0.8" />
+                <line x1={x(hi)} y1={padT} x2={x(hi)} y2={H - padB} stroke="var(--color-accent)" strokeWidth="0.8" strokeDasharray="3 2" opacity="0.6" />
+                <circle cx={x(hi)} cy={y(pcts[hi])} r="2.8" fill="#e8913a" stroke="var(--color-bg-deeper)" strokeWidth="0.8" />
               </>
             )}
           </svg>

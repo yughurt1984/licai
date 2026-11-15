@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createChart, LineSeries, CrosshairMode } from 'lightweight-charts'
+import { createChart, LineSeries } from 'lightweight-charts'
 import { fetchJSON } from '../../hooks/useApi'
 import ProKline from '../ProKline'
 import { MinuteChart } from '../kline/MinuteChart'
@@ -23,6 +23,11 @@ export function parseWidget(kind, body) {
   return { kind, code: main.replace(/^(sh|sz|bj)/i, ''), days: days || 120 }
 }
 
+import { cssVar, withAlpha } from '../../colors'
+import { chartThemeOpts } from '../kline/chartTheme'
+import { useThemeTick } from '../../prefs'
+
+// 对比线系列色: 分类色, 两套主题都可读, 保留 hex
 const LINE_COLORS = ['#c8a876', '#5b9bd5', '#cf5c5c', '#5fa86c', '#a77bd1', '#d08b4a']
 
 function Frame({ title, code, children }) {
@@ -92,6 +97,8 @@ function CompareWidget({ items, days, mode }) {
     fetchJSON(`/api/market/compare?${q}`).then(setD).catch(e => setErr(e?.message || '加载失败'))
   }, [items.join(','), days, mode])   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 主题切换 → 整图重建(无持久状态, 重建最省事)。themeTick 进 deps。
+  const themeTick = useThemeTick()
   useEffect(() => {
     if (!wrapRef.current || !d?.series?.length) return
     const intraday = d.mode === '分时'
@@ -99,12 +106,11 @@ function CompareWidget({ items, days, mode }) {
     const labels = intraday ? (d.series[0].points || []).map(p => p.t) : null
     const chart = createChart(wrapRef.current, {
       autoSize: true,
-      layout: { background: { color: 'transparent' }, textColor: '#9aa0a6', fontSize: 11, attributionLogo: false },
-      grid: { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: 'rgba(0,0,0,0.10)' },
+      ...chartThemeOpts(),
+      layout: { background: { color: 'transparent' }, fontSize: 11, attributionLogo: false },
+      rightPriceScale: {},
       localization: { priceFormatter: v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` },
-      timeScale: { borderColor: 'rgba(0,0,0,0.10)', fixLeftEdge: true, fixRightEdge: true,
+      timeScale: { fixLeftEdge: true, fixRightEdge: true,
         ...(intraday ? { tickMarkFormatter: t => labels[t] || '' } : {}) },
     })
     const lines = d.series.map((s, i) => {
@@ -113,7 +119,7 @@ function CompareWidget({ items, days, mode }) {
       line.setData((s.points || []).map((p, k) => ({ time: intraday ? k : p.t, value: p.pct })))
       return line
     })
-    lines[0].createPriceLine({ price: 0, color: 'rgba(0,0,0,0.25)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false })
+    lines[0].createPriceLine({ price: 0, color: withAlpha(cssVar('--color-text', '#35322b'), 0.25), lineWidth: 1, lineStyle: 2, axisLabelVisible: false })
     chart.timeScale().fitContent()
     chart.subscribeCrosshairMove(param => {
       if (!param?.time && param?.time !== 0) { setHover(null); return }
@@ -123,7 +129,7 @@ function CompareWidget({ items, days, mode }) {
       })
     })
     return () => chart.remove()
-  }, [d])
+  }, [d, themeTick])
 
   const title = d?.series?.map(s => s.label).join(' vs ') || items.join(' vs ')
   return (

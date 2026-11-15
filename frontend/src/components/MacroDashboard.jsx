@@ -63,7 +63,7 @@ function Sparkline({ data, width = 80, height = 28 }) {
   }).join(' ')
   // 段尾比段首高 = 上涨, A 股口径红涨绿跌
   const isUp = closes[closes.length - 1] >= closes[0]
-  const stroke = isUp ? '#cf5c5c' : '#5fa86c'
+  const stroke = isUp ? 'var(--color-up)' : 'var(--color-down)'
   // 渐变填充背景
   const fillId = `sparkfill-${stroke.slice(1)}`
   return (

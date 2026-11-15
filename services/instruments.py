@@ -165,6 +165,59 @@ async def _futu_fetch(sub_assets_type: str, code: str) -> dict | None:
     }
 
 
+# ── US 期货: ticker + 年月 → CME 合约码 → futu 静态信息 ──────────────────────
+# CME 月码: 1=F 2=G 3=H 4=J 5=K 6=M 7=N 8=Q 9=U 10=V 11=X 12=Z; 年份取末 1 位。
+# ES + 2024-12 → ES + Z + 4 = ESZ4; futu 码 US.ESZ4(长到期合约用 2 位年, yy=year[-2:])。
+_FUT_MONTH_CODES = {"01": "F", "02": "G", "03": "H", "04": "J", "05": "K", "06": "M",
+                    "07": "N", "08": "Q", "09": "U", "10": "V", "11": "X", "12": "Z"}
+
+
+def build_us_futures_contract_code(ticker: str, ym: str) -> str:
+    """ticker(ES) + 年月(2024-12 / 2412) → CME 合约码(ESZ4)。"""
+    ticker = (ticker or "").strip().upper()
+    ym = (ym or "").strip().replace("/", "")
+    m = re.match(r"^(\d{4})-?(\d{2})$", ym) or re.match(r"^(\d{2})(\d{2})$", ym)
+    if not m:
+        raise ValueError(f"年月格式应为 YYYY-MM 或 YYMM, 收到: {ym!r}")
+    year, month = m.group(1), m.group(2).zfill(2)
+    mc = _FUT_MONTH_CODES.get(month)
+    if not mc:
+        raise ValueError(f"月份 {month} 无对应 CME 月码")
+    return f"{ticker}{mc}{year[-1]}"
+
+
+async def futu_us_futures_instrument(ticker: str, ym: str) -> dict | None:
+    """US 期货: ticker + 年月 → 拼 CME 合约码 → futu 静态信息 → 落 symbol_dict 的行字典。
+
+    返回 {code, name, ticker, suffix, sub_assets_type, source, exchange_mic}; 调用方用
+    save_symbol_dict 写盘(与 instruments 落库同模式)。未命中/未配置/合约不存在 → None。
+    exchange_mic 由 suffix 现算(US 跨所歧义 → 通常 None, 由 exchange 表决定), 写盘不触发外键。
+    品种级参数(contract_multiplier / margin_rate)由后续 update 脚本或 futu 期货专属接口补全。
+    """
+    contract = build_us_futures_contract_code(ticker, ym)
+    futu_code = f"US.{contract}"
+    try:
+        items = await _futu_basicinfo([futu_code]) or []
+    except Exception as e:
+        print(f"[instruments] futu US 期货 {futu_code} 查询失败: {e}")
+        return None
+    it = next((x for x in items if x.get("code") == futu_code), None)
+    if not it or not (it.get("sc_name") or it.get("name")):
+        return None
+    # 交易所 MIC: 由 suffix 现算(US 跨所歧义 → None), 写盘时不触发外键(已在 exchange 表校验)
+    from services.exchange_map import suffix_to_mic
+    mic = await suffix_to_mic("US")
+    return {
+        "code": f"{contract}.US",
+        "name": it.get("sc_name") or it.get("name"),
+        "ticker": contract,
+        "suffix": "US",
+        "sub_assets_type": "us_futures",
+        "source": "futu",
+        "exchange_mic": mic,
+    }
+
+
 _SUB_TO_ASSET_TYPE = {   # 小类 → fuyao ticker-search 的 asset_type 过滤
     "a_comm_stock": "a-share", "cn_etf_fund": "fund-etf", "cn_lof_fund": "fund-lof",
     "cn_otc_fund": "fund-otc", "cn_futures": "futures", "cn_options": "options",

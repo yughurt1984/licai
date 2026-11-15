@@ -22,9 +22,10 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 
 # 内部品种分组(market) → market.quote_latest 的 sub_assets_type(关联 assets_classify 的键)
-# 仅 A/HK/US 能唯一落到 common stock 小类; FUT/OPT/fx/index 行情不在 quote_latest 记小类
+# 仅 A/HK/US/JP 能唯一落到 common stock 小类; FUT/OPT/fx/index 行情不在 quote_latest 记小类
 # (精确小类在持仓/外部资产/流水里另有归属)。
 SUBTYPE_BY_MARKET = {"A": "a_comm_stock", "HK": "hk_comm_stock", "US": "us_comm_stock",
+                     "JP": "jp_comm_stock",
                      "FUT": "cn_futures", "OPT": "cn_options"}
 
 

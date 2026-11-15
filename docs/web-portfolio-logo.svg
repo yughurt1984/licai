@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <g stroke-width="28" stroke-linecap="butt">
+    <path d="M 267.48 68.35 A 188 188 0 0 1 380.57 115.20" stroke="#47C968"/>
+    <path d="M 396.80 131.43 A 188 188 0 0 1 443.65 244.52" stroke="#A6DE35"/>
+    <path d="M 443.65 267.48 A 188 188 0 0 1 396.80 380.57" stroke="#CEDC29"/>
+    <path d="M 380.57 396.80 A 188 188 0 0 1 267.48 443.65" stroke="#F59E0B"/>
+    <path d="M 244.52 443.65 A 188 188 0 0 1 131.43 396.80" stroke="#D946EF"/>
+    <path d="M 115.20 380.57 A 188 188 0 0 1 68.35 267.48" stroke="#6366F1"/>
+    <path d="M 68.35 244.52 A 188 188 0 0 1 115.20 131.43" stroke="#06B6D4"/>
+    <path d="M 131.43 115.20 A 188 188 0 0 1 244.52 68.35" stroke="#2DD4BF"/>
+  </g>
+  <g stroke-width="28" stroke-linecap="butt">
+    <path d="M 265.04 108.28 A 148 148 0 0 1 354.07 145.15" stroke="#6D28D9"/>
+    <path d="M 366.85 157.93 A 148 148 0 0 1 403.72 246.96" stroke="#5B21B6"/>
+    <path d="M 403.72 265.04 A 148 148 0 0 1 366.85 354.07" stroke="#FACC15"/>
+    <path d="M 354.07 366.85 A 148 148 0 0 1 265.04 403.72" stroke="#F97316"/>
+    <path d="M 246.96 403.72 A 148 148 0 0 1 157.93 366.85" stroke="#E11D48"/>
+    <path d="M 145.15 354.07 A 148 148 0 0 1 108.28 265.04" stroke="#9333EA"/>
+    <path d="M 108.28 246.96 A 148 148 0 0 1 145.15 157.93" stroke="#2563EB"/>
+    <path d="M 157.93 145.15 A 148 148 0 0 1 246.96 108.28" stroke="#10B981"/>
+  </g>
+  <path d="M 182 272 L 222 232 L 256 266 L 318 204" stroke="#00B06B" stroke-width="24" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="342,180 288,191 331,234" fill="#00B06B"/>
+  <path d="M 212 292 L 256 336 L 326 266" stroke="#00B06B" stroke-width="24" stroke-linecap="square" stroke-linejoin="miter"/>
+</svg>

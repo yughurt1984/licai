@@ -21,8 +21,8 @@ const PERIODS = [
 ]
 
 // 红跑赢 / 绿跑输(priceColor 同款语义)
-const WIN = '#e06666'
-const LOSE = '#4f9e63'
+const WIN = 'var(--color-up-bright)'
+const LOSE = 'var(--color-down-bright)'
 const toneOf = (v) => (v > 0 ? WIN : v < 0 ? LOSE : 'var(--color-text-dim)')
 
 const fmtPct = (v) => v == null ? '--' : (v > 0 ? '+' : '') + v.toFixed(2) + '%'

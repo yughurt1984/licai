@@ -48,6 +48,17 @@ _SESSION.mount("https://", _DefaultCertsAdapter())
 _THS_RE = re.compile(r"^[A-Za-z0-9-]{2,32}\.[A-Z]{2,5}$")   # 主体允许连字符(期权拼码 TICKER-C/P-STRIKE)
 
 
+def _currency_of_thscode(code: str) -> str:
+    """同花顺 thscode 后缀 → 计价币种: .HK→HKD / .US→USD / 国内期货交易所→CNY。
+    期货/期权行情不能统一标 CNY(否则 HK/US 衍生品被当人民币, 后端不折汇)。"""
+    c = (code or "").upper()
+    if c.endswith(".HK"):
+        return "HKD"
+    if c.endswith(".US"):
+        return "USD"
+    return "CNY"
+
+
 def is_thscode(code: str) -> bool:
     c = (code or "").strip()
     if not c or c.startswith(("HK.", "US.")):
@@ -279,7 +290,7 @@ async def quote(thscode: str) -> Optional[dict]:
                 "open": out.get("open"), "high": out.get("high"), "low": out.get("low"),
                 "prev_close": out.get("prev_close"), "change_pct": out.get("change_pct"),
                 "volume": out.get("volume"), "amount": out.get("amount"),
-                "currency": "CNY", "data_source": "ths",
+                "currency": _currency_of_thscode(thscode), "data_source": "ths",
             }])
         except Exception:
             pass
@@ -559,7 +570,7 @@ async def snapshot_rows(codes: list[str]) -> list[QuoteRow]:
                 code=code, market="FUT" if ths_kind(code) == "fut" else "OPT",
                 name=q.get("name") or "", price=float(q["price"]),
                 prev_close=q.get("prev_close"), change_pct=q.get("change_pct"),
-                currency="CNY", quote_time=q.get("quote_time") or "", source="ths")
+                currency=_currency_of_thscode(code), quote_time=q.get("quote_time") or "", source="ths")
         except Exception as e:
             print(f"[ths_fuyao] {code} quote 失败: {str(e)[:120]}")
             return None

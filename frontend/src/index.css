@@ -41,6 +41,20 @@
   --color-info: #4a7096;
   --color-warn: #b07a30;
 
+  /* 涨跌语义色(红涨绿跌=默认, 账户页·显示设置可交换):
+     bull/bear 是"牛/熊"底色, 涨跌显示一律用 up/down, 图表同源 */
+  --color-up: #c04a4a;
+  --color-up-bright: #d46060;
+  --color-up-bg: #c04a4a14;
+  --color-up-border: #c04a4a44;
+  --color-down: #35824a;
+  --color-down-bright: #4f9e63;
+  --color-down-bg: #35824a16;
+  --color-down-border: #35824a44;
+  /* 买卖标记(B/S 点位): 独立语义, 不随红涨绿跌开关交换, 仅随主题明暗 */
+  --color-buy: #3fae6a;
+  --color-sell: #d04a4a;
+
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Microsoft YaHei", "微软雅黑", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Microsoft YaHei", "微软雅黑", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
@@ -208,3 +222,103 @@ body::after {
 
 /* 键盘导航(↑↓翻股等)时浏览器默认的蓝色 focus 框太扎眼——选中态已有自己的高亮 */
 button:focus, button:focus-visible { outline: none; }
+
+/* ========================================================
+ * 显示设置·主题层(账户页 → 显示设置)
+ * - 主题: html[data-theme="dark"] 整套暗色变量覆盖(@theme 的浅色是默认)。
+ *   Tailwind 工具类(bg-surface/text-text-dim…)引用的是 var(--color-*), 变量换了,
+ *   全站组件无需改动即换肤。图表 canvas 不吃 CSS 层叠, 由 colors.js 的 cssVar() 读
+ *   计算值并在主题切换时重绘(prefs.js 的 useThemeTick)。
+ * - 涨跌语义: --color-up/--color-down 独立于 bull/bear(bull/bear 仍是"牛/熊"底色,
+ *   涨跌显示一律用 up/down)。红涨绿跌=默认; html[data-updown="green-up"] 交换。
+ * - 四象限(浅/深 × 红/绿涨)全部写显式色值, 不用 var 链, 避免层叠顺序陷阱。
+ * ======================================================== */
+
+html[data-theme="dark"] {
+  --color-bg: #171613;
+  --color-bg-deeper: #121110;
+  --color-surface: #201f1b;
+  --color-surface-2: #26241f;
+  --color-surface-3: #2e2b26;
+  --color-surface-raise: #38342e;
+  --color-border: #34312a;
+  --color-border-med: #413d35;
+  --color-border-strong: #57524a;
+  --color-border-subtle: #2a2822;
+
+  --color-text: #d6d2c8;
+  --color-text-bright: #f0ede4;
+  --color-text-dim: #9a948a;
+  --color-text-muted: #6e6a60;
+
+  --color-accent: #c99a4e;
+  --color-accent-2: #d4a95c;
+  --color-accent-dim: #c99a4e26;
+  --color-accent-warm: #c99a4e;
+
+  --color-bull: #55a86b;
+  --color-bull-bright: #6fbf85;
+  --color-bull-bg: #55a86b1f;
+  --color-bull-border: #55a86b4d;
+
+  --color-bear: #cd5f5f;
+  --color-bear-bright: #e57a7a;
+  --color-bear-bg: #d460601f;
+  --color-bear-border: #d460604d;
+
+  --color-signal-strong: #d46060;
+  --color-signal-moderate: #c9994e;
+  --color-signal-weak: #9a948a;
+  --color-signal-closed: #3a372f;
+
+  --color-info: #6f9ec6;
+  --color-warn: #c9994e;
+
+  /* 暗色默认同红涨绿跌 */
+  --color-up: #e57a7a;
+  --color-up-bright: #ef8f8f;
+  --color-up-bg: #d4606026;
+  --color-up-border: #d4606055;
+  --color-down: #6fbf85;
+  --color-down-bright: #86cf99;
+  --color-down-bg: #55a86b26;
+  --color-down-border: #55a86b55;
+  --color-buy: #5cb87e;
+  --color-sell: #e57a7a;
+}
+
+/* 红涨绿跌(默认)的浅色 up/down 已在 @theme 声明 —— 绿涨模式整块交换 */
+html[data-updown="green-up"] {
+  --color-up: #35824a;
+  --color-up-bright: #4f9e63;
+  --color-up-bg: #35824a14;
+  --color-up-border: #35824a44;
+  --color-down: #c04a4a;
+  --color-down-bright: #d46060;
+  --color-down-bg: #c04a4a14;
+  --color-down-border: #c04a4a44;
+}
+
+html[data-updown="green-up"][data-theme="dark"] {
+  --color-up: #6fbf85;
+  --color-up-bright: #86cf99;
+  --color-up-bg: #55a86b26;
+  --color-up-border: #55a86b55;
+  --color-down: #e57a7a;
+  --color-down-bright: #ef8f8f;
+  --color-down-bg: #d4606026;
+  --color-down-border: #d4606055;
+}
+
+/* 暗色下的氛围层: 网格线换浅色微光, 顶部暖光提亮一档; 骨架屏微光同理 */
+html[data-theme="dark"] body::before {
+  background-image:
+    linear-gradient(rgba(240, 237, 228, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(240, 237, 228, 0.04) 1px, transparent 1px);
+}
+html[data-theme="dark"] body::after {
+  background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(201, 154, 78, 0.08), transparent);
+}
+html[data-theme="dark"] .skel::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+}

@@ -11,9 +11,9 @@ from database import (
     list_external_actions, add_external_action, delete_external_action,
 )
 from services.external_assets import (
-    get_fund_quote, get_crypto_quote, search_fund_by_name,
+    get_fund_quote, get_crypto_quote,
 )
-from services.external_ledger import compute_external_state, parse_fee_tiers, redeem_fee
+from services.external_ledger import compute_external_state
 from services import okx_client
 
 router = APIRouter(prefix="/api/assets", tags=["external-assets"])
@@ -221,40 +221,15 @@ async def _enrich(asset: dict) -> dict:
             current_value = round(nav * float(out["shares"]) + pending, 2)
         elif pending > 0:
             current_value = round(float(asset.get("cost_amount") or 0) + pending, 2)
-        # 附加代理标的行情 (用底层市场实时数据预判基金当日走势)。
-        # 仅对场外基金 (NAV 是 T+1, 盘中看不到今日) 才需要代理推测;
-        # 场内 ETF 本身有二级市场实时成交价 (quote.change_pct 即今日真实涨跌), 无需代理。
-        if quote is not None and kind == "open":
-            try:
-                from services.fund_proxy import get_fund_proxy
-                proxy = await get_fund_proxy(asset["code"])
-                if proxy:
-                    nm = asset.get("name") or ""
-                    if (("债" in nm or "固收" in nm)
-                            and proxy.get("abs_weighted_change_pct") is not None):
-                        # 债基: top10 股票袋只占净值一小截(其余是债券, 当日基本持平),
-                        # 归一化外推会把股票袋的-5%冒充整只基金; 用绝对口径(未覆盖按持平)
-                        quote["proxy_change_pct"] = proxy["abs_weighted_change_pct"]
-                        quote["proxy_label"] = proxy["label"] + " · 债基: 未覆盖债券部分按持平估"
-                    else:
-                        quote["proxy_change_pct"] = proxy["weighted_change_pct"]
-                        quote["proxy_label"] = proxy["label"]
-                    quote["proxy_details"] = proxy["proxies"]
-            except Exception as e:
-                print(f"[fund-proxy] {asset['code']} failed: {e}")
-            # 回归估算已随 fund_nav_model 删除而移除(基金前十大/净值历史不再入库)
         # 今日涨跌口径: 场外基金净值是 T+1, change_pct 常是 1-2 天前的旧净值,
         # 拿来当"今日"会把昨天的涨幅冒充成今天。折算规则:
         #   - nav_date 为空 (场内 ETF 实时市价) 或 == 今天 → change_pct 就是今天
-        #   - 净值滞后 + 有底层 proxy → 用 proxy (底层标的实时估今天)
-        #   - 净值滞后 + 无 proxy → None (不计入今日浮动, 不冒充)
+        #   - 净值滞后 → None (不计入今日浮动, 不冒充)
         if quote is not None:
             from datetime import date as _d
             nav_date = quote.get("nav_date") or ""
             if not nav_date or nav_date == _d.today().isoformat():
                 quote["today_change_pct"] = quote.get("change_pct")
-            elif quote.get("proxy_change_pct") is not None:
-                quote["today_change_pct"] = quote.get("proxy_change_pct")
             else:
                 quote["today_change_pct"] = None
     elif t == "CRYPTO":
@@ -1007,8 +982,8 @@ async def confirm_action(asset_id: int, action_id: int, data: ConfirmAction):
 
     shares = data.shares if data.shares is not None else target.get("shares")
     unit_price = data.unit_price
-    # 手续费: 显式传了就用显式值; 没传则对场外基金申购按申购费率外扣自动算,
-    # 跟「一键确认」(settle-pending) 口径一致 → 净额=金额/(1+费率)。场内 ETF 走佣金, 不按费率。
+    # 手续费: 显式传了就用显式值; 没传则对场外基金申购按申购费率外扣自动算
+    # → 净额=金额/(1+费率)。场内 ETF 走佣金, 不按费率。
     if data.fee is not None:
         fee = float(data.fee)
     else:
@@ -1041,131 +1016,6 @@ async def confirm_action(asset_id: int, action_id: int, data: ConfirmAction):
         sync["shares"] = state["shares"]
     await update_external_asset(asset_id, **sync)
     return {"message": "confirmed", "state": state}
-
-
-@router.post("/settle-pending")
-async def settle_pending_dca():
-    """一键确认所有到期 pending: 按每条的 trade_date 拉当日已确认净值, 自动结算份额/金额。
-    净值未公布的 (海外休市 / T+1 未出) 跳过, 仍保持 pending, 等下次再点。
-    仅处理场外基金 (FUND); 加密等没历史净值的不动。
-
-    申购(ADD/BUY)和赎回(REDEEM/SELL)都要处理 —— 只管申购的话 pending 赎回会永久卡住,
-    账本继续算已经赎掉的份额, 市值虚高(实测卡了两条 6 周)。
-    净值日按提交时刻定(nav_date_for): 15:00 及以后 / 非交易日提交 → 下一个交易日的净值
-    (实测 001668 周二 18:14 赎回, 该按周三净值 4.2105, 按当天 4.2205 会多算到账金额)。
-    """
-    from services.external_assets import get_fund_nav_on_date, nav_date_for
-    from database import update_external_action
-
-    assets = await list_external_assets()
-    settled = 0
-    skipped = 0
-    details: list[dict] = []
-    for asset in assets:
-        if asset.get("asset_type") != "FUND":
-            continue
-        code = asset.get("code")
-        if fund_kind_of(asset) == "etf":
-            continue  # 场内 ETF 按市价成交, 不走 T+1 净值结算
-        actions = await list_external_actions(asset["id"])
-        pend = [a for a in actions
-                if (a.get("status") or "confirmed") == "pending"
-                and (a.get("action_type") or "").upper() in ("ADD", "BUY", "REDEEM", "SELL")]
-        if not pend:
-            continue
-        changed = False
-        for a in pend:
-            td = (a.get("trade_date") or "")[:10]
-            if not td:
-                skipped += 1
-                continue
-            nd = nav_date_for(td, a.get("trade_time"))
-            navinfo = await get_fund_nav_on_date(code, nd)
-            if not navinfo or not navinfo.get("nav"):
-                skipped += 1  # 确认日净值未公布 → 留 pending
-                continue
-            nav = float(navinfo["nav"])
-            amount = float(a.get("amount") or 0)
-            known_shares = float(a.get("shares") or 0)
-            if (a.get("action_type") or "").upper() in ("REDEEM", "SELL"):
-                # 赎回: 份额已知 → 到账金额 = 份额×净值 − 赎回费; 金额赎回 → 反算份额。两个都空的跳过。
-                # 赎回费按 redeem_fee_tiers 先进先出逐 lot 算(A 类持有不满一年常见 0.5%), 没配阶梯 = 0。
-                # amount 记实际到账(净额), ledger 拿它当回款, 赎回费就体现在已实现盈亏里。
-                if known_shares > 0:
-                    shares = known_shares
-                elif amount > 0 and nav > 0:
-                    shares = round(amount / nav, 6)
-                else:
-                    skipped += 1
-                    continue
-                fee, _ = redeem_fee(actions, a["id"], shares, nav, td,
-                                    parse_fee_tiers(asset.get("redeem_fee_tiers")))
-                final_amount = round(shares * nav - fee, 2)
-                await update_external_action(
-                    a["id"], amount=final_amount, shares=shares,
-                    unit_price=round(nav, 6), fee=fee, status="confirmed",
-                )
-                settled += 1
-                changed = True
-                details.append({"asset": asset.get("name"), "date": td, "nav_date": nd, "nav": round(nav, 4),
-                                "shares": -shares, "amount": final_amount, "fee": fee})
-                continue
-            # 申购费内扣: 净申购额 = 申购金额 / (1+费率), 申购费 = 金额 - 净额, 份额 = 净额/净值。
-            # C 类/无申购费 → rate=0 → 净额=金额, fee=0 (跟原来一致)。
-            rate = float(asset.get("purchase_fee_rate") or 0)
-            if amount > 0:                       # 金额申购
-                net = amount / (1 + rate) if rate > 0 else amount
-                fee = round(amount - net, 2)
-                shares = round(net / nav, 6) if nav > 0 else 0
-                final_amount = amount
-            elif known_shares > 0:               # 份额已知: 份额×净值=净额, 反加申购费
-                shares = known_shares
-                net = shares * nav
-                fee = round(net * rate, 2)
-                final_amount = round(net + fee, 2)
-            else:
-                skipped += 1
-                continue
-            await update_external_action(
-                a["id"], amount=final_amount, shares=shares,
-                unit_price=round(nav, 6), fee=fee, status="confirmed",
-            )
-            settled += 1
-            changed = True
-            details.append({"asset": asset.get("name"), "date": td, "nav_date": nd,
-                            "nav": round(nav, 4), "shares": shares, "amount": final_amount, "fee": fee})
-        if changed:
-            acts2 = await list_external_actions(asset["id"])
-            state = compute_external_state(acts2, asset["asset_type"])
-            await update_external_asset(asset["id"], cost_amount=state["cost_amount"], shares=state["shares"])
-    return {"settled": settled, "skipped": skipped, "details": details}
-
-
-@router.post("/refresh-names")
-async def refresh_fund_names():
-    """按天天基金官方全称回填所有基金的名字 (场内 ETF 行情接口给的是简称, 会对不上)。
-    名字拉不到的跳过; 一致的不动。"""
-    from services.external_assets import _fetch_fund_name_sync
-    assets = await list_external_assets()
-    updated = 0
-    details: list[dict] = []
-    seen: dict[str, str] = {}
-    for asset in assets:
-        if asset.get("asset_type") != "FUND":
-            continue
-        code = asset.get("code") or ""
-        full = seen.get(code)
-        if full is None:
-            try:
-                full = await asyncio.to_thread(_fetch_fund_name_sync, code)
-            except Exception:
-                full = ""
-            seen[code] = full or ""
-        if full and full != asset.get("name"):
-            await update_external_asset(asset["id"], name=full)
-            details.append({"code": code, "old": asset.get("name"), "new": full})
-            updated += 1
-    return {"updated": updated, "details": details}
 
 
 class ActionPatch(BaseModel):
@@ -1297,21 +1147,6 @@ async def delete_action(asset_id: int, action_id: int):
 async def remove_asset(asset_id: int):
     await delete_external_asset(asset_id)
     return {"message": "deleted"}
-
-
-@router.get("/search/fund")
-async def search_fund(keyword: str, limit: int = 5):
-    """Proxy 天天基金 fund search — helps user find fund codes."""
-    results = await search_fund_by_name(keyword, limit=limit)
-    return {"results": results}
-
-
-@router.get("/quote/fund/{code}")
-async def quote_fund(code: str):
-    q = await get_fund_quote(code)
-    if not q:
-        raise HTTPException(404, "基金代码无效或数据源不可达")
-    return q
 
 
 @router.get("/quote/crypto/{symbol}")

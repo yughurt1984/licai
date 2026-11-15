@@ -22,7 +22,8 @@ export function subMarket(sub) {
   const s = String(sub || '')
   return s.startsWith('a_') ? 'A'
     : s.startsWith('hk_') ? 'HK'
-    : s.startsWith('us_') ? 'US' : ''
+    : s.startsWith('us_') ? 'US'
+    : s.startsWith('jp_') ? 'JP' : ''
 }
 
 const _cache = new Map()      // assetsClass → Promise<rows>(模块级, 同类多表单共享一次请求)

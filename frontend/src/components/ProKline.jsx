@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createChart, CandlestickSeries, HistogramSeries, LineSeries, CrosshairMode, LineStyle, createSeriesMarkers } from 'lightweight-charts'
+import { createChart, CandlestickSeries, HistogramSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts'
 import { fetchJSON, prefetchJSON } from '../hooks/useApi'
 import { DayOverlay } from './kline/DayOverlay'
-import { fmt, ACQUIRE, BUY_COLOR, SELL_COLOR } from './kline/shared'
+import { fmt, ACQUIRE } from './kline/shared'
+import { cssVar, withAlpha } from '../colors'
+import { useThemeTick } from '../prefs'
+import { chartThemeOpts } from './kline/chartTheme'
 
 import { CHIP_AVG, CHIP_W, ChipPrimitive, chipDist, drawChipCanvas, turnoverFor } from './kline/chips'
 
 const PREV_CLOSE_COLOR = '#8a9bb5'   // 昨收: 灰蓝虚线(成本线是金色实线, 两者别撞色)
-const UP = '#cf5c5c', DOWN = '#5fa86c'   // A股 红涨绿跌
+// 涨跌/买卖色: 显示设置(红涨绿跌/深浅主题)的语义变量, canvas 必须取解析值(cssVar),
+// 所以这里是函数而非常量 —— 每次 applyOptions/setData 时现取, 配合 useThemeTick 重涂。
+const upC = () => cssVar('--color-up', '#cf5c5c')
+const downC = () => cssVar('--color-down', '#5fa86c')
+const buyC = () => cssVar('--color-buy', '#3fae6a')
+const sellC = () => cssVar('--color-sell', '#d04a4a')
 const MA_DEFS = [
   { n: 5, c: '#e8b04a' }, { n: 10, c: '#4aa6e0' }, { n: 20, c: '#cf6bcf' },
   { n: 30, c: '#6fc0b2' }, { n: 60, c: '#9a8cf0' },
@@ -70,7 +78,6 @@ const fmtAmt = (v, ccy = '') => !v ? '--'
   : v >= 1e4 ? (v / 1e4).toFixed(1) + '万' + ccy
   : Math.round(v).toLocaleString() + (ccy || '元')
 
-const GAP_UP = 'rgba(207,92,92,0.18)', GAP_DOWN = 'rgba(95,168,108,0.18)'   // 跳空缺口阴影: 红跳空/绿跳空
 
 // 这根是阳线还是阴线。A股惯例按 收 vs 开, 但**收==开时改看昨收** —— 一字跌停那种
 // 开=收=最低的十字星, 按"收>=开"会画成红的, 看着像涨(实测哈药股份 -10.02% 画成红柱)。
@@ -78,11 +85,14 @@ const GAP_UP = 'rgba(207,92,92,0.18)', GAP_DOWN = 'rgba(95,168,108,0.18)'   // �
 const isUpBar = (b, prev) => (b.close === b.open
   ? (prev ? b.close >= prev.close : true)
   : b.close > b.open)
-const volColor = (b, prev) => (isUpBar(b, prev) ? 'rgba(207,92,92,0.55)' : 'rgba(95,168,108,0.55)')
+const volColor = (b, prev) => (isUpBar(b, prev) ? withAlpha(upC(), 0.55) : withAlpha(downC(), 0.55))
+// 跳空缺口阴影: 红跳空/绿跳空, 按缺口方向(非阴阳线)取涨跌色 + 0.18 透明度
+const gapUpC = () => withAlpha(upC(), 0.18)
+const gapDownC = () => withAlpha(downC(), 0.18)
 
 // 单个价 vs 昨收 的红绿(顶部 OHLC 那行用)。没有昨收(第一根)就不着色, 别瞎猜
 const cmpColor = (v, prev) => (prev == null || v == null ? 'text-text'
-  : v > prev ? 'text-bear' : v < prev ? 'text-bull' : 'text-text')
+  : v > prev ? 'text-up-bright' : v < prev ? 'text-down-bright' : 'text-text')
 const GAP_MIN = 0.015   // 缺口≥1.5%才标, 过滤碎口, 只留"两根离得远"的真跳空
 
 // 跳空缺口: 相邻两根价区不重叠的空白带(上跳=前高<后低 / 下跳=前低>后高),
@@ -92,8 +102,8 @@ function detectGaps(bars) {
   for (let i = 1; i < bars.length; i++) {
     const p = bars[i - 1], c = bars[i]
     let lo, hi, color, up
-    if (c.low > p.high && (c.low - p.high) / p.high >= GAP_MIN) { lo = p.high; hi = c.low; color = GAP_UP; up = true }
-    else if (c.high < p.low && (p.low - c.high) / p.low >= GAP_MIN) { lo = c.high; hi = p.low; color = GAP_DOWN; up = false }
+    if (c.low > p.high && (c.low - p.high) / p.high >= GAP_MIN) { lo = p.high; hi = c.low; color = gapUpC(); up = true }
+    else if (c.high < p.low && (p.low - c.high) / p.low >= GAP_MIN) { lo = c.high; hi = p.low; color = gapDownC(); up = false }
     else continue
     let end = bars.length - 1
     for (let j = i + 1; j < bars.length; j++) {
@@ -199,6 +209,8 @@ class TradePrimitive {
 // 就把整张 K 线重新拉一次网络(与下面 volMode 同一个坑)。
 export default function ProKline({ code, days = 250, height = 460, fill = false, lhbDate = '', cost = null, actions = null, period = 'day' }) {
   const isDay = period === 'day'   // 周/月: 走 TDX kline, 关掉"点蜡烛看分时"和续史加载(那是日K概念)
+  // 主题/涨跌向切换的版本号(0,1,2…): 重涂 effect 的依赖 —— 图表颜色在 canvas 里, 必须重刷
+  const themeTick = useThemeTick()
   const mkt = /^HK\./i.test(String(code || '')) ? 'HK' : /^US\./i.test(String(code || '')) ? 'US' : 'A'
   const volUnit = mkt === 'A' ? '手' : '股'
   const amtCcy = mkt === 'HK' ? '港元' : mkt === 'US' ? '美元' : ''
@@ -216,6 +228,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
   const chartRef = useRef(null)
   const seriesRef = useRef({})
   const prevCloseLineRef = useRef(null)
+  const prevCloseValRef = useRef(null)     // 昨收值: 主题重涂时按它重建价格线
   const barsRef = useRef([])
   const costRef = useRef(cost)
   const actionsRef = useRef(actions)
@@ -273,7 +286,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
     const c = costRef.current
     if (c != null && c > 0) {
       costLineRef.current = candle.createPriceLine({
-        price: c, color: '#c8a876', lineWidth: 1, lineStyle: LineStyle.Solid,
+        price: c, color: cssVar('--color-accent', '#c8a876'), lineWidth: 1, lineStyle: LineStyle.Solid,
         axisLabelVisible: true, title: '成本',
       })
     }
@@ -293,7 +306,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
     const markers = groups.map(g => ({
       time: g.time,
       position: g.isBuy ? 'belowBar' : 'aboveBar',
-      color: g.isBuy ? BUY_COLOR : SELL_COLOR,
+      color: g.isBuy ? buyC() : sellC(),
       shape: g.isBuy ? 'arrowUp' : 'arrowDown',
       text: (g.isBuy ? 'B' : 'S') + (g.n > 1 ? String(g.n) : ''),
     }))
@@ -329,7 +342,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
     const EMPTY = []
     if (mode === 'MACD') {
       const m = macdSeries(bars)
-      vol.setData(m.hist.map(p => ({ ...p, color: p.value >= 0 ? 'rgba(207,92,92,0.55)' : 'rgba(95,168,108,0.55)' })))
+      vol.setData(m.hist.map(p => ({ ...p, color: p.value >= 0 ? withAlpha(upC(), 0.55) : withAlpha(downC(), 0.55) })))
       lines[0].setData(m.dif); lines[1].setData(m.dea); lines[2].setData(EMPTY)
     } else if (mode === 'KDJ') {
       const k = kdjSeries(bars)
@@ -379,20 +392,17 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
       // attributionLogo: 关掉图上那枚 TradingView 角标。许可要求的是「用户可见页面上有
       // 署名 + tradingview.com 链接」, 图上角标只是满足它的一种方式 —— 我们改成放在
       // 设置页的开源许可区(见 Settings.jsx), 所以这里可以关。别直接删了不补。
-      layout: { background: { color: 'transparent' }, textColor: '#9aa0a6', fontSize: 11,
+      ...chartThemeOpts(),
+      layout: { background: { color: 'transparent' }, fontSize: 11,
         attributionLogo: false,
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif' },
-      grid: { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
-      crosshair: { mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 },
-        horzLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 } },
-      rightPriceScale: { borderColor: 'rgba(0,0,0,0.10)', scaleMargins: { top: 0.08, bottom: 0.06 } },
+      rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.06 } },
       // 日期轴交给下方量/额副图统一显示, 主图隐掉避免上下两条重复
-      timeScale: { borderColor: 'rgba(0,0,0,0.10)', rightOffset: 4, minBarSpacing: 1.5, visible: false },
+      timeScale: { rightOffset: 4, minBarSpacing: 1.5, visible: false },
     })
     chartRef.current = chart
     const candle = chart.addSeries(CandlestickSeries, {
-      upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
+      upColor: upC(), downColor: downC(), borderUpColor: upC(), borderDownColor: downC(), wickUpColor: upC(), wickDownColor: downC(),
     })
     const mas = MA_DEFS.map(m => chart.addSeries(LineSeries, { color: m.c, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }))
     const gapPrim = new GapPrimitive()
@@ -440,16 +450,13 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
     if (volWrapRef.current) {
       volChart = createChart(volWrapRef.current, {
         autoSize: true,
-        layout: { background: { color: 'transparent' }, textColor: '#9aa0a6', fontSize: 11,
+        ...chartThemeOpts(),
+        layout: { background: { color: 'transparent' }, fontSize: 11,
           attributionLogo: false,
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif' },
-        grid: { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
-        crosshair: { mode: CrosshairMode.Normal,
-          vertLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 },
-          horzLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 } },
         // bottom 留一点: 0 刻度紧贴容器下沿会被裁掉半截(副图还要分一截高度给日期轴)
-        rightPriceScale: { borderColor: 'rgba(0,0,0,0.10)', scaleMargins: { top: 0.12, bottom: 0.10 } },
-        timeScale: { borderColor: 'rgba(0,0,0,0.10)', rightOffset: 4, minBarSpacing: 1.5,
+        rightPriceScale: { scaleMargins: { top: 0.12, bottom: 0.10 } },
+        timeScale: { rightOffset: 4, minBarSpacing: 1.5,
           visible: true, timeVisible: false },
         // 副图纵轴不给拖: 量柱看的是相对高低, 手工量程没有用处, 却一拖就退出自动量程
         // (再切「量↔额」量级差 5 个数量级, 柱子被压平)。时间轴照旧可拖可缩, 与主图同步。
@@ -560,9 +567,34 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
     }
   }, [])
 
-
-
-
+  // 主题/涨跌向切换 → 图表整组重涂。图表颜色在创建/setData 时烘焙进 canvas,
+  // CSS 变量换了也不会自己跟 —— 这里按 themeTick 重 applyOptions + 重刷数据色。
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    try { chart.applyOptions(chartThemeOpts()) } catch { /* 已销毁 */ }
+    try { volChartRef.current?.applyOptions(chartThemeOpts()) } catch { /* 已销毁 */ }
+    const { candle, mas } = seriesRef.current || {}
+    void mas
+    try {
+      candle?.applyOptions({
+        upColor: upC(), downColor: downC(),
+        borderUpColor: upC(), borderDownColor: downC(), wickUpColor: upC(), wickDownColor: downC(),
+      })
+      // 蜡烛是逐根显式给色的, 也要重刷
+      const bars = barsRef.current
+      if (bars?.length) {
+        candle.setData(bars.map((b, i) => {
+          const col = isUpBar(b, bars[i - 1]) ? upC() : downC()
+          return { time: b.time, open: b.open, high: b.high, low: b.low, close: b.close,
+                   color: col, borderColor: col, wickColor: col }
+        }))
+      }
+    } catch { /* 尺寸/数据未就绪 */ }
+    // 昨收价格线颜色不随主题(PREV_CLOSE_COLOR 常量), 无需重建; MACD hist/量柱经 paintSub 重取色
+    paintSub(volModeRef.current)
+    drawOverlay()          // 成本线 + 买卖点 marker 颜色
+  }, [themeTick, paintSub, drawOverlay])
 
   // 换股票 / 周期 → 拉数据填充
   useEffect(() => {
@@ -577,7 +609,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
       const { candle, mas, gapPrim } = seriesRef.current
       // 逐根显式给色: 图表库内部是 close>=open 判红绿, 一字跌停(收==开)会被判成红
       candle.setData(bars.map((b, i) => {
-        const col = isUpBar(b, bars[i - 1]) ? UP : DOWN
+        const col = isUpBar(b, bars[i - 1]) ? upC() : downC()
         return { time: b.time, open: b.open, high: b.high, low: b.low, close: b.close,
                  color: col, borderColor: col, wickColor: col }
       }))
@@ -596,6 +628,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
       if (prevCloseLineRef.current) { candle.removePriceLine(prevCloseLineRef.current); prevCloseLineRef.current = null }
       const prevClose = bars.length >= 2 ? bars[bars.length - 2].close : null
       if (prevClose != null) {
+        prevCloseValRef.current = prevClose
         prevCloseLineRef.current = candle.createPriceLine({
           price: prevClose, color: PREV_CLOSE_COLOR, lineWidth: 1, lineStyle: LineStyle.Dashed,
           axisLabelVisible: true, title: '昨收',
@@ -690,7 +723,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
           : <span className="text-text-muted flex gap-2 items-baseline min-w-0 overflow-hidden whitespace-nowrap">
               {MA_DEFS.map(m => <span key={m.n} style={{ color: m.c }}>— MA{m.n}</span>)}
               <span style={{ color: PREV_CLOSE_COLOR }}>┄ 昨收</span>
-              {cost != null && cost > 0 && <span style={{ color: '#c8a876' }}>— 成本</span>}
+              {cost != null && cost > 0 && <span style={{ color: cssVar('--color-accent', '#c8a876') }}>— 成本</span>}
               <span>滚轮缩放 · 点蜡烛看当日分时</span>
             </span>}
         {chipAvail && (
@@ -722,7 +755,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
             className="absolute z-20 text-[10.5px] font-semibold px-2 py-1 rounded-lg cursor-pointer whitespace-nowrap"
             style={{ left: Math.min(Math.max(hint.x + 8, 4), (wrapRef.current?.clientWidth || 400) - 120),
                      top: Math.max(hint.y - 34, 4),
-                     background: '#c8a876', color: '#1a1b1f',
+                     background: cssVar('--color-accent', '#c8a876'), color: 'var(--color-bg-deeper)',
                      boxShadow: '0 4px 14px rgba(0,0,0,0.6)' }}>
             {hint.date.slice(5)} 分时 ›
           </button>

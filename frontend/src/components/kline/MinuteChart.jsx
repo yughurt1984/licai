@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { createChart, LineSeries, HistogramSeries, LineStyle, CrosshairMode, createSeriesMarkers } from 'lightweight-charts'
-import { ACQUIRE, BUY_COLOR, SELL_COLOR, UP, DOWN, colorPct, fmtHand, fmtPct, fmtVal } from './shared'
+import { createChart, LineSeries, HistogramSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts'
+import { ACQUIRE, UP, DOWN, colorPct, fmtHand, fmtPct, fmtVal } from './shared'
 import { US_TZ, bjToEtTime, usTodayDate } from '../../helpers'
+import { cssVar, withAlpha } from '../../colors'
+import { useThemeTick } from '../../prefs'
+import { chartThemeOpts } from './chartTheme'
 
 // ---------------------------------------------------------------------------
 // 分时图 (lightweight-charts) — 价格线 + 均价线 + 昨收基准 + 量柱(红买绿卖) + 买卖点
@@ -14,8 +17,14 @@ import { US_TZ, bjToEtTime, usTodayDate } from '../../helpers'
 // 序号天然唯一; ②午休(11:30-13:00)无数据段自动并拢不留白。
 // Y 轴范围库自适应可见区间(缩放到某段自动贴合该段高低) —— 正是"闪电图"要的铺满效果。
 
-// 量柱红买绿卖(带透明度, 别盖过价格线)
-const volColor = (up) => (up ? 'rgba(207,92,92,0.55)' : 'rgba(95,168,108,0.55)')
+// 涨跌/买卖色: canvas 取解析值(cssVar), SVG/DOM 场景直接用 var() 常量
+const upC = () => cssVar('--color-up', '#cf5c5c')
+const downC = () => cssVar('--color-down', '#5fa86c')
+const buyC = () => cssVar('--color-buy', '#3fae6a')
+const sellC = () => cssVar('--color-sell', '#d04a4a')
+const avgC = () => cssVar('--color-accent', '#c8a876')
+// 量柱红涨绿跌(带透明度, 别盖过价格线) —— 方向由数据 effect 算, 颜色现取
+const volColor = (up) => (up ? withAlpha(upC(), 0.55) : withAlpha(downC(), 0.55))
 
 export function MinuteChart({ points, prevClose, actions = [], day, height = 410,
                              session = 'cn', volUnit = '手', tickMode = false,  // eslint-disable-line no-unused-vars
@@ -32,6 +41,34 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
   const dayRef = useRef(day)
   const tzRef = useRef(tz)
   const [legend, setLegend] = useState(null)
+  // 主题重涂所需的中间产物(数据 effect 填充): {priceData, avgData, volData, upFlags, last, prevClose}
+  const repaintRef = useRef({})
+  const themeTick = useThemeTick()
+
+  // 主题/涨跌向切换 → 分时图重涂(canvas 颜色烘焙, CSS 变量不会自己跟)
+  useEffect(() => {
+    const chart = chartRef.current, price = priceRef.current, avg = avgRef.current, vol = volRef.current
+    if (!chart) return
+    try { chart.applyOptions(chartThemeOpts()) } catch { /* 已销毁 */ }
+    try { avg?.applyOptions({ color: avgC() }) } catch { /* 已销毁 */ }
+    const r = repaintRef.current
+    if (!r?.volData?.length) return
+    try {
+      if (r.last != null && r.prevClose != null) {
+        price.applyOptions({ color: r.last >= r.prevClose ? upC() : downC() })
+      }
+      vol.setData(r.volData.map((d, i) => ({ ...d, color: volColor(r.upFlags[i]) })))
+      // 昨收基准线(随主题的 accent 色)重建
+      if (prevLineRef.current) { try { price.removePriceLine(prevLineRef.current) } catch { /* 已销毁 */ } prevLineRef.current = null }
+      if (r.prevClose > 0) {
+        prevLineRef.current = price.createPriceLine({
+          price: r.prevClose, color: withAlpha(avgC(), 0.6), lineWidth: 1, lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true, title: '昨收',
+        })
+      }
+      drawMarkers()
+    } catch { /* 已销毁 */ }
+  }, [themeTick, drawMarkers])
 
   // 买卖点: 同一分钟同方向合成一个标记(B×3), 落到该分钟第一个序号上。从 ref 读, 可被
   // 数据 effect(画完线后)与流水 effect(actions 变了)各自调用, 不重拉数据。
@@ -68,7 +105,7 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
     const markers = [...byKey.values()].sort((x, y) => x.idx - y.idx).map(g => ({
       time: g.idx,
       position: 'inBar',
-      color: g.isBuy ? BUY_COLOR : SELL_COLOR,
+      color: g.isBuy ? buyC() : sellC(),
       shape: 'circle',
       text: (g.isBuy ? 'B' : 'S') + (g.n > 1 ? String(g.n) : ''),
     }))
@@ -81,21 +118,18 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
     if (!wrapRef.current) return
     const chart = createChart(wrapRef.current, {
       autoSize: true,
-      layout: { background: { color: 'transparent' }, textColor: '#9aa0a6', fontSize: 11,
+      ...chartThemeOpts(),
+      layout: { background: { color: 'transparent' }, fontSize: 11,
         attributionLogo: false,
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif' },
-      grid: { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
-      crosshair: { mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 },
-        horzLine: { color: 'rgba(200,168,118,0.5)', width: 1, style: 2 } },
-      rightPriceScale: { borderColor: 'rgba(0,0,0,0.10)', scaleMargins: { top: 0.06, bottom: 0.28 } },
-      timeScale: { borderColor: 'rgba(0,0,0,0.10)', rightOffset: 2, minBarSpacing: 0.05, fixLeftEdge: true, fixRightEdge: true,
+      rightPriceScale: { scaleMargins: { top: 0.06, bottom: 0.28 } },
+      timeScale: { rightOffset: 2, minBarSpacing: 0.05, fixLeftEdge: true, fixRightEdge: true,
         // 序号 → 真实 HH:MM(查 rowsRef); 下标越界给空串
         tickMarkFormatter: (t) => { const r = rowsRef.current[t]; return r ? r.time.slice(0, 5) : '' } },
     })
     chartRef.current = chart
-    const price = chart.addSeries(LineSeries, { color: UP, lineWidth: 2, priceLineVisible: false, lastValueVisible: true })
-    const avg = chart.addSeries(LineSeries, { color: '#c8a876', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+    const price = chart.addSeries(LineSeries, { color: upC(), lineWidth: 2, priceLineVisible: false, lastValueVisible: true })
+    const avg = chart.addSeries(LineSeries, { color: avgC(), lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
     const vol = chart.addSeries(HistogramSeries, { priceScaleId: 'vol', priceLineVisible: false, lastValueVisible: false })
     vol.priceScale().applyOptions({ scaleMargins: { top: 0.80, bottom: 0 } })
     priceRef.current = price; avgRef.current = avg; volRef.current = vol
@@ -118,10 +152,10 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
     const chart = chartRef.current, price = priceRef.current, avg = avgRef.current, vol = volRef.current
     if (!chart || !price) return
     const pts = (points || []).filter(p => p && p.price > 0)
-    if (pts.length < 2) { price.setData([]); avg.setData([]); vol.setData([]); rowsRef.current = []; return }
+    if (pts.length < 2) { price.setData([]); avg.setData([]); vol.setData([]); rowsRef.current = []; repaintRef.current = {}; return }
 
     let cumPV = 0, cumV = 0, prevPx = prevClose, lastUp = true
-    const priceData = [], avgData = [], volData = [], rows = []
+    const priceData = [], avgData = [], volData = [], rows = [], upFlags = []
     pts.forEach((p, i) => {
       const v = Number(p['手']) || 0
       cumPV += p.price * v; cumV += v
@@ -131,13 +165,17 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
       priceData.push({ time: i, value: p.price })
       avgData.push({ time: i, value: +av.toFixed(4) })
       volData.push({ time: i, value: v, color: volColor(up) })
+      upFlags.push(up)
       rows.push({ time: String(p.time || ''), price: p.price, avg: av, vol: v })
     })
     rowsRef.current = rows
+    repaintRef.current = { priceData, avgData, volData, upFlags }
 
-    // 价格线整体颜色: 收在昨收上方红、下方绿(A股口径, 与旧版一致)
+    // 价格线整体颜色: 收在昨收上方红、下方绿(跟随显示设置的涨跌色)
     const last = pts[pts.length - 1].price
-    price.applyOptions({ color: last >= prevClose ? UP : DOWN })
+    repaintRef.current.last = last
+    repaintRef.current.prevClose = prevClose
+    price.applyOptions({ color: last >= prevClose ? upC() : downC() })
     price.setData(priceData)
     avg.setData(avgData)
     vol.setData(volData)
@@ -146,7 +184,7 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
     if (prevLineRef.current) { try { price.removePriceLine(prevLineRef.current) } catch { /* 已销毁 */ } prevLineRef.current = null }
     if (prevClose > 0) {
       prevLineRef.current = price.createPriceLine({
-        price: prevClose, color: 'rgba(200,168,118,0.6)', lineWidth: 1, lineStyle: LineStyle.Dashed,
+        price: prevClose, color: withAlpha(avgC(), 0.6), lineWidth: 1, lineStyle: LineStyle.Dashed,
         axisLabelVisible: true, title: '昨收',
       })
     }
@@ -178,8 +216,8 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
         ) : (
           <span className="text-text-muted flex gap-2.5">
             <span style={{ color: UP }}>— 价格</span>
-            <span style={{ color: '#c8a876' }}>— 均价</span>
-            <span style={{ color: '#c8a876' }}>┄ 昨收</span>
+            <span style={{ color: 'var(--color-accent)' }}>— 均价</span>
+            <span style={{ color: 'var(--color-accent)' }}>┄ 昨收</span>
             {tickMode && <span className="text-accent">· 逐笔</span>}
             <span>滚轮缩放 · 拖动平移</span>
           </span>

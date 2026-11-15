@@ -2,16 +2,18 @@ export const ACQUIRE = new Set(['BUY', 'ADD', 'BONUS'])
 
 export const MA_WARMUP = 60           // 日K 多取的均线预热根数(够 MA60 从首根可见蜡烛起连续)
 
-// A 股口径: 红涨绿跌
-export const UP = '#cf5c5c', DOWN = '#5fa86c'
+// 涨跌/买卖色: 指向 index.css 的语义变量(--color-up/down/buy/sell), 由显示设置
+// (红涨绿跌开关 + 深/浅主题)统一换色。SVG/DOM 场景可直接用作 stroke/fill/style;
+// canvas 场景(lightweight-charts 等)必须经 colors.js 的 cssVar() 取解析值。
+export const UP = 'var(--color-up)', DOWN = 'var(--color-down)'
 
-export const BUY_COLOR = '#3fae6a', SELL_COLOR = '#d04a4a'
+export const BUY_COLOR = 'var(--color-buy)', SELL_COLOR = 'var(--color-sell)'
 
 export const fmtVal = (v) => v == null ? '--' : v < 10 ? v.toFixed(3) : v < 100 ? v.toFixed(2) : v.toFixed(1)
 
 export const fmtPct = (v) => v == null ? '--' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%'
 
-export const colorPct = (v) => v == null ? 'text-text-dim' : v >= 0 ? 'text-bear-bright' : 'text-bull-bright'
+export const colorPct = (v) => v == null ? 'text-text-dim' : v >= 0 ? 'text-up-bright' : 'text-down-bright'
 
 export const fmtHand = (h, unit = '手') => h == null ? '--'
   : h >= 1e8 ? (h / 1e8).toFixed(2) + '亿' + unit

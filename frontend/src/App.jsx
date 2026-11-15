@@ -15,7 +15,8 @@ import StockAsk from './components/StockAsk'
 import { GlobalStockModal } from './components/ask/stockOpener'
 import TradePlans, { PlanToast, PLAN_EVENT } from './components/TradePlans'
 import Settings from './components/Settings'
-import ProfilePage from './components/ProfilePage'
+import AccountPage from './components/AccountPage'
+import { initPrefs, resetPrefs } from './prefs'
 import EditModal from './components/EditModal'
 import TransactionHistory from './components/TransactionHistory'
 // 市场·开盘情绪
@@ -25,7 +26,6 @@ import SentimentThermometer from './components/SentimentThermometer'
 import SectorShare from './components/SectorShare'
 import SectorMatrix from './components/SectorMatrix'
 import SectorOpportunities from './components/SectorOpportunities'
-import EtfXray from './components/EtfXray'
 // 市场·大盘股池
 import MarketPools from './components/MarketPools'
 import AnalyzerLists from './components/AnalyzerLists'
@@ -129,8 +129,20 @@ export default function App() {
   }, [])
   const handleLogout = async () => {
     try { await fetchJSON('/api/auth/logout', { method: 'POST' }) } catch {}
+    resetPrefs()                      // 显示偏好回到默认, 上一用户的主题/开关不泄漏到登录页
+    setAvatarUrl(null)
     setUser(null)
   }
+  // 显示偏好 + 顶栏小头像: 登录成功的下一拍拉取(401/离线静默)
+  const [avatarUrl, setAvatarUrl] = useState(null)
+  useEffect(() => {
+    if (!user) return
+    initPrefs()
+    fetchJSON('/api/auth/me/avatar')
+      .then(d => setAvatarUrl(d.data || null))
+      .catch(() => setAvatarUrl(null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.user_id])
   // 侧栏(NAV) 与页面映射(PAGES) 必须一一对应。两边都手写, 漂了各有一种静默失败:
   // NAV 多一项 → 点了是空内容区(现在会显示兜底文案); PAGES 多一项 → 一页谁也点不到。
   // 生产构建里 import.meta.env.DEV 是常量 false, 整块被摇掉。
@@ -212,7 +224,9 @@ export default function App() {
         const fxRate = q.fx_rate || h.fx_rate || 1
         // 期货/期权/股票空头: 市值=价×乘数×手数(股票空头乘数=1); 浮动按方向(空头 = 成本−市值, 价跌=赚);
         // price_change_pct 与后端同一约定 —— 已按方向折算, 空头翻号。
-        // 股票空头(港美股)按原币算浮动再折人民币; 期货/期权恒 CNY。
+        // 币种折算: 后端给行内 currency(衍生品按合约码后缀判, ES2612.US→USD / HTI2611.HK→HKD);
+        // 非人民币一律 ×fxRate(WS 行情无 fx 时用后端折好的行内 fx_rate) —— 之前衍生品强置 fx=1,
+        // 港美期货(USD/HKD)每次推价都被未折算值覆盖, 页面一直显示原币数字。
         const isFut = isDerivSub(h.sub_assets_type)   // 期货/期权(assets_classify 小类)用乘数估值
         if (isFut || h.direction === 'SHORT') {
           const mult = h.contract_multiplier || 1
@@ -220,7 +234,7 @@ export default function App() {
           const short = h.direction === 'SHORT'
           const costV = h.cost_price * mult * lots
           const mv = currentPrice * mult * lots
-          const fx = isFut ? 1 : (h.currency && h.currency !== 'CNY' ? fxRate : 1)
+          const fx = h.currency && h.currency !== 'CNY' ? fxRate : 1
           const r2 = (x) => Math.round(x * 100) / 100
           const pnl = (short ? costV - mv : mv - costV) * fx
           return {
@@ -321,7 +335,6 @@ export default function App() {
       <div className={`${PAD} space-y-3 md:space-y-4`}>
         <AllocationAdvisor />
         <AShareSectorGap />
-        <EtfXray mode="mine" />
       </div>
     ),
 
@@ -345,7 +358,6 @@ export default function App() {
         <SectorShare />
         <SectorMatrix />
         <SectorOpportunities />
-        <EtfXray mode="theme" />
       </div>
     ),
 
@@ -393,8 +405,14 @@ export default function App() {
     ),
 
     profile: () => (
-      <div className={`${PAD} max-w-[980px]`}>
-        <ProfilePage />
+      <div className="max-w-[1060px] mx-auto w-full">
+        <AccountPage
+          user={user}
+          avatarUrl={avatarUrl}
+          onUserChange={setUser}
+          onAvatarChange={setAvatarUrl}
+          onLogout={handleLogout}
+        />
       </div>
     ),
   }
@@ -418,6 +436,8 @@ export default function App() {
         onSettings={() => setView('settings')}
         user={user}
         onLogout={handleLogout}
+        avatarUrl={avatarUrl}
+        onProfile={() => setView('profile')}
       />
 
       <div className="flex flex-1 min-h-0">

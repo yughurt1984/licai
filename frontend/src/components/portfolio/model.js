@@ -199,7 +199,7 @@ export function aggregate(rows, aShareTradingDay = true) {
     g.cost += r.cost || 0
     g.pnl += r.pnl || 0
     const currency = r.extra?.currency
-    if (r.type === 'A' && currency && currency !== 'CNY') {
+    if ((r.type === 'A' || r.type === 'T' || r.type === 'O') && currency && currency !== 'CNY') {
       if (!fxExposure[currency]) {
         fxExposure[currency] = {
           currency,

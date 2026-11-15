@@ -109,7 +109,7 @@ export default function MorningBriefing() {
                     <p className="text-[11px] text-bear-bright mt-1 mb-0">{b.error}</p>
                   )}
                   {b.risk && (
-                    <p className="text-[11px] mt-1 mb-0 flex items-start gap-1" style={{ color: '#d4a05c' }}>
+                    <p className="text-[11px] mt-1 mb-0 flex items-start gap-1" style={{ color: 'var(--color-warn)' }}>
                       <span>⚠</span><span>{b.risk}</span>
                     </p>
                   )}

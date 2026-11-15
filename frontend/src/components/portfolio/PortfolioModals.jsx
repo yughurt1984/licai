@@ -57,11 +57,12 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {/* 固定收益(理财/债券): 中类(理财/债券)从 assets_classify fix-income 大类自动同步,
-          提交走 /api/fix-income(fix_income_assets 账本) */}
+      {/* 固定收益(理财/债券全谱系): 中类从 assets_classify fix-income 大类自动同步,
+          按 valuation_type 路由入库 —— yield→/api/fix-income, quote→/api/portfolio(holdings) */}
       {addCls === 'fix-income' && (
         <AddFixIncomeForm sub={addSub || undefined}
-          onDone={() => { hide('add'); onFixIncomeChanged?.() }}
+          brokers={brokers}
+          onDone={() => { hide('add'); onAdd?.(); onFixIncomeChanged?.() }}
           onCancel={() => hide('add')} />
       )}
       {/* 其余大类(现金/加密/机器人/商品/外汇/保险…): 表单待单独开发 */}

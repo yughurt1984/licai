@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetchJSON } from '../hooks/useApi'
-import { clearBrokersCache } from '../helpers'
+import { fetchJSON } from '../../hooks/useApi'
+import { clearBrokersCache } from '../../helpers'
 
-// 券商档案写操作广播: 个人中心保存后, 持仓页/流水页(挂载时 loadBrokers 一次且带
+// 券商档案写操作广播: 券商设置保存后, 持仓页/流水页(挂载时 loadBrokers 一次且带
 // 模块级缓存)立即清缓存重拉, 不用等下次进入页面。
+// (从原 ProfilePage.jsx 原样迁入, 事件名不变 —— TransactionHistory 等监听方零改动)
+// eslint-disable-next-line react-refresh/only-export-components
 export const BROKERS_EVENT = 'licai:brokers-changed'
 
 function notifyBrokersChanged() {
@@ -22,22 +24,10 @@ const rateCell = (rate, unit) => {
 }
 
 /**
- * 个人中心。「券商费率」: 费率档案 CRUD(类型 + 股票/ETF/期权费率 + 平台使用费)。
- * 资料卡(头像/改密)预留位置, 后续往 children 里加 Section 即可。
+ * 券商费率档案 CRUD(类型 + 股票/ETF/期权费率 + 平台使用费)。
+ * 账户页「券商设置」节的内容体。
  */
-export default function ProfilePage() {
-  return (
-    <div className="space-y-4">
-      <BrokerSection />
-    </div>
-  )
-}
-
-export const BROKER_TYPES = ['A股', '港股', '美股', '期货', 'Crypto']
-
-/* ── 券商费率档案 ─────────────────────────────────────────── */
-
-function BrokerSection() {
+export default function BrokerSection() {
   const [brokers, setBrokers] = useState(null)
   const [editing, setEditing] = useState(null)      // null | 'new' | broker对象
   const [busy, setBusy] = useState('')
@@ -283,3 +273,4 @@ function BrokerEditForm({ broker, onDone, onCancel }) {
   )
 }
 
+export const BROKER_TYPES = ['A股', '港股', '美股', '期货', 'Crypto']

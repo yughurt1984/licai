@@ -79,8 +79,9 @@ async def symbol_name(code: str = "", sub: str = ""):
         if r is None:
             cur = await db.execute("SELECT name, code FROM symbol_dict WHERE UPPER(code) = ? LIMIT 1", (std,))
             r = await cur.fetchone()
-        if r is not None:
-            return {"name": r[0] if r else None, "code": r[1] if r else None}
+        if r is not None and r[0]:
+            return {"name": r[0], "code": r[1]}
+        # 命中残行(name 空)不短路: 继续走源补全, 拿到后 upsert 回填该行
     finally:
         await db.close()
 
@@ -92,10 +93,13 @@ async def symbol_name(code: str = "", sub: str = ""):
                 "sources": [{"source": n, "status": st} for n, st in sources]}
     try:
         # 落库与响应同请求内 await(单行 upsert 毫秒级; create_task 跨响应会被循环关闭取消)
+        # exchange_mic: 由 suffix(市场段位)现算为 exchange.mic(受限 exchange 表, 不触发外键)
+        from services.exchange_map import suffix_to_mic
+        mic = await suffix_to_mic(row.get("suffix"))
         await save_symbol_dict([(
             row["code"], row["name"], row.get("ticker") or "", sub_name,
             row.get("suffix") or "", row.get("trade_amount"), row.get("margin_rate"),
-            row.get("source"))])
+            row.get("source"), None, None, mic)])   # 数据源统一写 data_source(第8元); 末元=exchange_mic
     except Exception as e:
         print(f"[symbol-name] 底稿登记失败(不影响回显): {e}")
     return {"name": row["name"], "code": row["code"], "fetched": True,

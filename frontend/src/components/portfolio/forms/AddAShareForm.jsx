@@ -46,33 +46,45 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [market])
 
-  // 名称查询: 防抖 + 只认最后一次请求的结果(美股每敲一个字母都会触发, 旧请求晚回来会覆盖新名字)
+  // 名称查询, 两级: ① PG 底稿(symbol_dict, 本地零联网) ② 底稿未命中 → instruments 源
+  // (assets_classify 指派, 命中后端自动登记底稿, 下次起纯本地)。quote 不在这条链里 ——
+  // 行情在「确认」添加完成后才发起(见 submit), 输入过程永不打行情接口。
+  // 触发时机: 输入**停顿 600ms** 后才查(输入完整代码; 敲 "7230" 的中途不会查 "723")。
+  const LOOKUP_DEBOUNCE = 600
   const lookupSeq = useRef(0)
   const lookupTimer = useRef(null)
   useEffect(() => () => clearTimeout(lookupTimer.current), [])
-  // 名称查询: **PG 搜股底表(symbol_dict)优先** —— A股/场内基金秒回且离线; 底表没有
-  // (港美股/次新)再走实时行情接口兜底。防抖 + 只认最后一次请求的结果。
+  const nameBare = (fullCode) => /\.(HK|US|JP)$/.test(fullCode) ? fullCode.split('.')[0]
+    : (fullCode.startsWith('HK.') || fullCode.startsWith('US.')) ? fullCode.split('.')[1] : fullCode
   const lookup = useCallback((nextCode, nextMarket = market) => {
     clearTimeout(lookupTimer.current)
     const seq = ++lookupSeq.current
     if (!nextCode) { setNameLooking(false); return }
     const fullCode = stockCodeForMarket(nextMarket, nextCode)
-    const bare = /\.(HK|US)$/.test(fullCode) ? fullCode.split('.')[0]   // 标准码「代码.市场」
-      : (fullCode.startsWith('HK.') || fullCode.startsWith('US.')) ? fullCode.split('.')[1] : fullCode
     lookupTimer.current = setTimeout(async () => {
       setNameLooking(true)
       try {
-        const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(bare)}` +
+        const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(nameBare(fullCode))}` +
           `&sub=${encodeURIComponent(matched?.sub_assets_type || '')}`)
-        if (seq === lookupSeq.current && name) { setForm(f => ({ ...f, name })); return }
-      } catch { /* 底表查不到, 走联网兜底 */ }
-      try {
-        const q = await fetchJSON(`/api/market/quote/${encodeURIComponent(fullCode)}`)
-        if (seq === lookupSeq.current && q?.stock_name) setForm(f => ({ ...f, name: q.stock_name }))
-      } catch { /* 查不到就留空, 用户可手填 */ }
+        if (seq === lookupSeq.current && name) {
+          setForm(f => ({ ...f, name }))
+          setNameLooking(false)   // 命中也要复位, 不然「查询中...」placeholder 常亮
+          return
+        }
+      } catch { /* 底稿/instruments 都没有, 留空可手填 */ }
       if (seq === lookupSeq.current) setNameLooking(false)
-    }, 350)
+    }, LOOKUP_DEBOUNCE)
   }, [market, matched?.sub_assets_type])   // sub 进依赖: 名称查询把所选小类传给 instruments 路由
+  // 提交时的名称兜底: 输入过程中没查到的(未登记/负缓存), 点确认再走一次同一两级链
+  const fetchName = async (nextCode, nextMarket = market) => {
+    if (!nextCode) return ''
+    const fullCode = stockCodeForMarket(nextMarket, nextCode)
+    try {
+      const { name } = await fetchJSON(`/api/market/symbol-name?code=${encodeURIComponent(nameBare(fullCode))}` +
+        `&sub=${encodeURIComponent(matched?.sub_assets_type || '')}`)
+      return name || ''
+    } catch { return '' }
+  }
 
   // 换「资产类型×币种」组合 = 换市场: 清空待录入内容(与老版市场下拉同款行为)
   const lastSubRef = useRef(matched?.sub_assets_type)
@@ -120,18 +132,33 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
     if (!form.cost || parseFloat(form.cost) <= 0) return alert(`请输入${direction === 'SHORT' ? '开仓' : '成本'}价`)
     setSubmitting(true)
     try {
+      // 名称兜底: 输入过程中没查到的(未登记/instruments 负缓存), 提交时再走一次底稿+instruments。
+      // quote 不在这查 —— 行情在添加完成后才发起(见下方冷启动), 后端建仓时也会按名自动兜底。
+      let name = form.name
+      if (!name) {
+        name = await fetchName(form.code, market)
+        if (name) setForm(f => ({ ...f, name }))
+      }
       const res = await api.addHolding({
-        stock_code: stockCode, stock_name: form.name,
-        sub_assets_type: market === 'HK' ? 'hk_comm_stock' : market === 'US' ? 'us_comm_stock' : 'a_comm_stock',
+        stock_code: stockCode, stock_name: name,
+        sub_assets_type: matched?.sub_assets_type || (market === 'HK' ? 'hk_comm_stock' : market === 'US' ? 'us_comm_stock' : 'a_comm_stock'),
         shares: parseFloat(form.shares), cost_price: parseFloat(form.cost),
         direction,  // 'LONG' / 'SHORT' 都下发, 后端按方向落库(多头=LONG/1, 空头=SHORT/0)
         fee: form.fee !== '' && !isNaN(parseFloat(form.fee)) ? parseFloat(form.fee) : undefined,
         trade_date: form.tradeDate || undefined,
         broker: broker || null,
       })
-      if (res.message) onDone?.()
-      else alert(res.detail || '添加失败')
-    } finally { setSubmitting(false) }
+      if (res.message) {
+        onDone?.()
+        // 添加完成后再发起行情查询: 冷启动该标的报价 + write-through 落库, 持仓页刷新即有价
+        fetchJSON(`/api/market/quote/${encodeURIComponent(stockCode)}`).catch(() => {})
+      } else alert(res.detail || '添加失败')
+    } catch (e) {
+      // 后端校验不通过(持仓已存在/估值类型不对等)必须弹出来 —— 之前吞掉异常, 表现为"点了没反应"
+      alert(e?.message || '添加失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[13px] text-text outline-none focus:border-accent'
@@ -160,7 +187,10 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
           onChange={e => {
             const v = e.target.value.toUpperCase()
             setForm({ ...form, code: v })
-            if ((market === 'A' && v.length === 6) || (market === 'HK' && v.length >= 4) || (market === 'US' && v.length >= 1)) {
+            // 输入停顿 600ms 后才查名(底稿 → instruments): 代码敲完才查, 半截码不查。
+            // 门槛: A股 6 位 / 港股 4 位起 / 日股 4 位起 / 美股 2 位起(单字符 ticker 交给确认时兜底)。
+            if ((market === 'A' && v.length === 6) || (market === 'HK' && v.length >= 4)
+                || (market === 'US' && v.length >= 2) || (market === 'JP' && v.length >= 4)) {
               lookup(v, market)
             } else {
               lookup('')
