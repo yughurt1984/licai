@@ -7,8 +7,9 @@ const MARKETS = [
 // marketStatus: {A, HK, US} → 'open'(交易中) / 'closed'(已收盘) / 'rest'(休息, 非交易日)。
 // 后端按各市场自己的时区 + 交易日历判定(A股 chinese_calendar, 港美股 exchange_calendars),
 // App 每 60s 轮询 /api/market/status 刷新。open 绿点脉冲, 休息/已收盘同灰系、靠文字区分。
-// avatarUrl: 头像 data URL(App 登录后拉一次, 账户页上传/移除时同步); null 显示首字圆标。
-export default function Header({ marketStatus, lastUpdate, onRefresh, refreshing, onSettings, user, onLogout, avatarUrl, onProfile }) {
+// avatarUrl: 头像 data URL(App 登录后拉一次, 设置页上传/移除时同步); null 显示首字圆标。
+// 顶栏「设置」齿轮与头像按钮都进设置页(账户资料已并入设置)。
+export default function Header({ marketStatus, lastUpdate, onRefresh, refreshing, onSettings, user, onLogout, avatarUrl }) {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-surface/80 backdrop-blur-xl">
       <div className="max-w-[1440px] mx-auto px-3 md:px-4 h-12 flex items-center justify-between">
@@ -54,7 +55,7 @@ export default function Header({ marketStatus, lastUpdate, onRefresh, refreshing
           </button>
           {user && (
             <span className="hidden md:inline-flex items-center gap-2 pl-2 border-l border-border">
-              <button onClick={onProfile} title="账户"
+              <button onClick={onSettings} title="设置"
                 className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer">
                 <span className="w-6 h-6 rounded-full overflow-hidden bg-accent/15 border border-accent/30
                                  flex items-center justify-center text-accent text-[11px] font-medium shrink-0">

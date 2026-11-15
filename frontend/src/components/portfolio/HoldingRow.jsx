@@ -22,9 +22,9 @@ function DirectionBadge({ direction }) {
 //
 // 这些闭包变量按性质分成了三类 props:
 //   - 行自己的: row / isLast / hovered / carry / hasThesis
-//   - 跨行才算得出来的: totalMv(算占比) / insights(同源家族)
+//   - 跨行才算得出来的: totalMv(算占比)
 //   - 动作: actions 一个对象整体转给 RowActions(它的入参本来就是这几个)
-export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, carry, hasThesis, actions }) {
+export function HoldingRow({ row, isLast, hovered, onHover, totalMv, carry, hasThesis, actions }) {
   return (
   <div
     onMouseEnter={() => onHover(row.id)}
@@ -71,36 +71,10 @@ export function HoldingRow({ row, isLast, hovered, onHover, totalMv, insights, c
             <div>
               <div className="text-text-bright font-semibold mb-1">同步断连 · 数字为旧快照</div>
               <div>{row.extra?.syncError || 'OKX 不可达或凭证失效'}</div>
-              <div className="mt-1 text-text-dim text-[11.5]px">盈亏非实时。常见原因: 代理软件没开 → 打开后到 设置→代理 点自动探测</div>
+              <div className="mt-1 text-text-dim text-[11.5]px">盈亏非实时。常见原因: 代理软件没开</div>
             </div>
           }>
             <span className="text-warn cursor-help text-[12]px leading-none px-1 rounded bg-warn/15 border border-warn/40 shrink-0">⚠ 同步断</span>
-          </Tooltip>
-        )}
-        {insights.overlapRowIds.has(row.id) && (
-          <Tooltip content={
-            <div>
-              <div className="text-text-bright font-semibold mb-1">同源风险家族</div>
-              <div className="flex flex-col gap-0.5">
-                {(insights.overlapByRow[row.id] || []).map(f => (
-                  <div key={f.fam} className="text-text">
-                    · {f.fam} 合计 {f.pct.toFixed(1)}%
-                    {f.others.length > 0 && (
-                      <span className="text-text-dim">
-                        {' '}—— 还有 {f.others.slice(0, 3).join('、')}
-                        {f.others.length > 3 ? ` 等${f.others.length}项` : ''}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="text-text-dim mt-1.5 text-[11.5]px leading-snug">
-                这几行是同一块风险(按穿透后的行业归的，不看名字)：分开看像分散，合起来才是真实敞口
-              </div>
-            </div>
-          }>
-            <span className="inline-flex items-center gap-0.5 text-[10.5]px font-semibold px-1 py-[1px] rounded shrink-0 cursor-help"
-              style={{ color: 'var(--color-up-bright)', background: 'var(--color-up-bg)', border: '1px solid var(--color-up-border)' }}>↔ 同源</span>
           </Tooltip>
         )}
       </div>

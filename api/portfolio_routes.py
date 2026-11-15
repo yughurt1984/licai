@@ -853,25 +853,6 @@ async def trade_review_ai(period: str = "all", force: int = 0):
                 lines += ["", "【这些标的你的真实盈亏——报收益只看这里, 不是上面的'至今%'】"] + _traded
         except Exception:
             pass
-        # 当天的同源结构(穿透后按行业归): 复盘"我这两笔其实是在动同一块风险吗"要靠它。
-        # 必须按 as_of 回看 —— 当下的敞口里已经没有那天清掉的票了(实测 8-25 清掉黄金+山金后,
-        # 现在的穿透里那块 39% 的贵金属一点痕迹都没有)。
-        if period == "day":
-            try:
-                from services.exposure import look_through
-                _ex = await look_through(as_of=anchor)
-                _inds = [g for g in (_ex.get("industries") or [])
-                         if g.get("pct", 0) >= 10 and not str(g["industry"]).startswith("海外")
-                         and g["industry"] != "未知行业"][:4] if not _ex.get("error") else []
-                if _inds:
-                    lines += ["", f"【{anchor} 当天的同源结构(基金拆到季报前十大, 再按行业归并)】"]
-                    for g in _inds:
-                        who = "、".join(h.get("name", "") for h in (g.get("holders") or [])[:5])
-                        lines.append(f"  {g['industry']}: 占总资产 {g['pct']:.1f}% —— {who}")
-                    lines.append("  (口径: 只穿透到季报前十大, 占基金净值约 25%~50%, 所以是下限; "
-                                 "季报与行业表用的是现在这一份)")
-            except Exception:
-                pass
         # 今日市场画像已随 market_review 删除而移除(复盘仍基于持仓流水)
         data_block = "\n".join(lines)
         system_prompt = (
@@ -2183,16 +2164,6 @@ async def sync_dividends_route(code: str = ""):
 class ThesisIn(BaseModel):
     thesis: str
     name: str = ""
-
-
-@router.get("/exposure")
-async def portfolio_exposure(min_pct: float = 0.5, as_of: str = ""):
-    """穿透敞口: 把基金拆到季报前十大, 算同一标的/同一行业的真实合计敞口。
-
-    as_of=YYYY-MM-DD 回看那天的结构(复盘用): 当下的敞口里已经没有那天清掉的票了。
-    """
-    from services.exposure import look_through
-    return await look_through(min_pct=min_pct, as_of=(as_of or None))
 
 
 @router.get("/thesis")

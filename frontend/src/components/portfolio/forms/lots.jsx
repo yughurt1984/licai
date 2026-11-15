@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { estimateFee, fmtMoney, fundKindOf, isOnchainFundKind } from '../../../helpers'
 import { fetchJSON } from '../../../hooks/useApi'
-import { isEtfCode } from '../helpers'
 
 // AddLotRow — 加仓 modal. 与 ReduceLotRow 对称.
 // OTC 基金 (场外): 只填本金 + 日期, 写 pending 流水, T+1 净值出来后回流水"确认"补份额

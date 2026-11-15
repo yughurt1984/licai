@@ -11,10 +11,8 @@ import StaleBundleNotice from './components/StaleBundleNotice'
 import UnifiedPortfolio from './components/UnifiedPortfolio'
 import AILedger from './components/AILedger'
 import Rankings from './components/Rankings'
-import StockAsk from './components/StockAsk'
 import { GlobalStockModal } from './components/ask/stockOpener'
 import TradePlans, { PlanToast, PLAN_EVENT } from './components/TradePlans'
-import Settings from './components/Settings'
 import AccountPage from './components/AccountPage'
 import { initPrefs, resetPrefs } from './prefs'
 import EditModal from './components/EditModal'
@@ -40,9 +38,6 @@ import SectorRadar from './components/SectorRadar'
 import PortfolioCurve from './components/PortfolioCurve'
 import ExcessCurve from './components/ExcessCurve'
 import PnlCalendar from './components/PnlCalendar'
-// 我的·配置建议
-import AllocationAdvisor from './components/AllocationAdvisor'
-import AShareSectorGap from './components/AShareSectorGap'
 // 我的·复盘
 import AITradeReview from './components/AITradeReview'
 import EntryReview from './components/EntryReview'
@@ -54,11 +49,16 @@ import EntryReview from './components/EntryReview'
 const VIEWS = NAV.flatMap(s => s.items.map(i => i.key))
 const normalizeView = (v) => (VIEWS.includes(v) ? v : 'portfolio')
 
+// 已退役视图的 deep-link 改派: 收藏夹/历史记录里的旧 hash 不至于落回持仓页。
+// profile → 设置页(账户已并入设置); allocation/ask → 持仓(功能已下线)。
+const RETIRED_VIEW = { profile: 'settings', allocation: 'portfolio', ask: 'portfolio' }
+
 // hash → view。初始化和 hashchange(前进/后退键) 共用这一份, 两处各写一份必然漂移。
 // 支持 #view?k=v 形式的 deep-link(子参数由各组件自行读取)。
 function resolveHash() {
   const raw = (window.location.hash || '').slice(1)
-  const h = raw.split('?')[0]
+  let h = raw.split('?')[0]
+  if (RETIRED_VIEW[h]) h = RETIRED_VIEW[h]
   // 退役 deep-link #rankings?t=pools: 股池不再是榜单的一个页签, 已经是【市场】下的
   // 独立页。这是"整页搬走"而不是"页签改名", 所以在这里改派到那一页 —— 落回榜单
   // 随便挑一个页签(会静默落到「涨幅」)给的是另一份数据, 等于骗人。
@@ -88,6 +88,19 @@ function CardShell({ title, sub, children }) {
         {children}
       </div>
     </section>
+  )
+}
+
+// 市场模块整组标记「即将支持」: 侧栏逐项挂角标(Sidebar), 这里给每个市场页顶部
+// 加一条提示。市场组件本身一行不动 —— 哪天整组下线, 摘掉这层包装即可。
+function SoonBanner() {
+  return (
+    <div className="shrink-0 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[12px] text-warn flex items-center gap-2">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+        <circle cx="12" cy="12" r="9" /><path d="M12 8v4.5M12 16h.01" />
+      </svg>
+      市场模块即将支持，当前页面仅供预览，功能与数据可能不完整。
+    </div>
   )
 }
 
@@ -331,13 +344,6 @@ export default function App() {
       </div>
     ),
 
-    allocation: () => (
-      <div className={`${PAD} space-y-3 md:space-y-4`}>
-        <AllocationAdvisor />
-        <AShareSectorGap />
-      </div>
-    ),
-
     review: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
         <TradePlans />
@@ -346,8 +352,10 @@ export default function App() {
       </div>
     ),
 
+    // 市场模块(整组标记「即将支持」): 组件一行不动, 只在页顶加提示条(SoonBanner)。
     open: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
+        <SoonBanner />
         <MorningBriefing />
         <SentimentThermometer />
       </div>
@@ -355,6 +363,7 @@ export default function App() {
 
     sector: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
+        <SoonBanner />
         <SectorShare />
         <SectorMatrix />
         <SectorOpportunities />
@@ -366,7 +375,8 @@ export default function App() {
     // 窗口一变高、顶栏一换行就对不上, 底下留出一条谁也用不上的空带。
     rankings: () => (
       <div className={`${PAD} h-full flex flex-col`}>
-        <Rankings />
+        <SoonBanner />
+        <div className="flex-1 min-h-0"><Rankings /></div>
       </div>
     ),
 
@@ -375,6 +385,7 @@ export default function App() {
     // MarketPools 的 onPick 可选, 不传就用它自带的 K 线弹窗。
     pools: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
+        <SoonBanner />
         <MarketPools />
         <AnalyzerLists />
       </div>
@@ -382,29 +393,20 @@ export default function App() {
 
     capital: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
+        <SoonBanner />
         <ProviderInstTheme standalone />
       </div>
     ),
 
     news: () => (
       <div className={`${PAD} space-y-3 md:space-y-4`}>
+        <SoonBanner />
         <PortfolioNews />
       </div>
     ),
 
-    ask: () => (
-      <div className={`${PAD} max-w-[900px] h-[calc(100vh-8rem)]`}>
-        <StockAsk page />
-      </div>
-    ),
-
+    // 设置 = 原账户中心(资料/显示/券商)。旧的系统设置页已下线, 顶栏齿轮与头像都指到这里。
     settings: () => (
-      <div className={`${PAD} max-w-[900px]`}>
-        <Settings onClose={() => setView('portfolio')} />
-      </div>
-    ),
-
-    profile: () => (
       <div className="max-w-[1060px] mx-auto w-full">
         <AccountPage
           user={user}
@@ -437,7 +439,6 @@ export default function App() {
         user={user}
         onLogout={handleLogout}
         avatarUrl={avatarUrl}
-        onProfile={() => setView('profile')}
       />
 
       <div className="flex flex-1 min-h-0">

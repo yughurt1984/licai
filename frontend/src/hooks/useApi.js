@@ -60,19 +60,4 @@ export const api = {
   updateHolding: (code, data, direction) => fetchJSON(`/api/portfolio/${encodeURIComponent(code)}${direction ? `?direction=${encodeURIComponent(direction)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteHolding: (code, direction) => fetchJSON(`/api/portfolio/${encodeURIComponent(code)}${direction ? `?direction=${encodeURIComponent(direction)}` : ''}`, { method: 'DELETE' }),
   updateQuote: (code, data) => fetchJSON('/api/market/quote/manual', { method: 'POST', body: JSON.stringify({ code, ...data }) }),
-
-  // Settings
-  getFeishuConfig: () => fetchJSON('/api/settings/feishu'),
-  saveFeishuConfig: (url) => fetchJSON('/api/settings/feishu', { method: 'POST', body: JSON.stringify({ webhook_url: url }) }),
-  testFeishu: () => fetchJSON('/api/settings/feishu/test', { method: 'POST' }),
-
-  // LLM Config
-  getLLMConfig: () => fetchJSON('/api/settings/llm'),
-  saveLLMConfig: (data) => fetchJSON('/api/settings/llm', { method: 'POST', body: JSON.stringify(data) }),
-  testLLM: () => fetchJSON('/api/settings/llm/test', { method: 'POST' }),
-
-  getProxy: () => fetchJSON('/api/settings/proxy'),
-  saveProxy: (proxy) => fetchJSON('/api/settings/proxy', { method: 'POST', body: JSON.stringify({ proxy }) }),
-  detectProxy: () => fetchJSON('/api/settings/proxy/detect', { method: 'POST' }),
-  testProxy: (proxy) => fetchJSON('/api/settings/proxy/test', { method: 'POST', body: JSON.stringify({ proxy }) }),
 }

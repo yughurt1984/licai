@@ -4,8 +4,8 @@ import { api, fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 import Tooltip from './Tooltip'
 import { AllocationDonut, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './portfolio/atoms'
-import { FAMILY_LABEL, TYPE_COLOR, TYPE_ORDER, TYPE_META, typeFromClassify } from './portfolio/constants'
-import { buildFamilyIndex, formatCurrencyMoney, riskFamiliesOf } from './portfolio/helpers'
+import { TYPE_COLOR, TYPE_ORDER, TYPE_META, typeFromClassify } from './portfolio/constants'
+import { formatCurrencyMoney } from './portfolio/helpers'
 import { aggregate, normalizeAsset, normalizeFixIncomeAsset, normalizeHolding } from './portfolio/model'
 import { HoldingRow } from './portfolio/HoldingRow'
 import { PortfolioModals } from './portfolio/PortfolioModals'
@@ -187,98 +187,46 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   // visibleTypes: from filtered rows — drives content section rendering
   const visibleTypes = TYPE_ORDER.filter(t => agg.groups[t])
 
-  // 穿透敞口(同源风险)走后端: 基金拆到季报前十大, 同一标的/同一行业合起来算。
-  const [expo, setExpo] = useState(null)
-  useEffect(() => {
-    let alive = true
-    fetchJSON('/api/portfolio/exposure').then(d => { if (alive && !d?.error) setExpo(d) }).catch(() => {})
-    return () => { alive = false }
-  }, [])
-  const famIdx = useMemo(() => buildFamilyIndex(expo), [expo])
-
-  // Risk insights: cross-type overlap families.
+  // Risk insights: 板块集中度提示(仅 A 股行业, 数据来自东财一级行业; 基金行业分类已下线,
+  // 基金桶的 category 现在是「基金类别」(场内ETF/场外基金…), 不再参与板块分散判断)。
   // Always computed from ALL rows (not filtered) so toggling filter doesn't change advice.
   // 大类集中度提示已按需求移除。
   const insights = useMemo(() => {
     const allAgg = aggregate(rows, true)
-    const total = allAgg.totalMv || 0
     const warnings = []
-    // Sub-category single-track within FUND / A股
-    for (const t of ['A', 'F']) {
-      const g = allAgg.groups[t]
-      // 股票桶里港股/美股的分类是「市场」不是行业板块, 不参与板块分散判断(只看 A 股行业)
-      const items = t === 'A'
-        ? (g?.items || []).filter(it => (it.extra?.market || 'A') === 'A')
-        : (g?.items || [])
-      if (items.length < 2) continue
+    const g = allAgg.groups.A
+    // 股票桶里港股/美股的分类是「市场」不是行业板块, 不参与板块分散判断(只看 A 股行业)
+    const items = (g?.items || []).filter(it => (it.extra?.market || 'A') === 'A')
+    if (items.length >= 2) {
       const itemsMv = items.reduce((s, it) => s + (it.mv || 0), 0)
-      if (itemsMv <= 0) continue
-      const subs = {}
-      for (const it of items) {
-        const cid = it.category?.id || 'other'
-        subs[cid] = (subs[cid] || 0) + (it.mv || 0)
-      }
-      const entries = Object.entries(subs)
-      const scope = t === 'A' && items.length < g.items.length ? 'A股' : TYPE_META[t].label
-      if (entries.length === 1) {
-        const cat = items[0].category?.label || '同一类'
-        warnings.push({
-          level: 'high',
-          text: `${scope}全押「${cat}」，板块未分散`,
-        })
-      } else {
-        const top = entries.sort((a, b) => b[1] - a[1])[0]
-        const topPct = top[1] / itemsMv * 100
-        if (topPct >= 70) {
-          const cat = items.find(it => (it.category?.id || 'other') === top[0])?.category?.label || '某类'
+      if (itemsMv > 0) {
+        const subs = {}
+        for (const it of items) {
+          const cid = it.category?.id || 'other'
+          subs[cid] = (subs[cid] || 0) + (it.mv || 0)
+        }
+        const entries = Object.entries(subs)
+        if (entries.length === 1) {
+          const cat = items[0].category?.label || '同一类'
           warnings.push({
-            level: 'med',
-            text: `${scope}内「${cat}」占 ${topPct.toFixed(0)}%，板块过度集中`,
+            level: 'high',
+            text: `A股全押「${cat}」，板块未分散`,
           })
+        } else {
+          const top = entries.sort((a, b) => b[1] - a[1])[0]
+          const topPct = top[1] / itemsMv * 100
+          if (topPct >= 70) {
+            const cat = items.find(it => (it.category?.id || 'other') === top[0])?.category?.label || '某类'
+            warnings.push({
+              level: 'med',
+              text: `A股内「${cat}」占 ${topPct.toFixed(0)}%，板块过度集中`,
+            })
+          }
         }
       }
     }
-    // 3. 同源: 哪几行其实是同一块风险。以后端穿透的行业为准, 后端没回来才退回关键词。
-    const familyRows = {}
-    const add = (fam, r) => {
-      if (!familyRows[fam]) familyRows[fam] = { types: new Set(), rows: [], mv: 0 }
-      familyRows[fam].types.add(r.type)
-      familyRows[fam].rows.push(r)
-      familyRows[fam].mv += r.mv || 0
-    }
-    for (const r of rows) {
-      const fams = famIdx
-        ? (famIdx.byRow.get(`${r.type}:${r.code}`) || [])
-        : riskFamiliesOf(r).map(f => FAMILY_LABEL[f] || f)
-      for (const f of fams) add(f, r)
-    }
-    // 后端已经报过的行业别再报一遍(它那条带穿透金额, 更准)
-    const saidByBackend = new Set((expo?.warnings || [])
-      .filter(w => w.kind === 'industry' && w.industry).map(w => w.industry))
-    const overlapRowIds = new Set()
-    const overlapByRow = {}
-    for (const [fam, info] of Object.entries(familyRows)) {
-      if (info.rows.length < 2) continue
-      // 家族占比要用穿透后的钱。拿整行市值加起来会得出"通信设备 57%"这种数(实测) ——
-      // 那 6 只基金只有 0.25万 在通信设备里, 不是整只 7 万都是。
-      const famMv = famIdx?.fams.get(fam)?.mv ?? info.mv
-      const famPct = total > 0 ? (famMv / total * 100) : 0
-      for (const r of info.rows) {
-        overlapRowIds.add(r.id)
-        if (!overlapByRow[r.id]) overlapByRow[r.id] = []
-        // 带上"还有谁跟你同一块": 光说家族名等于让人自己去表里找
-        overlapByRow[r.id].push({ fam, pct: famPct, others: info.rows.filter(x => x.id !== r.id).map(x => x.name) })
-      }
-      // 横跨 A股 和 基金 才提示: 同类型内部的集中度上面第 2 条已经在管了
-      if (info.types.size >= 2 && !saidByBackend.has(fam)) {
-        warnings.push({
-          level: 'med',
-          text: `「${fam}」横跨 A股 + 基金，穿透后合计 ${famPct.toFixed(1)}% — ${info.rows.map(r => r.name).slice(0, 4).join(' + ')} 其实是同一块风险`,
-        })
-      }
-    }
-    return { warnings, overlapRowIds, overlapByRow }
-  }, [rows, famIdx, expo])
+    return { warnings }
+  }, [rows])
 
   const removeAsset = async (row) => {
     if (!confirm(`删除 ${row.name}？`)) return
@@ -384,12 +332,9 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       </div>
 
       {/* Risk insights strip */}
-      {!isEmpty && (insights.warnings.length > 0 || (expo?.warnings || []).length > 0) && (
+      {!isEmpty && insights.warnings.length > 0 && (
         <div className="px-3 md:px-6 py-2.5 border-b border-border bg-surface-2/60 flex flex-col gap-1.5">
-          {/* low 级的不进这条提示带: 穿透会挖出一堆"某只票占 0.8%、来自 5 只基金"的细项,
-              全铺出来会把真正该看的两三条(行业过半、两只基金同一注)压下去。细项在
-              「问问市场」问一句就有(get_exposure 工具), 或直接看 /api/portfolio/exposure */}
-          {[...insights.warnings, ...(expo?.warnings || []).filter(w => w.level !== 'low')].map((w, i) => {
+          {insights.warnings.map((w, i) => {
             const color = w.level === 'high' ? '#e58a8a' : '#d4a05c'
             return (
               <div key={i} className="flex items-center gap-2 text-[12.5]px">
@@ -399,14 +344,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
               </div>
             )
           })}
-          {expo?.coverage && (
-            <div className="text-[11]px text-text-muted leading-snug pl-6">
-              穿透口径: 基金只拆到季报前十大(合计约占净值 25%~50%), 所以上面的敞口是<b>下限</b>；
-              已穿透 {expo.coverage.penetrated_funds}/{expo.n_funds} 只基金
-              {(expo.coverage.uncovered || []).length > 0 &&
-                `，拉不到明细的 ${expo.coverage.uncovered.length} 只(${expo.coverage.uncovered.map(u => u.name).join('、')})未计入，那不等于敞口为 0`}
-            </div>
-          )}
         </div>
       )}
 
@@ -517,12 +454,12 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
               const renderRow = (row, isLast) => (
                 <HoldingRow key={row.id} row={row} isLast={isLast}
                   hovered={hoverId === row.id} onHover={setHoverId}
-                  totalMv={agg.totalMv} insights={insights}
+                  totalMv={agg.totalMv}
                   carry={carryByCode[row.code]} hasThesis={thesisCodes.has(row.code)}
                   actions={rowActions} />
               )
 
-              // FUND(基金)按行业子类分组; 股票桶(A)按**市场**分两层: A股 / 港股 / 美股
+              // 基金按「基金类别」子类分组(场内ETF/场外基金/REITs…); 股票桶(A)按**市场**分两层: A股 / 港股 / 美股
               // (以前 A 股按行业分组 —— 行业来自外网公司概况接口, 现改为整体三层)。
               if (type === 'A' && items.length > 1) {
                 const MK_LABEL = { A: 'A股', HK: '港股', US: '美股', JP: '日股' }
@@ -566,7 +503,8 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                   })
                 }
               }
-              // 基金: 行业/主题子类分组(>1 项才分组)
+              // 基金: 按「基金类别」子类分组(>1 项才分组); 类别来自 assets_classify 小类,
+              // 不再按基金名关键词匹配行业/主题(行业分类已下线)
               if (type === 'F' && items.length > 1) {
                 const clusters = {}
                 for (const it of items) {
