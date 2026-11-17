@@ -87,8 +87,8 @@ async def _attach_auto_fees(actions: list, stock_code: str, holding_broker, reso
 
 
 async def _trade_fx(stock_code: str, trade_date, given=None):
-    """港美股流水要记的成交日汇率: 手填为准, 否则按成交日取(今天=实时, 过去=当日中间价)。A 股返回 None。"""
-    if not str(stock_code or "").upper().endswith((".HK", ".US")):   # 港/美股标准码「代码.市场」
+    """港美日股流水要记的成交日汇率: 手填为准, 否则按成交日取(今天=实时, 过去=当日中间价)。A 股返回 None。"""
+    if not str(stock_code or "").upper().endswith((".HK", ".US", ".JP")):   # 港/美/日股标准码「代码.市场」
         return None
     if given is not None and given > 0:
         return float(given)
@@ -134,23 +134,34 @@ def _actions_for_direction(actions: list, direction: str | None) -> list:
 
 
 async def _recompute_holding(stock_code: str, direction: str | None = None):
-    """Rebuild holding shares/cost_price from FIFO ledger.
+    """Rebuild holding shares/cost_price from weighted-average ledger.
 
     同合约多空各一行: direction 给定时只取该方向的流水重算该行(两本独立账)。
     direction=None(无方向行)同理只取无方向流水 —— 否则同代码空头行的 OPEN/CLOSE
-    会混进 FIFO, 股数被算成"多头−空头"的净敞口。
+    会混进账本, 股数被算成"多头−空头"的净敞口。
+
+    顺带重建 realized_events: 加权平均口径下每笔平仓事件由流水重放生成(幂等),
+    与流水永远一致 —— 所有 action CRUD 路径都经过这里, 一处挂钩全覆盖。
     """
     actions = await get_position_actions(stock_code, limit=500)
-    actions = _actions_for_direction(actions, direction)
     h = await get_holding(stock_code, direction=direction)
+    # 兜底行可能带方向(股票也是 LONG): 按行的**真实方向**过滤流水并更新, 否则
+    # update_housing/_direction=None 匹配不到 LONG 行, 持仓行永远停在建仓值(实测踩过)。
+    direction_eff = (h or {}).get("direction") or direction
+    actions = _actions_for_direction(actions, direction_eff)
     hb = (h or {}).get("broker")
     state = await ledger_state(stock_code, actions, hb)   # 每笔按各自券商费率
     if state["shares"] > 0:
         await update_holding(stock_code, shares=state["shares"], cost_price=state["cost_price"],
-                             _direction=direction)
+                             _direction=direction_eff)
     else:
         # No shares left — keep holding row but set shares=0
-        await update_holding(stock_code, shares=0, cost_price=0, _direction=direction)
+        await update_holding(stock_code, shares=0, cost_price=0, _direction=direction_eff)
+    try:
+        from services.position_ledger import rebuild_realized_events
+        await rebuild_realized_events(stock_code)
+    except Exception as e:
+        print(f"[realized-rebuild] {stock_code}: {e}")
 
 
 def _currency_of_code(code: str) -> str | None:
@@ -175,7 +186,9 @@ async def list_holdings() -> list[HoldingResponse]:
     if not holdings:
         return []
 
-    codes = [h["stock_code"] for h in holdings]
+    # 行情只取在持标的(shares>0): 已清仓行不展示也不该耗行情额度(冷启动会真联网)。
+    # 0 行仍随响应返回(quote 字段为 None), 前端主列表/已清仓区块自己过滤。
+    codes = [h["stock_code"] for h in holdings if (h.get("shares") or 0) > 0]
     quotes = await get_realtime_quotes(codes)
 
     # 行业并行查 (24h cache, 首次会发外网请求)
@@ -350,6 +363,7 @@ async def list_holdings() -> list[HoldingResponse]:
             main_assets_type=h.get("main_assets_type") or "common_share",
             sub_assets_type=h.get("sub_assets_type"),
             assets_class=h.get("assets_class"),
+            assets_type_name=h.get("assets_type_name"),
             sub_assets_type_name=h.get("sub_assets_type_name"),
             direction=h.get("direction"),
             contract_multiplier=h.get("contract_multiplier"),
@@ -362,71 +376,55 @@ async def list_holdings() -> list[HoldingResponse]:
 
 @router.get("/realized")
 async def realized_pnl():
-    """Per-stock 已实现盈亏 (含已清仓 + 部分减仓), 从 position_actions 计算.
+    """每只标的已实现盈亏(加权平均口径): realized_events + 现金分红。
 
-    返回每只股票的 realized_pnl 以及 grand total. 已清仓股票 stock_name
-    从 quote 缓存补 (holdings 行可能已删).
+    realized_events = 切换日(realized_switch_date, 部署日落 app_config)之后的平仓事件,
+    由流水重放在写路径同步重建(position_action 增删改处), 与流水永远一致; 切换日前
+    的平仓损益按用户决定不回溯。现金分红 = 全历史 DIVIDEND 流水现算(独立收益流,
+    与成本法无关)。浮动盈亏 = 市值 − 成本×份额, 从不含已实现 → 总盈亏 = Σ浮动 + Σ已实现。
     """
-    from database import get_db
+    from database import (get_db, realized_events_by_code, get_all_holdings,
+                          get_position_actions, get_config)
+    events_by_code = await realized_events_by_code()
+    holdings_map = {h["stock_code"]: h for h in await get_all_holdings()}
+
+    # 分红: 只重放有 DIVIDEND/INCOME 流水的标的(其余零重放, 列表毫秒级)
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "SELECT DISTINCT code AS stock_code FROM position_actions WHERE user_id = ? ORDER BY stock_code",
-            (_uid(),),
-        )
-        rows = await cursor.fetchall()
-        codes = [r[0] for r in rows]
+        cur = await db.execute(
+            "SELECT DISTINCT code FROM position_actions "
+            "WHERE user_id = ? AND UPPER(action_type) IN ('DIVIDEND', 'INCOME')", (_uid(),))
+        div_codes = [r[0] for r in await cur.fetchall()]
     finally:
         await db.close()
 
-    holdings_map = {h["stock_code"]: h for h in await get_all_holdings()}
-    from database import get_config
-    from services.market_data import code_currency, code_fx
     resolve = await _broker_fee_resolver()
     fee_overrides = await get_config("fee_schedules")
+    from services.market_data import code_currency, get_stock_name
+    from services.position_ledger import ledger_state as _ls
+
+    incomes: dict[str, tuple] = {}   # code → (native, cny)
+    for code in div_codes:
+        try:
+            acts = await get_position_actions(code, limit=1000)
+            h0 = holdings_map.get(code) or {}
+            st = await _ls(code, acts, h0.get("broker"), resolve=resolve, fee_overrides=fee_overrides)
+            incomes[code] = (float(st.get("income_realized") or 0),
+                             float(st.get("income_realized_cny") or 0))
+        except Exception as e:
+            print(f"[realized] {code} 分红重放失败: {e}")
+
+    codes = sorted(set(events_by_code) | set(incomes))
     items: list[dict] = []
-    total = 0.0
-    total_carry = 0.0
+    total = total_native = 0.0
     for code in codes:
-        all_acts = await get_position_actions(code, limit=500)
-        if not all_acts:
-            continue
-        # 按方向各算一本账再合并: 期货/期权双向、股票做空(同代码 多+空 两行)都适用。
-        # 无方向标签的流水全部落进 "LONG" 组(股票即普通多头账; 键名只是分组键)。
-        h0 = holdings_map.get(code) or {}
-        is_deriv = is_derivative_kind(h0.get("main_assets_type"))
-        mult = float(h0.get("contract_multiplier") or 1) if is_deriv else 1.0
-        # 账本按原币记(港股 HKD、美股 USD); 人民币口径每笔按自己的成交日汇率(fx_rate, 没记的按当前汇率),
-        # 所以已实现里含本金的汇兑损益(fx_pnl 单列)。费用与看板同一口径(每笔券商 + fee_schedules 覆盖)。
-        foreign = (not is_deriv) and code_currency(code) != "CNY"
-        fx = await asyncio.to_thread(code_fx, code) if foreign else 1.0
-        dir_groups: dict = {}
-        for a in all_acts:
-            dir_groups.setdefault(a.get("direction") or "LONG", []).append(a)
-        rp = carry = rp_native = fx_pnl = 0.0
-        still = False
-        for d, acts in dir_groups.items():
-            st = await ledger_state(code, acts, h0.get("broker"),
-                                    resolve=resolve, fee_overrides=fee_overrides,
-                                    fx_now=fx if foreign else None)
-            if is_deriv:
-                rp += float(st.get("realized_pnl") or 0) * mult
-                carry += float(st.get("realized_carry") or 0) * mult
-                rp_native = rp
-            else:
-                rn = float(st.get("realized_pnl") or 0)
-                rp_native += rn
-                rp += float(st.get("realized_pnl_cny") or 0) if foreign else rn
-                # carry = 不在当前浮动里的已实现 (已平仓段 + 分红). 当前持仓段的已实现已被
-                # 综合成本法摊进浮动盈亏, 顶部总盈亏只能加 carry, 否则重复算。
-                carry += float(st.get("realized_carry_cny") or 0) if foreign else float(st.get("realized_carry") or 0)
-                fx_pnl += float(st.get("realized_fx_pnl") or 0)
-            still = still or (st.get("shares") or 0) > 0
-        total += rp
-        total_carry += carry
+        ev = events_by_code.get(code) or {}
+        inc_n, inc_c = incomes.get(code, (0.0, 0.0))
+        rp = round(ev.get("realized_pnl", 0.0) + inc_c, 2)
+        rp_native = round(ev.get("realized_pnl_native", 0.0) + inc_n, 2)
         h = holdings_map.get(code) or {}
-        name = h.get("stock_name") or ""
-        # 已清仓股票 holdings 行可能已删 → 用 quote 缓存或 akshare 补名字
+        name = h.get("stock_name") or h.get("name") or ""
+        still = (h.get("shares") or 0) > 0
         if not name:
             try:
                 name = await get_stock_name(code) or ""
@@ -435,18 +433,24 @@ async def realized_pnl():
         items.append({
             "stock_code": code,
             "stock_name": name,
-            "realized_pnl": round(rp, 2),
-            "realized_carry": round(carry, 2),
-            "currency": "CNY" if is_deriv else code_currency(code),
-            "realized_pnl_native": round(rp_native, 2), "fx_rate": fx,
-            "fx_pnl": round(fx_pnl, 2),
+            "realized_pnl": rp,
+            "realized_carry": rp,      # 兼容键: 新口径下浮动不含已实现, carry ≡ realized 本身
+            "currency": code_currency(code),
+            "realized_pnl_native": rp_native,
+            "fx_rate": 1.0,
+            "fx_pnl": 0.0,             # 汇兑已含在每笔事件的 realized_pnl 里, 不再单列
             "still_holding": still,
+            "event_count": ev.get("event_count", 0),
+            "last_trade_date": ev.get("last_trade_date"),
         })
+        total += rp
+        total_native += rp_native
     items.sort(key=lambda x: x["realized_pnl"])
     return {
         "items": items,
         "total_realized_pnl": round(total, 2),
-        "total_realized_carry": round(total_carry, 2),
+        "total_realized_carry": round(total, 2),   # 兼容键 = total_realized_pnl
+        "total_realized_pnl_native": round(total_native, 2),
         "count": len(items),
     }
 
@@ -545,46 +549,6 @@ async def trade_review():
         s["floating"] = round(floating, 2)
         s["total_pnl"] = round(s["realized"] + floating, 2)
 
-    # 场内ETF/场外基金(外部资产账本)也是交易, 并进统计: 胜率/做T/持有天数与个股同口径。
-    # floating 用 lot 口径(=摊薄盈亏-周期内已实现), realized 用全量已实现, 两者相加=全周期真实盈亏,
-    # 与个股'综合成本法 realized+浮动'同一约定。
-    try:
-        from api.assets_routes import list_assets as _list_assets
-        from database import list_external_actions as _lea
-        _ACQ, _REL = {"BUY", "ADD", "DEPOSIT"}, {"REDEEM", "WITHDRAW"}
-        from datetime import date as _date
-        for a in (await _list_assets()).get("assets") or []:
-            if a.get("asset_type") != "FUND":
-                continue
-            acts = [x for x in await _lea(a["id"]) if (x.get("status") or "confirmed") == "confirmed"]
-            n_buy = sum(1 for x in acts if (x.get("action_type") or "").upper() in _ACQ)
-            n_sell = sum(1 for x in acts if (x.get("action_type") or "").upper() in _REL)
-            if not (n_buy or n_sell):
-                continue
-            realized = float(a.get("realized_pnl") or 0)
-            floating = round(float(a.get("pnl") or 0) - float(a.get("cycle_realized") or 0), 2)
-            shares = float(a.get("shares") or 0)
-            dcost = a.get("diluted_cost")
-            # 持有天数: 最早一笔未平买入至今
-            hold_days = 0
-            if shares > 0:
-                buy_dates = sorted(str(x.get("trade_date") or x.get("created_at") or "")[:10]
-                                   for x in acts if (x.get("action_type") or "").upper() in _ACQ)
-                if buy_dates and buy_dates[0]:
-                    try:
-                        hold_days = (_date.today() - _date.fromisoformat(buy_dates[0])).days
-                    except ValueError:
-                        pass
-            stats.append({
-                "code": str(a.get("code") or ""), "name": a.get("name") or "",
-                "realized": round(realized, 2), "shares": shares,
-                "cost_price": round(float(dcost) / shares, 4) if dcost and shares > 0 else 0,
-                "hold_days": hold_days, "n_buy": n_buy, "n_sell": n_sell,
-                "floating": floating, "total_pnl": round(realized + floating, 2),
-                "asset_class": "基金/ETF",
-            })
-    except Exception as e:
-        print(f"[trade-review] fund stats merge failed: {e}")
 
     n = len(stats)
     n_win = sum(1 for s in stats if s["total_pnl"] > 0)
@@ -677,54 +641,6 @@ async def trade_journal(limit: int = 80):
                 "kind": kind, "price": round(price, 3), "shares": float(a.get("shares") or 0) * fac,
                 "current": round(cur, 3), "pct": pct, "hit": hit, "asset_class": "stock",
                 "time": (a.get("trade_time") or None),   # 合并分笔成交要用它判"是不是连着的"
-            })
-
-    # ---- 基金/ETF 交易 (external_asset_actions): 场内ETF 当个股看, 场外基金当申购看 ----
-    from database import list_external_assets, list_external_actions
-    from services.external_assets import get_fund_quote, fund_kind_of
-    for a in await list_external_assets():
-        if a.get("asset_type") != "FUND":
-            continue
-        fcode = str(a.get("code") or "")
-        fname = a.get("name") or fcode
-        cls = fund_kind_of(a)                                # 场内ETF(etf) / 场外基金(open) / REITs(reits)
-        try:
-            fq = await get_fund_quote(fcode, cls)   # 带显式类型: reits 走 tickflow, 代码段位无法区分
-        except Exception:
-            fq = None
-        fcur = float((fq or {}).get("nav") or (fq or {}).get("est_nav") or 0)
-        acts = [x for x in await list_external_actions(a["id"])
-                if (x.get("status") or "confirmed") == "confirmed"]
-        # 份额拆分调整: 每笔成交按其后所有拆分 价格÷F/份额×F, 与现价同标度 ——
-        # 否则拆分前买入对现价会算出 -70% 假回撤喂给 AI 复盘, 轮次份额也对不上
-        fsplits = [(str(x.get("trade_date") or "")[:10], float(x.get("shares") or 0))
-                   for x in acts if (x.get("action_type") or "").upper() == "SPLIT"
-                   and float(x.get("shares") or 0) > 0]
-
-        def _split_factor_after(d: str) -> float:
-            f = 1.0
-            for sd, sf in fsplits:
-                if d < sd:
-                    f *= sf
-            return f
-
-        for act in acts:
-            at = (act.get("action_type") or "").upper()
-            kind = "buy" if at in ("BUY", "ADD") else ("sell" if at == "REDEEM" else None)
-            price = float(act.get("unit_price") or 0)
-            if not kind or price <= 0:
-                continue
-            d = (act.get("trade_date") or "")[:10]
-            fac = _split_factor_after(d)
-            price = price / fac
-            shares = abs(float(act.get("shares") or 0)) * fac
-            pct = round((fcur - price) / price * 100, 2) if fcur else None
-            hit = ((fcur > price) if kind == "buy" else (fcur < price)) if fcur else None
-            trades.append({
-                "date": d, "code": fcode, "name": fname,
-                "kind": kind, "price": round(price, 4), "shares": shares,
-                "current": round(fcur, 4) if fcur else None, "pct": pct, "hit": hit,
-                "asset_class": cls, "amount": round(float(act.get("amount") or 0), 2),
             })
 
     # 同一次决策的分笔成交合成一笔(均价×总量)。不合的话, 一次委托成交两笔在复盘里就是
@@ -1268,41 +1184,7 @@ async def benchmark_compare(symbol: str = "sh000300", days: int = 0):
         all_actions.extend(await get_position_actions(code, limit=500))
     all_actions.sort(key=lambda a: (a.get("trade_date") or "", a.get("id") or 0))
 
-    # 2b) 场内 ETF: 记在外部资产表里, 但买卖行为跟个股没有区别(实时市价、按手成交)。
-    #     不并进来这张卡只覆盖两成仓位 —— 实测 A股 亏 6.3k 而场内 ETF 亏 23.5k,
-    #     光看 A股 会把「跑输基准」的幅度严重低估。场外基金(定投/T+1 净值)、理财、
-    #     现金、机器人不并: 那是另一种行为, 混进来对照不出「择时+选标的」这件事。
-    from database import list_external_assets, list_external_actions
-    from services.external_assets import _is_onchain_etf
-    etf_assets = [x for x in await list_external_assets()
-                  if (x.get("asset_type") or "") == "FUND"
-                  and _is_onchain_etf(str(x.get("code") or ""))]
-    etf_flows: list[dict] = []          # 归一成 {date, cash, sign} —— cash 一律正数
-    etf_splits: dict[str, list] = {}    # code → [(date, factor)]; 份额折算是按标的的, 不能全局套
-    for x in etf_assets:
-        code_e = str(x.get("code") or "")
-        for act in await list_external_actions(x["id"]):
-            if (act.get("status") or "confirmed") != "confirmed":
-                continue
-            t_e = (act.get("action_type") or "").upper()
-            td_e = (act.get("trade_date") or "")[:10]
-            amt_e = float(act.get("amount") or 0)
-            fee_e = float(act.get("fee") or 0)
-            sh_e = float(act.get("shares") or 0)
-            if t_e == "SPLIT":
-                if sh_e > 0 and td_e:
-                    etf_splits.setdefault(code_e, []).append((td_e, sh_e))
-                continue
-            if not td_e or amt_e <= 0:
-                continue
-            # 外部流水的 amount 语义: 买入已含手续费, 卖出是毛额需自减
-            if t_e in ("BUY", "ADD"):
-                etf_flows.append({"code": code_e, "trade_date": td_e, "cash": amt_e,
-                                  "sign": 1, "shares": sh_e})
-            elif t_e in ("REDEEM", "SELL", "REDUCE"):
-                etf_flows.append({"code": code_e, "trade_date": td_e, "cash": amt_e - fee_e,
-                                  "sign": -1, "shares": sh_e})
-    etf_flows.sort(key=lambda f: f["trade_date"])
+
 
     # 2.5) 窗口档必须带上「期初持仓」, 否则窗口内卖掉的老仓位有「收回」没「投入」,
     #      凭空变成收益。实测 3 月档因此把 -4324 报成 +6675, 连正负号都是反的;
@@ -1350,34 +1232,7 @@ async def benchmark_compare(symbol: str = "sh000300", days: int = 0):
                 # 价拉不到就如实标 null, 别拿成本价冒充市值 —— 前端据此提示口径不完整
                 opening_detail.append({"code": c0, "shares": sh0, "close": None})
 
-        # 场内 ETF 的期初持仓。份额要折算到现行标度: _close_on_or_before 取的是前复权价,
-        # 而截止日之后若发生过份额折算(SPLIT), 当时的原始份额与前复权价不同标度,
-        # 直接相乘会把市值算成 1/F。做法与 portfolio_curve.adjust_to_final_scale 一致。
-        etf_pos: dict[str, float] = {}
-        for f in etf_flows:
-            if f["trade_date"] >= cutoff:
-                continue
-            etf_pos[f["code"]] = etf_pos.get(f["code"], 0.0) + f["sign"] * f["shares"]
-        for c0, sh0 in etf_pos.items():
-            if sh0 <= 0:
-                continue
-            for sd, fac in etf_splits.get(c0, []):
-                if sd < cutoff:
-                    sh0 *= fac          # 截止日之前的折算: 直接作用在余额上
-            scale_after = 1.0
-            for sd, fac in etf_splits.get(c0, []):
-                if sd >= cutoff:
-                    scale_after *= fac   # 截止日之后的折算: 折到现行标度与前复权价对齐
-            sh_adj = sh0 * scale_after
-            px0 = await _close_on_or_before(c0, cutoff)
-            if px0:
-                opening_mv += sh_adj * px0
-                opening_detail.append({"code": c0, "shares": round(sh_adj, 2),
-                                       "close": round(px0, 3), "kind": "ETF"})
-            else:
-                opening_detail.append({"code": c0, "shares": round(sh_adj, 2),
-                                       "close": None, "kind": "ETF"})
-        etf_flows = [f for f in etf_flows if f["trade_date"] >= cutoff]
+
 
     # 佣金 5 元起按「委托单」收一次 —— 逐笔各取一次会把分笔成交重复计费
     from services.position_ledger import allocate_trade_fees as _alloc_fees
@@ -1428,20 +1283,6 @@ async def benchmark_compare(symbol: str = "sh000300", days: int = 0):
             bench_shares_total -= cash_in / close
         # 其他类型 (DIVIDEND etc) 暂忽略
 
-    # 3b) 场内 ETF 的现金流(手续费已在 cash 里处理好, 见上面归一那段)
-    for f in etf_flows:
-        td = f["trade_date"]
-        if first_action_date is None or td < first_action_date:
-            first_action_date = td
-        close = bench_cny_on_or_after(td)
-        if close is None or close <= 0:
-            skipped += 1; continue
-        if f["sign"] > 0:
-            buy_total += f["cash"]
-            bench_shares_total += f["cash"] / close
-        else:
-            sell_total += f["cash"]
-            bench_shares_total -= f["cash"] / close
 
     # 4) 用户当前个股市值(港美股按实时汇率折人民币)
     holdings = await get_all_holdings()
@@ -1464,19 +1305,6 @@ async def benchmark_compare(symbol: str = "sh000300", days: int = 0):
                 fx_cur_mv += v
             elif price > 0:
                 user_cur_mv += price * float(h.get("shares") or 0)
-    # 4b) 场内 ETF 现值。走看板同一套 enrich(份额已含 SPLIT 折算), 不自己再算一遍份额。
-    etf_cur_mv = 0.0
-    if etf_assets:
-        try:
-            from api.assets_routes import list_assets as _list_assets
-            live = {a["id"]: a for a in ((await _list_assets()).get("assets") or [])}
-            for x in etf_assets:
-                v = live.get(x["id"], {}).get("current_value")
-                if v:
-                    etf_cur_mv += float(v)
-        except Exception:
-            pass
-    user_cur_mv += etf_cur_mv
 
     # 5) 计算 (opening_mv 已计入 buy_total, 所以窗口档这里不用再单独减)
     user_pnl = user_cur_mv + sell_total - buy_total
@@ -1513,9 +1341,6 @@ async def benchmark_compare(symbol: str = "sh000300", days: int = 0):
             "fx_actions": sum(1 for a in all_actions if _is_fx(a.get("stock_code") or "")
                               and (a.get("action_type") or "") in ACQUIRE | RELEASE),
             "fx_current_mv": round(fx_cur_mv, 2),
-            "etf_actions": len(etf_flows),
-            "etf_codes": sorted({f["code"] for f in etf_flows}),
-            "etf_current_mv": round(etf_cur_mv, 2),
         },
         "user": {
             "buy_total": round(buy_total, 2),
@@ -1537,86 +1362,6 @@ async def benchmark_compare(symbol: str = "sh000300", days: int = 0):
             "pnl_diff": round(alpha_pnl, 2),
             "pct_diff": round(user_ret_pct - bench_ret_pct, 2),
         },
-    }
-
-
-@router.get("/concentration")
-async def sector_concentration():
-    """Compute per-sector market value concentration.
-
-    Returns:
-        {
-            "total_value": ...,
-            "sectors": [{"sector": "有色金属", "value": ..., "pct": 1.0, "stocks": ["000878","601168","601958"]}, ...],
-            "max_concentration": 1.0,
-            "level": "critical" | "warning" | "ok",
-            "message": "..."
-        }
-    """
-    holdings = await get_all_holdings()
-    holdings = [h for h in holdings if is_a_share(h["stock_code"])]
-    if not holdings:
-        return {"total_value": 0, "sectors": [], "max_concentration": 0, "level": "ok", "message": ""}
-
-    codes = [h["stock_code"] for h in holdings]
-    quotes = await get_realtime_quotes(codes)
-
-    # Look up sectors in parallel
-    import asyncio
-    sector_tasks = [get_stock_sector(c) for c in codes]
-    sectors = await asyncio.gather(*sector_tasks, return_exceptions=True)
-    sector_map = {}
-    for code, sec in zip(codes, sectors):
-        if isinstance(sec, Exception) or not sec:
-            sec = "其他"
-        sector_map[code] = sec
-
-    total_value = 0.0
-    by_sector: dict[str, dict] = {}
-    for h in holdings:
-        code = h["stock_code"]
-        q = quotes.get(code)
-        if not q or q["price"] <= 0:
-            price = h["cost_price"]
-        else:
-            price = q["price"]
-        mv = price * h["shares"]
-        total_value += mv
-        sec = sector_map[code]
-        if sec not in by_sector:
-            by_sector[sec] = {"sector": sec, "value": 0.0, "stocks": []}
-        by_sector[sec]["value"] += mv
-        by_sector[sec]["stocks"].append({
-            "stock_code": code,
-            "stock_name": h.get("stock_name", ""),
-            "value": round(mv, 2),
-        })
-
-    sector_list = sorted(by_sector.values(), key=lambda x: -x["value"])
-    for s in sector_list:
-        s["pct"] = round(s["value"] / total_value, 4) if total_value > 0 else 0
-        s["value"] = round(s["value"], 2)
-
-    max_pct = sector_list[0]["pct"] if sector_list else 0
-
-    if max_pct >= 0.80:
-        level = "critical"
-        top = sector_list[0]
-        message = f"⚠️ {top['sector']} 占比 {int(top['pct']*100)}% — 组合=单一板块，加仓等同加杠杆"
-    elif max_pct >= 0.50:
-        level = "warning"
-        top = sector_list[0]
-        message = f"⚠️ {top['sector']} 占比 {int(top['pct']*100)}% — 集中度偏高，考虑分散到其他板块"
-    else:
-        level = "ok"
-        message = ""
-
-    return {
-        "total_value": round(total_value, 2),
-        "sectors": sector_list,
-        "max_concentration": round(max_pct, 4),
-        "level": level,
-        "message": message,
     }
 
 
@@ -1812,12 +1557,15 @@ async def create_holding(data: HoldingCreate):
         await update_holding(stock_code, _direction=direction, stock_name=name,
                              contract_multiplier=holding_mult, main_assets_type=main_at,
                              sub_assets_type=sat,
-                             **({"strike_price": data.strike_price} if data.strike_price is not None else {}))
+                             **({"strike_price": data.strike_price} if data.strike_price is not None else {}),
+                             **({"coupon_rate": data.coupon_rate} if data.coupon_rate is not None else {}),
+                             **({"maturity_date": data.maturity_date} if data.maturity_date is not None else {}))
     else:
         await add_holding(stock_code, name, data.shares, data.cost_price,
                           direction=direction, contract_multiplier=holding_mult, main_assets_type=main_at,
                           sub_assets_type=sat, purchase_date=data.trade_date,
-                          strike_price=data.strike_price, option_type=opt_type)
+                          strike_price=data.strike_price, option_type=opt_type,
+                          coupon_rate=data.coupon_rate, maturity_date=data.maturity_date)
     # 1b) 如果前端传了券商, 在 recompute 之前写入, 这样 _recompute_holding 能用正确的费率
     if data.broker:
         await update_holding(stock_code, broker=data.broker, _direction=direction)
@@ -1859,6 +1607,10 @@ async def modify_holding(stock_code: str, data: HoldingUpdate, direction: str = 
         kwargs["broker"] = data.broker
     if data.strike_price is not None:     # 期权: 行权价(合约固定属性)
         kwargs["strike_price"] = data.strike_price
+    if data.coupon_rate is not None:      # 固收: 票面利率/业绩基准
+        kwargs["coupon_rate"] = data.coupon_rate
+    if data.maturity_date is not None:    # 固收: 到期日
+        kwargs["maturity_date"] = data.maturity_date
 
     await update_holding(stock_code, _direction=existing.get("direction"), **kwargs)
     return {"message": "更新成功"}
@@ -1898,7 +1650,7 @@ def _today_cst_str() -> str:
 
 
 async def _portfolio_total_value() -> float:
-    """全资产当前总值(¥): 持仓市值 + 场外资产现值, 与看板顶栏同一套 enrich。
+    """全资产当前总值(¥): 持仓市值(holdings), 与看板顶栏同一套 enrich。
 
     任一边失败按 0 计(打印日志), 不让单边故障把整行快照写坏。
     """
@@ -1912,11 +1664,7 @@ async def _portfolio_total_value() -> float:
             total += float(h.get("margin_value") or h.get("market_value") or 0)
     except Exception as e:
         print(f"[pnl-calendar] 持仓市值汇总失败: {e}")
-    try:
-        from api.assets_routes import list_assets
-        total += float(((await list_assets()).get("summary") or {}).get("total_value") or 0)
-    except Exception as e:
-        print(f"[pnl-calendar] 场外资产汇总失败: {e}")
+
     return round(total, 2)
 
 
@@ -2058,7 +1806,14 @@ async def create_action(stock_code: str, data: ActionCreate):
         raise HTTPException(400, "期货/期权的开仓/平仓必须带方向(多/空)")
     holding = await get_holding(stock_code, direction=_direction)
     if not holding:
-        raise HTTPException(404, f"持仓 {stock_code} 不存在")
+        # direction 未带(普通买卖)时兜底任意一行 —— 命中后**继承该行的方向**落库:
+        # 股票建仓行也是 LONG(open 统一带方向), 后续 BUY/SELL 不继承就会被 direction
+        # 过滤隔离成两本账, 且 update_holding(direction=None) 匹配不到 LONG 行(实测持仓行不更新)。
+        holding = await get_holding(stock_code)
+        if not holding:
+            raise HTTPException(404, f"持仓 {stock_code} 不存在")
+    if not _direction:
+        _direction = (holding.get("direction") or "").upper() or None
     # 股票空头行: 只收 开仓/平仓(卖出开仓/买入平仓), 买卖(BUY/SELL)属于多头行
     is_short_stock = ((holding.get("direction") or "").upper() == "SHORT"
                       and not is_derivative_kind(holding.get("main_assets_type")))

@@ -48,7 +48,7 @@ export default function BenchmarkCompare() {
   if (loading) return <SkeletonCard rows={4} label="基准对照加载中" />
   if (err) {
     return (
-      <section className="rounded-xl border border-border bg-surface/60 px-3 md:px-5 py-3 text-[12px] text-bear">
+      <section className="rounded-xl border border-border bg-surface/60 px-3 md:px-5 py-3 text-[0.8571rem] text-bear">
         {err}
       </section>
     )
@@ -68,8 +68,8 @@ export default function BenchmarkCompare() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-baseline justify-between flex-wrap gap-2"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">跑赢基准对照</h3>
-          <span className="text-[11px] text-text-dim">
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">跑赢基准对照</h3>
+          <span className="text-[0.7857rem] text-text-dim">
             {data.action_count} 笔操作 · 起 {data.first_action_date || '--'}
           </span>
         </div>
@@ -77,7 +77,7 @@ export default function BenchmarkCompare() {
           <div className="flex gap-0.5">
             {SYMBOLS.map(s => (
               <button key={s.v} onClick={() => pickSymbol(s.v)}
-                className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer"
+                className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer"
                 style={{
                   border: '1px solid',
                   borderColor: symbol === s.v ? 'var(--color-accent)' : 'var(--color-border-med)',
@@ -92,7 +92,7 @@ export default function BenchmarkCompare() {
           <div className="flex gap-0.5">
             {WINDOWS.map(w => (
               <button key={w.v} onClick={() => pickWindow(w.v)}
-                className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer"
+                className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer"
                 style={{
                   border: '1px solid',
                   borderColor: windowDays === w.v ? 'var(--color-accent)' : 'var(--color-border-med)',
@@ -110,24 +110,24 @@ export default function BenchmarkCompare() {
       <div className={`px-3 md:px-5 py-2.5 ${alphaPos ? 'bg-bear/8' : 'bg-bull/8'} border-b border-border-subtle`}>
         <div className="flex items-baseline justify-between flex-wrap gap-2">
           <div>
-            <span className="text-[12px] text-text">
+            <span className="text-[0.8571rem] text-text">
               你的操作{alphaPos ? '跑赢' : '跑输'}基准
             </span>
-            <span className={`ml-2 font-mono text-[15px] font-bold ${colorOf(a.pnl_diff)}`}>
+            <span className={`ml-2 font-mono text-[1.0714rem] font-bold ${colorOf(a.pnl_diff)}`}>
               {fmtSigned(a.pnl_diff)}
             </span>
-            <span className={`ml-1.5 font-mono text-[12px] ${colorOf(a.pct_diff)}`}>
+            <span className={`ml-1.5 font-mono text-[0.8571rem] ${colorOf(a.pct_diff)}`}>
               ({fmtPct(a.pct_diff)})
             </span>
           </div>
-          <span className="text-[10.5px] text-text-muted">
+          <span className="text-[0.75rem] text-text-muted">
             假设同金额同日期买基准, 与你的实际操作对比
           </span>
         </div>
         {!alphaPos && (
           /* 原文案写「如果不动」是错的 —— 模型并不是买入持有, 它把你每一笔买卖
              都同金额同日镜像到基准上。选股这件事才是被对照的变量。 */
-          <div className="text-[10.5px] text-text-dim mt-1">
+          <div className="text-[0.75rem] text-text-dim mt-1">
             同样的钱、同样的时点，如果全买 {SYMBOLS.find(s => s.v === symbol)?.label || symbol} 而不是自己选股，
             这段时间会多 ¥{fmtMoney(Math.abs(a.pnl_diff))}.
           </div>
@@ -137,8 +137,8 @@ export default function BenchmarkCompare() {
       {/* 双栏明细 */}
       <div className="grid grid-cols-2 gap-px bg-border-subtle">
         <div className="bg-surface px-3 md:px-5 py-3">
-          <div className="text-[11px] text-text-dim mb-1.5">你的实际操作</div>
-          <div className="grid grid-cols-2 gap-y-1 text-[11.5px]">
+          <div className="text-[0.7857rem] text-text-dim mb-1.5">你的实际操作</div>
+          <div className="grid grid-cols-2 gap-y-1 text-[0.8214rem]">
             <span className="text-text-muted">投入</span>
             <span className="text-right font-mono">¥{fmtMoney(u.buy_total)}</span>
             <span className="text-text-muted">已收回</span>
@@ -156,10 +156,10 @@ export default function BenchmarkCompare() {
           </div>
         </div>
         <div className="bg-surface px-3 md:px-5 py-3">
-          <div className="text-[11px] text-text-dim mb-1.5">
+          <div className="text-[0.7857rem] text-text-dim mb-1.5">
             等额买 {SYMBOLS.find(s => s.v === symbol)?.label || symbol}
           </div>
-          <div className="grid grid-cols-2 gap-y-1 text-[11.5px]">
+          <div className="grid grid-cols-2 gap-y-1 text-[0.8214rem]">
             <span className="text-text-muted">投入</span>
             <span className="text-right font-mono">¥{fmtMoney(u.buy_total)}</span>
             <span className="text-text-muted">已收回 (同金额)</span>
@@ -178,7 +178,7 @@ export default function BenchmarkCompare() {
         </div>
       </div>
 
-      <div className="px-3 md:px-5 py-2 bg-surface-2/40 text-[10.5px] text-text-muted leading-relaxed">
+      <div className="px-3 md:px-5 py-2 bg-surface-2/40 text-[0.75rem] text-text-muted leading-relaxed">
         模型: dollar-matched 等额对比. 你每次买/卖, 假设同金额同日期在基准上同向操作.
         手续费已含 (你的: 万2.5+5起+印花税, 按费率估算非实录; 基准默认 0).
         范围: A 股个股 {data.scope?.a_share_actions ?? 0} 笔

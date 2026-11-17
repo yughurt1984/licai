@@ -44,7 +44,7 @@ export default function PnlCalendar() {
   if (loading && !data) return <SkeletonCard rows={4} label="盈亏日历加载中" />
   if (err) {
     return (
-      <section className="rounded-xl border border-border bg-surface/60 px-3 md:px-5 py-3 text-[12px] text-bear">
+      <section className="rounded-xl border border-border bg-surface/60 px-3 md:px-5 py-3 text-[0.8571rem] text-bear">
         {err}
       </section>
     )
@@ -68,8 +68,8 @@ export default function PnlCalendar() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-baseline justify-between flex-wrap gap-2"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">盈亏日历</h3>
-          <span className="text-[11px] text-text-dim">
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">盈亏日历</h3>
+          <span className="text-[0.7857rem] text-text-dim">
             {data.recorded_days > 0
               ? <>当月 <span className="font-mono font-semibold" style={{ color: mpTone.text }}>{fmtSigned(mp)}</span> · {data.recorded_days} 天有记录</>
               : '当月暂无记录'}
@@ -77,13 +77,13 @@ export default function PnlCalendar() {
         </div>
         <div className="flex items-center gap-1">
           <button onClick={() => setMonth(shiftMonth(month, -1))} title="上个月"
-            className="px-2 py-[2px] rounded text-[12px] border border-border-med text-text-dim hover:text-text cursor-pointer">‹</button>
-          <span className="font-mono text-[12px] text-text px-1">{month}</span>
+            className="px-2 py-[2px] rounded text-[0.8571rem] border border-border-med text-text-dim hover:text-text cursor-pointer">‹</button>
+          <span className="font-mono text-[0.8571rem] text-text px-1">{month}</span>
           <button onClick={() => setMonth(shiftMonth(month, 1))} disabled={atLatest} title={atLatest ? '没有更新的记录' : '下个月'}
-            className={`px-2 py-[2px] rounded text-[12px] border border-border-med ${atLatest ? 'opacity-30 cursor-not-allowed text-text-muted' : 'text-text-dim hover:text-text cursor-pointer'}`}>›</button>
+            className={`px-2 py-[2px] rounded text-[0.8571rem] border border-border-med ${atLatest ? 'opacity-30 cursor-not-allowed text-text-muted' : 'text-text-dim hover:text-text cursor-pointer'}`}>›</button>
           {month !== today.slice(0, 7) && (
             <button onClick={() => setMonth(today.slice(0, 7))}
-              className="ml-1 px-2 py-[2px] rounded text-[10.5px] border border-accent/40 text-accent hover:bg-accent/10 cursor-pointer">今</button>
+              className="ml-1 px-2 py-[2px] rounded text-[0.75rem] border border-accent/40 text-accent hover:bg-accent/10 cursor-pointer">今</button>
           )}
         </div>
       </div>
@@ -92,7 +92,7 @@ export default function PnlCalendar() {
       <div className="px-2 md:px-3 py-2.5">
         <div className="grid grid-cols-7 gap-1 mb-1">
           {WEEK.map(w => (
-            <div key={w} className="text-center text-[10px] text-text-muted py-0.5">{w}</div>
+            <div key={w} className="text-center text-[0.7143rem] text-text-muted py-0.5">{w}</div>
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1">
@@ -115,26 +115,26 @@ export default function PnlCalendar() {
                   border: isToday ? '1.5px solid var(--color-accent)' : '1px solid transparent',
                   opacity: isFuture ? 0.35 : 1,
                 }}>
-                <span className={`text-[10px] leading-none ${isToday ? 'text-accent font-semibold' : 'text-text-muted'}`}>
+                <span className={`text-[0.7143rem] leading-none ${isToday ? 'text-accent font-semibold' : 'text-text-muted'}`}>
                   {i + 1}
                 </span>
                 {rec?.pnl != null ? (
                   <>
-                    <span className="font-mono text-[10.5px] leading-tight mt-0.5" style={{ color: t.text }}>
+                    <span className="font-mono text-[0.75rem] leading-tight mt-0.5" style={{ color: t.text }}>
                       {rec.pnl > 0 ? '+' : rec.pnl < 0 ? '−' : ''}{fmtMoney(Math.abs(rec.pnl))}
                     </span>
-                    <span className="font-mono text-[9.5px] leading-tight opacity-80" style={{ color: t.text }}>
+                    <span className="font-mono text-[0.6786rem] leading-tight opacity-80" style={{ color: t.text }}>
                       {fmtPct(rec.pct)}
                     </span>
                   </>
                 ) : !isFuture && (
-                  <span className="text-[9.5px] text-text-muted mt-auto pb-0.5">—</span>
+                  <span className="text-[0.6786rem] text-text-muted mt-auto pb-0.5">—</span>
                 )}
               </div>
             )
           })}
         </div>
-        <div className="text-[9.5px] text-text-muted mt-1.5 leading-relaxed">
+        <div className="text-[0.6786rem] text-text-muted mt-1.5 leading-relaxed">
           当日盈亏=现市值+今日卖出所得−昨收市值−今日买入成本(含手续费), 与顶栏「今日」同一份计算; 现金/理财利息不计。
           {data.snapshot_error && <span className="text-warn"> 今天快照失败: {data.snapshot_error}</span>}
         </div>

@@ -387,7 +387,7 @@ async def _get_group_quotes(group: str, codes: list[str], force: bool = False) -
 async def _fx_map_from_store() -> dict[str, float]:
     """PG 的 fx 快照 → {USD: rate, HKD: rate}。没有则空 dict(调用方回退 get_fx_info)。"""
     try:
-        rows = await market_store.get_stored_quotes(["USDCNY", "HKDCNY"])
+        rows = await market_store.get_stored_quotes(["USDCNY", "HKDCNY", "JPYCNY"])
         out = {}
         for sym, r in rows.items():
             px = r.get("price")
@@ -463,86 +463,20 @@ async def _macro_from_store() -> dict:
 
 
 def get_fx_info(currency: str, allow_network: bool | None = None) -> dict:
-    """Fetch CNY conversion info for a quote currency.
+    """当前汇率 = 外管局中间价序列最新行(当天未发布顺延前一交易日)。
 
-    Sina exposes bid/ask style fields; portfolio valuation uses their midpoint
-    to avoid leaning on one side of the spread.
-    allow_network=None 按全局 quote_auto_fetch 决定; 纯 PG 模式下不联网,
-    依次回退: 内存缓存 → 上次成功价(落盘) → 写死近似值(source 标注非实时)。
-    """
+    盘中实时链(sina)已下线 —— 记账一天一个价, 当日统计直接取 fx_daily 序列。
+    allow_network 参数保留兼容旧调用方, 已无作用。"""
     currency = (currency or "CNY").upper()
     if currency == "CNY":
-        return {"rate": 1.0, "source": "CNY", "time": ""}
-    fallback = {"USD": 7.2, "HKD": 0.92}.get(currency, 1.0)
-    symbol = {"USD": "USDCNY", "HKD": "HKDCNY"}.get(currency)
-    if not symbol:
-        return {"rate": fallback, "source": "fallback", "time": ""}
-    cache_key = f"fx_{currency}_cny"
-    cached = _cache_get(cache_key, 300)
-    if cached is not None:
-        return cached
-    if allow_network is None:
-        allow_network = quote_auto_fetch()
-    if not allow_network:
-        last = _fx_recall(currency)
-        if last:
-            return {"rate": last["rate"], "source": "last_known", "time": last.get("at", "")}
-        return {"rate": fallback, "source": "fallback", "time": ""}
-    try:
-        resp = _requests.get(
-            f"https://hq.sinajs.cn/list={symbol}",
-            headers={"Referer": "https://finance.sina.com.cn"},
-            timeout=5,
-        )
-        resp.encoding = "gbk"
-        match = re.search(r'"([^"]+)"', resp.text)
-        if match:
-            fields = match.group(1).split(",")
-            bid = float(fields[1]) if len(fields) > 1 and fields[1] else 0
-            ask = float(fields[2]) if len(fields) > 2 and fields[2] else 0
-            rate = round((bid + ask) / 2, 6) if bid > 0 and ask > 0 else bid
-            if rate > 0:
-                data = {
-                    "rate": rate,
-                    "source": "sina_bid_ask_mid",
-                    "time": fields[0] if fields else "",
-                }
-                _cache_set(cache_key, data)
-                _fx_remember(currency, rate)
-                # write-through: 实时汇率落 PG(fx_daily 攒历史 + quote_latest 存最新)
-                market_store.spawn(market_store.save_fx_day(
-                    symbol, _cst_now().date().isoformat(), rate, "sina"))
-                market_store.spawn(market_store.save_quotes([{
-                    "code": symbol, "ticker": _quote_ticker(symbol),
-                    "sub_assets_type": "", "name": f"{currency}/CNY",
-                    "price": rate, "currency": "CNY", "data_source": "sina"}]))
-                return data
-    except Exception:
-        pass
-    # 取不到: 先用上次成功取到的(落盘), 再不行才用写死的近似值; source 标出来, 前端/日志能看出不是实时汇率
-    last = _fx_recall(currency)
-    if last:
-        return {"rate": last["rate"], "source": "last_known", "time": last.get("at", "")}
-    return {"rate": fallback, "source": "fallback", "time": ""}
+        return {"rate": 1.0, "source": "safe_parity", "time": ""}
+    rate, used_day = _fx_rate_lookup(currency, _cst_now().strftime("%Y-%m-%d"))
+    if used_day:
+        return {"rate": rate, "source": "safe_parity", "time": used_day}
+    return {"rate": rate, "source": "fallback", "time": ""}
 
 
 _FX_FILE = Path(__file__).resolve().parents[1] / "fx_last.json"
-
-
-def _fx_remember(currency: str, rate: float) -> None:
-    try:
-        d = json.loads(_FX_FILE.read_text()) if _FX_FILE.exists() else {}
-        d[currency] = {"rate": rate, "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
-        _FX_FILE.write_text(json.dumps(d))
-    except Exception:  # noqa: BLE001  落盘失败不影响取价
-        pass
-
-
-def _fx_recall(currency: str) -> dict | None:
-    try:
-        return json.loads(_FX_FILE.read_text()).get(currency)
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def quote_today_valid(market: str, q: dict | None) -> bool | None:
@@ -592,9 +526,9 @@ def quote_session_date(market: str, q: dict | None) -> str | None:
 
 
 def code_currency(stock_code: str) -> str:
-    """按代码判币种: 港股 HKD、美股 USD、其余 CNY。"""
+    """按代码判币种: 港股 HKD、美股 USD、日股 JPY、其余 CNY。"""
     m = split_stock_code(stock_code)[0]
-    return {"HK": "HKD", "US": "USD"}.get(m, "CNY")
+    return {"HK": "HKD", "US": "USD", "JP": "JPY"}.get(m, "CNY")
 
 
 def code_fx(stock_code: str) -> float:
@@ -608,127 +542,161 @@ def get_fx_rate(currency: str) -> float:
     return float(get_fx_info(currency).get("rate") or 1.0)
 
 
-# 历史汇率: 中国银行外汇牌价(akshare currency_boc_sina, 新浪转载)的现汇买入价/卖出价中点, 每 100 外币折人民币。
-# 选它而不是外管局中间价: 实时汇率取的是新浪 USDCNY/HKDCNY 的买卖中点(市场价), 中间价与市场价常差 0.5% 上下,
-# 过去用中间价、今天用市场价会凭空造出一笔汇兑损益; 中行牌价中点与新浪实时同属市场价(实测 2026-10-09
-# 美元 6.6999 vs 6.6969), 节假日也有牌价。取不到再退外管局中间价(currency_boc_safe)。
-# 2023 年起整段约几秒, 内存缓存 6 小时 + 落盘(fx_last.json 的 history 键, 已在 .gitignore), 断网时用盘上那份。
-_FX_HIST_BOC = {"USD": "美元", "HKD": "港币"}
-_FX_HIST_SAFE = {"USD": "美元", "HKD": "港元"}
-_FX_HIST_TTL = 6 * 3600
+# ── 汇率历史: 外管局人民币汇率中间价, 单源 · 一天一个价 ────────────────────────
+# 数据源: akshare fx_central_parity_safe(SAFE 官方中间价, 一次全历史全货币, 实测 ~8s/8086 行)。
+# 记账口径: 当日统计直接取序列最新行 —— 当天未发布(9:15 前/节假日)顺延前一交易日, 无盘中实时链。
+# 标价法: 直接标价币种(100 外币折人民币)→ /100; 间接标价(100 人民币折外币, 林吉特/卢布/
+# 兰特/韩元/迪拉姆/里亚尔/福林/兹罗提/丹麦克朗/瑞典克朗/挪威克朗/里拉/比索/泰铢)→ 100/值。
+# 新增市场只需在此表加一行(如 SGD: ("新加坡元", True)), 取数/入库/折算全自动。
+_FX_PARITY: dict[str, tuple[str, bool]] = {
+    "USD": ("美元", True), "EUR": ("欧元", True), "JPY": ("日元", True),
+    "HKD": ("港元", True), "GBP": ("英镑", True), "AUD": ("澳元", True),
+    "NZD": ("新西兰元", True), "SGD": ("新加坡元", True), "CHF": ("瑞士法郎", True),
+    "CAD": ("加元", True), "MOP": ("澳门元", True),
+    "MYR": ("林吉特", False), "RUB": ("卢布", False), "ZAR": ("兰特", False),
+    "KRW": ("韩元", False), "AED": ("迪拉姆", False), "SAR": ("里亚尔", False),
+    "HUF": ("福林", False), "PLN": ("兹罗提", False), "DKK": ("丹麦克朗", False),
+    "SEK": ("瑞典克朗", False), "NOK": ("挪威克朗", False), "TRY": ("里拉", False),
+    "MXN": ("比索", False), "THB": ("泰铢", False),
+}
+_FX_FALLBACK = {"USD": 7.2, "HKD": 0.92, "JPY": 0.042, "SGD": 5.2}
+_FX_PARITY_TTL = 6 * 3600
+_fx_parity_cache: list = [None, 0.0]      # (全货币序列 {cur: {date: rate}}, ts)
 
 
-def fx_history(currency: str) -> dict[str, float]:
-    """date(YYYY-MM-DD) → 当日汇率(每 1 外币折人民币)。只支持 USD / HKD; 取不到返回 {}。
-
-    历史序列的持久层是 PG fx_daily(进程缓存, 见 market_store.warm_fx_cache), 旧了才回源
-    磁盘/BOC, 回源成功后回写 PG。
-    """
-    currency = (currency or "").upper()
-    if currency not in _FX_HIST_BOC:
-        return {}
-    cached = _cache_get("fx_hist_all", _FX_HIST_TTL)
-    if cached is None:
-        cached = _fx_history_all()
-        if cached:
-            _cache_set("fx_hist_all", cached)
-    return (cached or {}).get(currency) or {}
+def _fx_parity_fetch() -> dict[str, dict[str, float]]:
+    """SAFE 中间价全历史 → {currency: {date: rate}}。~8s 一次, 只在日度刷新里 to_thread 调。"""
+    df = ak.fx_central_parity_safe()
+    series: dict[str, dict[str, float]] = {c: {} for c in _FX_PARITY}
+    for _, r in df.iterrows():
+        d = str(r["日期"])[:10]
+        for cur, (col, direct) in _FX_PARITY.items():
+            v = r.get(col)
+            if v is None or v != v or float(v) <= 0:
+                continue
+            rate = float(v) / 100.0 if direct else 100.0 / float(v)
+            series[cur][d] = round(rate, 6)
+    return {c: m for c, m in series.items() if m}
 
 
-def _fx_history_all() -> dict:
-    """全货币历史汇率: PG 缓存优先, 旧了/空了走 磁盘→BOC→SAFE, 成功后回写 PG。"""
-    from services import market_store as _ms
-    yday = (_cst_now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    # PG: fx_daily 经进程缓存读出(同步、零 IO)
-    from_db = {c: _ms.fx_history_cached(f"{c}CNY") for c in _FX_HIST_BOC}
-    from_db = {c: v for c, v in from_db.items() if v}
-    if from_db and max(max(v) for v in from_db.values()) >= yday:
-        return from_db
-    cached = _fx_history_disk()
-    if not quote_auto_fetch():
-        # 纯 PG 模式: 不回源中行牌价(联网), PG/磁盘里有就用那份(缺的日子按最近已知折算),
-        # 新数据等日批量任务写入 fx_daily。
-        return cached or from_db
-    if not cached or max(cached.get("USD") or {"": 0}) < yday:   # 盘上那份旧了(只用到昨天为止)才重拉
-        cached = _fx_history_fetch()
-    if cached:
-        for cur, series in cached.items():
-            _ms.spawn(_ms.save_fx_history(f"{cur}CNY", series, source="boc"))
-    return cached
+def _fx_parity_expected_latest() -> str:
+    """最近一个已发布中间价的交易日: 今天是交易日且已过 9:30 → 今天; 否则上一个交易日。"""
+    from datetime import timedelta as _td
+    d = _cst_now().date()
+    if _is_a_share_trading_day(d) and _cst_now().strftime("%H:%M") >= "09:30":
+        return d.isoformat()
+    d -= _td(days=1)
+    for _ in range(30):
+        if _is_a_share_trading_day(d):
+            return d.isoformat()
+        d -= _td(days=1)
+    return d.isoformat()
 
 
-def _fx_history_disk() -> dict:
+def _fx_parity_disk() -> dict:
     try:
-        return json.loads(_FX_FILE.read_text()).get("history") or {}
+        return json.loads(_FX_FILE.read_text()).get("parity") or {}
     except Exception:  # noqa: BLE001
         return {}
 
 
-def _fx_history_boc() -> dict:
-    out: dict = {}
-    end = _cst_now().strftime("%Y%m%d")
-    for cur, sym in _FX_HIST_BOC.items():
-        df = ak.currency_boc_sina(symbol=sym, start_date="20230101", end_date=end)
-        m = {}
-        for _, r in df.iterrows():
-            buy, sell = float(r["中行汇买价"] or 0), float(r["中行钞卖价/汇卖价"] or 0)
-            if buy > 0 and sell > 0:
-                m[str(r["日期"])[:10]] = round((buy + sell) / 200, 6)
-        if not m:
-            return {}
-        out[cur] = m
-    return out
+def _fx_parity_disk_write(series: dict) -> None:
+    try:
+        _FX_FILE.write_text(json.dumps({"parity": series}))   # 旧形态(实时 last_known)一并作废
+    except Exception:  # noqa: BLE001  落盘失败不影响取数
+        pass
 
 
-def _fx_history_safe() -> dict:
-    df = ak.currency_boc_safe()
-    out: dict = {c: {} for c in _FX_HIST_SAFE}
-    for _, r in df.iterrows():
-        d = str(r["日期"])[:10]
-        if d < "2023-01-01":
-            continue
-        for cur, col in _FX_HIST_SAFE.items():
-            v = r.get(col)
-            if v is not None and v == v and float(v) > 0:
-                out[cur][d] = round(float(v) / 100, 6)
-    return out if out["USD"] else {}
+async def _fx_parity_to_pg(series: dict, have: dict) -> None:
+    """序列增量 upsert 进 fx_daily(只写 PG 缺的日期) + quote_latest 最新行 + 刷进程缓存。"""
+    from services import market_store as _ms
+    data = []
+    for cur, m in series.items():
+        known = have.get(cur) or {}
+        pair = f"{cur}CNY"
+        data.extend((pair, d, rate, "safe") for d, rate in m.items() if d not in known)
+    quotes = []
+    for cur, m in series.items():
+        ks = sorted(m)
+        if ks:
+            quotes.append({"code": f"{cur}CNY", "ticker": f"{cur}CNY", "name": f"{cur}/CNY",
+                           "sub_assets_type": "", "price": m[ks[-1]], "currency": "CNY",
+                           "quote_time": ks[-1], "data_source": "safe"})
+    try:
+        pool = await _ms.get_pool()
+        if data:
+            await pool.executemany(
+                "INSERT INTO fx_daily (pair, date, rate, source) VALUES ($1, $2, $3, $4) "
+                "ON CONFLICT (pair, date) DO UPDATE SET rate = excluded.rate, source = excluded.source",
+                data)
+        if quotes:
+            await _ms.save_quotes(quotes)
+        for cur, m in series.items():          # 进程缓存同步, 同步读路径立即生效
+            _ms._FX_DB_CACHE.setdefault(f"{cur}CNY", {}).update(m)
+    except Exception as e:
+        print(f"[fx] fx_daily 入库失败(不影响内存/磁盘镜像): {e}")
 
 
-def _fx_history_fetch() -> dict:
-    for src in (_fx_history_boc, _fx_history_safe):
+async def fx_refresh_if_stale(force: bool = False) -> dict[str, int]:
+    """汇率日度刷新(唯一联网点): fx_daily 缺最新交易日 → 抓 SAFE 全历史增量入库。
+
+    启动预检与手动刷新调用(await); 页面路径绝不触发。force=True 强制重抓。
+    返回 {currency: 序列天数}。"""
+    from services import market_store as _ms
+    expected = _fx_parity_expected_latest()
+    pg = {c: _ms.fx_history_cached(f"{c}CNY") for c in _FX_PARITY}
+    if not force and all(pg.get(c) and max(pg[c]) >= expected for c in _FX_PARITY):
+        return {c: len(v) for c, v in pg.items()}            # PG 已覆盖到最近发布日, 零网络
+    cached = _fx_parity_cache[0] if (_fx_parity_cache[1] and time.time() - _fx_parity_cache[1] < _FX_PARITY_TTL) else None
+    series = cached or _fx_parity_disk()
+    series_fresh = bool(series) and all(series.get(c) and max(series[c]) >= expected for c in _FX_PARITY)
+    if not series_fresh or force:
         try:
-            out = src()
-        except Exception:  # noqa: BLE001
-            out = {}
-        if out:
-            try:
-                d = json.loads(_FX_FILE.read_text()) if _FX_FILE.exists() else {}
-                d["history"] = out
-                _FX_FILE.write_text(json.dumps(d))
-            except Exception:  # noqa: BLE001  落盘失败不影响取数
-                pass
-            return out
-    return _fx_history_disk()
+            series = await asyncio.to_thread(_fx_parity_fetch)
+        except Exception as e:
+            print(f"[fx] SAFE 中间价抓取失败(沿用现有数据): {e}")
+            return {c: len(v) for c, v in (series or {}).items()}
+        _fx_parity_cache[0], _fx_parity_cache[1] = series, time.time()
+        _fx_parity_disk_write(series)
+    else:
+        _fx_parity_cache[0], _fx_parity_cache[1] = series, time.time()
+    await _fx_parity_to_pg(series, have=pg)
+    return {c: len(v) for c, v in series.items()}
+
+
+def fx_history(currency: str) -> dict[str, float]:
+    """date(YYYY-MM-DD) → 当日中间价(每 1 外币折人民币)。币种须在 _FX_PARITY; 取不到返回 {}。
+
+    纯读路径: PG 进程缓存 → 磁盘镜像。联网回源只发生在 fx_refresh_if_stale(启动/手动刷新)。"""
+    currency = (currency or "").upper()
+    if currency not in _FX_PARITY:
+        return {}
+    from services import market_store as _ms
+    from_db = _ms.fx_history_cached(f"{currency}CNY")
+    if from_db:
+        return from_db
+    return _fx_parity_disk().get(currency) or {}
+
+
+def _fx_rate_lookup(currency: str, day: str) -> tuple[float, str | None]:
+    """(rate, 序列实际命中的日期)。日期 None = 序列缺失, 落到近似兜底值。"""
+    from bisect import bisect_right
+    hist = fx_history(currency)
+    if hist:
+        ks = sorted(hist)
+        i = bisect_right(ks, day)
+        if i > 0:
+            return hist[ks[i - 1]], ks[i - 1]
+    return _FX_FALLBACK.get(currency, 1.0), None
 
 
 def fx_rate_on(currency: str, day: str | None) -> float:
-    """某成交日的汇率(每 1 外币折人民币)。今天及以后 = 实时汇率; 过去的日子 = 当天或之前最近一个
-    有牌价的日子(周末顺延前一个); 历史取不到就退回实时汇率。CNY 恒为 1。"""
+    """某成交日的中间价(每 1 外币折人民币)。当天未发布/节假日顺延之前最近一个交易日; CNY 恒为 1。"""
     currency = (currency or "CNY").upper()
     if currency == "CNY":
         return 1.0
-    d = str(day or "")[:10]
-    today = _cst_now().strftime("%Y-%m-%d")
-    if not d or d >= today:
-        return get_fx_rate(currency)
-    hist = fx_history(currency)
-    if hist:
-        from bisect import bisect_right
-        ks = sorted(hist)
-        i = bisect_right(ks, d)
-        if i > 0:
-            return hist[ks[i - 1]]
-    return get_fx_rate(currency)
+    d = str(day or "")[:10] or _cst_now().strftime("%Y-%m-%d")
+    return _fx_rate_lookup(currency, d)[0]
 
 
 def code_fx_on(stock_code: str, day: str | None) -> float | None:
@@ -1306,7 +1274,7 @@ async def _get_historical_data_inner(stock_code: str, days: int = 60) -> pd.Data
             pass
     try:
         df = await asyncio.to_thread(
-            ak.stock_zh_a_hist, symbol=stock_code, period="daily",
+            ak.stock_zh_a_hist_em, symbol=stock_code, period="daily",
             start_date=start_date, end_date=end_date, adjust="qfq",
         )
         if df is not None and not df.empty:

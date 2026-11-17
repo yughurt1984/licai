@@ -196,19 +196,21 @@ async function saveWealth(d) {
   if (!(principal > 0)) throw new Error('投入本金必须大于 0')
   const name = String(d.name || '').trim() || '理财产品'
   const y = num(d.annualYieldPct)
-  // 理财已迁入固定收益账本 (fix_income_assets, /api/fix-income); sub 默认理财中类 cn_wealth
-  await fetchJSON('/api/fix-income', {
+  // 固收已并入持仓账本: 理财按 nav 型 holdings 记(面值化 1 元净值起记, 真实净值在持仓「改」里更新)。
+  // 份额 = 本金(净值 1.0), 业绩基准进 coupon_rate 展示; sub 默认理财中类 cn_wealth(nav)。
+  await fetchJSON('/api/portfolio', {
     method: 'POST',
     body: JSON.stringify({
-      code: String(d.code || '').trim() || name, name,
-      platform: d.broker || d.platform || '',
-      principal,
-      annual_yield_rate: y != null ? y / 100 : null,
-      value_date: d.startDate || d.tradeDate || null,
+      stock_code: String(d.code || '').trim() || name,
+      stock_name: name,
+      shares: principal,
+      cost_price: 1,
+      trade_date: d.startDate || d.tradeDate || undefined,
       sub_assets_type: 'cn_wealth',
+      coupon_rate: y != null ? y / 100 : undefined,
     }),
   })
-  return `登记理财 ${name} ¥${principal.toFixed(2)}`
+  return `登记理财 ${name} ¥${principal.toFixed(2)} (净值起记 1.0, 记得在持仓里更新实际净值)`
 }
 
 async function saveCash(d, ctx) {

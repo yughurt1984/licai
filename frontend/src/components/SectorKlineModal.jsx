@@ -35,10 +35,10 @@ export default function SectorKlineModal({ sector, market, onClose }) {
       [`${series.length} 日`, periodPct],
     ]
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-[11px]">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-[0.7857rem]">
         {boxes.map(([label, v], i) => (
           <div key={i} className="bg-surface-3 rounded-md px-2 py-1.5">
-            <div className="text-text-dim text-[10px] mb-0.5">{label}</div>
+            <div className="text-text-dim text-[0.7143rem] mb-0.5">{label}</div>
             <div className={`font-mono font-semibold ${colorPct(v)}`}>{fmtPct(v)}</div>
           </div>
         ))}
@@ -52,17 +52,17 @@ export default function SectorKlineModal({ sector, market, onClose }) {
         onClick={e => e.stopPropagation()}>
         <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <h3 className="text-[15px] font-semibold text-text-bright m-0">{sector.name}</h3>
+            <h3 className="text-[1.0714rem] font-semibold text-text-bright m-0">{sector.name}</h3>
             {marketLabel && (
-              <span className="text-[10.5px] px-1.5 py-[1px] rounded border border-info/40 bg-info/10 text-info">{marketLabel}</span>
+              <span className="text-[0.75rem] px-1.5 py-[1px] rounded border border-info/40 bg-info/10 text-info">{marketLabel}</span>
             )}
-            {sector.symbol && <span className="text-[11px] font-mono text-text-dim">{sector.symbol}</span>}
+            {sector.symbol && <span className="text-[0.7857rem] font-mono text-text-dim">{sector.symbol}</span>}
             {sector.held && (
-              <span className="text-[10px] px-1 py-0 rounded bg-accent/20 text-accent border border-accent/40">持仓</span>
+              <span className="text-[0.7143rem] px-1 py-0 rounded bg-accent/20 text-accent border border-accent/40">持仓</span>
             )}
           </div>
           <button onClick={onClose}
-            className="text-text-dim hover:text-text text-[18px] leading-none px-2 cursor-pointer">×</button>
+            className="text-text-dim hover:text-text text-[1.2857rem] leading-none px-2 cursor-pointer">×</button>
         </div>
 
         <KlineChart

@@ -10,29 +10,26 @@ import { fetchJSON } from './hooks/useApi'
  *   licai:prefs-changed  任何偏好变化(App bump state 全树重渲染, helpers 读单例生效)
  *   licai:theme-changed  仅"解析后主题或涨跌向"变化(图表 canvas 重绘用, useThemeTick)
  *
- * data-theme 只落解析结果 light|dark('跟随系统'在 matchMedia 回调里实时重解析);
- * data-updown 落 red-up|green-up, index.css 四象限(浅/深 × 红/绿涨)整块交换变量。
+ * data-theme 只落解析结果 light|dark|eyecare(不再有'跟随系统'); 字体三档(fontScale
+ * s|m|l)写 html 根字号 inline style, 字号 rem 化后全站跟随。
  */
 
 export const PREFS_EVENT = 'licai:prefs-changed'
 export const THEME_EVENT = 'licai:theme-changed'
 
-const DARK_MEDIA = '(prefers-color-scheme: dark)'
-
-// 未登录默认 = 既有显示口径: 浅色 / ≥1万显万 / 红涨绿跌
-let state = { theme: 'light', wanUnit: true, updownRed: true }
+// 未登录默认 = 浅色(纯白) / ≥1万显万 / 红涨绿跌 / 中号字体
+let state = { theme: 'light', wanUnit: true, updownRed: true, fontScale: 'm' }
 const listeners = new Set()
-let media = null            // system 模式下的 matchMedia 实例(惰性建)
-let systemDark = false
 let lastResolved = ''       // 上次 apply 的解析结果, 判断要不要发 THEME_EVENT
 
-function resolveTheme(theme) {
-  if (theme === 'system') {
-    systemDark = typeof window !== 'undefined' && window.matchMedia?.(DARK_MEDIA).matches
-    return systemDark ? 'dark' : 'light'
-  }
-  return theme === 'dark' ? 'dark' : 'light'
-}
+// 主题合法值; 旧存档的 'system'(跟随系统, 已下线)按浅色处理
+const THEMES = ['light', 'dark', 'eyecare']
+const resolveTheme = (theme) => (theme === 'dark' || theme === 'eyecare' ? theme : 'light')
+
+// 字体三档(账户页·显示设置) → html 根字号。字号已全站迁 rem(text-[Npx]→rem),
+// spacing 由 index.css 的 --spacing: 3.5px 钉死, 换档只有文字缩放、布局不动。
+// s = 原设计基准(迁移前默认渲染), m = 默认档。
+const FONT_SCALES = { s: '14px', m: '16px', l: '18px' }
 
 function apply() {
   if (typeof document === 'undefined') return
@@ -40,6 +37,8 @@ function apply() {
   const resolved = resolveTheme(state.theme)
   el.dataset.theme = resolved
   el.dataset.updown = state.updownRed ? 'red-up' : 'green-up'
+  // 根字号: 三档都显式写 inline style(默认档也写 16px), 避免残留上一次的脏值
+  el.style.fontSize = FONT_SCALES[state.fontScale] || FONT_SCALES.m
   const signature = `${resolved}|${state.updownRed ? 'r' : 'g'}`
   if (lastResolved && lastResolved !== signature) {
     window.dispatchEvent(new CustomEvent(THEME_EVENT))
@@ -47,18 +46,8 @@ function apply() {
   lastResolved = signature
 }
 
-// system 模式: 用户改系统主题时实时跟随(仅 pref 是 system 时才有意义, 但监听常驻成本低)
-function onSystemChange() {
-  if (state.theme !== 'system') return
-  apply()
-}
-
-function ensureMedia() {
-  if (media || typeof window === 'undefined' || !window.matchMedia) return
-  media = window.matchMedia(DARK_MEDIA)
-  systemDark = media.matches
-  media.addEventListener?.('change', onSystemChange)
-}
+/** 模块加载即应用一次(登录页/首屏在 initPrefs 前也吃到默认主题)。 */
+apply()
 
 function emit() {
   for (const fn of listeners) {
@@ -81,25 +70,24 @@ function merge(next) {
 }
 
 /** 模块加载即应用一次(登录页/首屏在 initPrefs 前也吃到默认主题)。 */
-ensureMedia()
 apply()
 
 /** 登录后调用: 拉服务端偏好。401(未登录)静默保持默认。 */
 export async function initPrefs() {
-  ensureMedia()
   try {
     const p = await fetchJSON('/api/auth/preferences')
     merge({
-      theme: ['light', 'dark', 'system'].includes(p.theme) ? p.theme : 'light',
+      theme: THEMES.includes(p.theme) ? p.theme : 'light',
       wanUnit: p.wan_unit !== false,
       updownRed: p.updown_red !== false,
+      fontScale: ['s', 'm', 'l'].includes(p.font_scale) ? p.font_scale : 'm',
     })
   } catch { /* 未登录/离线: 保持默认 */ }
 }
 
 /** 用户登出时重置为默认, 防止上一个用户的偏好泄漏到登录页。 */
 export function resetPrefs() {
-  merge({ theme: 'light', wanUnit: true, updownRed: true })
+  merge({ theme: 'light', wanUnit: true, updownRed: true, fontScale: 'm' })
 }
 
 /** 乐观保存: 界面立即生效, 持久化失败静默(下次进来会回读服务端值)。 */
@@ -111,6 +99,7 @@ export function setPrefs(partial) {
       ...(partial.theme !== undefined ? { theme: partial.theme } : {}),
       ...(partial.wanUnit !== undefined ? { wan_unit: partial.wanUnit } : {}),
       ...(partial.updownRed !== undefined ? { updown_red: partial.updownRed } : {}),
+      ...(partial.fontScale !== undefined ? { font_scale: partial.fontScale } : {}),
     }),
   }).catch(() => {})
 }
@@ -137,7 +126,7 @@ export function useThemeTick() {
   )
 }
 
-/** 浅色卡预览等场景需要知道"当前解析主题"。 */
+/** 浅色卡预览等场景需要知道"当前解析主题"(light|dark|eyecare)。 */
 export function resolvedTheme() {
-  return state.theme === 'system' ? (systemDark ? 'dark' : 'light') : state.theme
+  return resolveTheme(state.theme)
 }

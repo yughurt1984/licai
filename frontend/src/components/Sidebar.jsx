@@ -23,22 +23,24 @@ const ICONS = {
 // 为此把导航表挪去单独模块并不划算 —— 它和侧栏是同一件事, 分开反而更容易漂。
 // eslint-disable-next-line react-refresh/only-export-components
 export const NAV = [
-  { group: '我的', items: [
+  { group: '资产', items: [
     { key: 'portfolio',   label: '持仓' },
     { key: 'ailedger',    label: 'AI记账' },
     { key: 'cashflow',    label: '资金·现金流' },
     { key: 'performance', label: '绩效·基准' },
     { key: 'review',      label: '复盘' },
-    { key: 'settings',    label: '设置' },
   ] },
   // 市场模块整组标记 soon: 侧栏逐项挂「即将支持」角标, 页面顶部由 App 加提示条。
-  { group: '市场', soon: true, items: [
+  { group: '数据', soon: true, items: [
     { key: 'open',     label: '开盘·情绪' },
     { key: 'sector',   label: '板块' },
     { key: 'rankings', label: '榜单' },
     { key: 'pools',    label: '大盘·股池' },
     { key: 'capital',  label: '资金·机构' },
     { key: 'news',     label: '资讯' },
+  ]},
+    { group: '我的', items: [
+    { key: 'settings',    label: '设置' },
   ] },
 ]
 
@@ -60,7 +62,7 @@ export default function Sidebar({ active, onNav, open, onToggle }) {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
           <path d="M4 6h16M4 12h16M4 18h16" />
         </svg>
-        {open && <span className="text-[12px]">收起</span>}
+        {open && <span className="text-[0.8571rem]">收起</span>}
       </button>
 
       <nav className="flex-1 py-2 overflow-y-auto">
@@ -71,9 +73,9 @@ export default function Sidebar({ active, onNav, open, onToggle }) {
                 否则会在收起按钮的 border-b 下面多出一条什么都没隔开的发丝线。 */}
             {sec.group
               ? (open
-                  ? <div className="px-4 pt-3 pb-1 text-[10px] tracking-wider text-text-muted flex items-center gap-1.5">
+                  ? <div className="px-4 pt-3 pb-1 text-[0.7143rem] tracking-wider text-text-muted flex items-center gap-1.5">
                       {sec.group}
-                      {sec.soon && <span className="normal-case tracking-normal text-[9px] leading-none text-warn border border-warn/35 rounded px-1 py-0.5">即将支持</span>}
+                      {sec.soon && <span className="normal-case tracking-normal text-[0.6429rem] leading-none text-warn border border-warn/35 rounded px-1 py-0.5">即将支持</span>}
                     </div>
                   : si > 0 && <div className="mx-3 my-2 border-t border-border-subtle" />)
               : si > 0 && <div className="mx-3 my-2 border-t border-border-subtle" />}
@@ -87,8 +89,8 @@ export default function Sidebar({ active, onNav, open, onToggle }) {
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                     {ICONS[n.key]}
                   </svg>
-                  {open && <span className="text-[13px] font-medium min-w-0 truncate">{n.label}</span>}
-                  {open && sec.soon && <span className="ml-auto shrink-0 text-[9px] leading-none text-warn border border-warn/35 rounded px-1 py-0.5">即将支持</span>}
+                  {open && <span className="text-[0.9286rem] font-medium min-w-0 truncate">{n.label}</span>}
+                  {open && sec.soon && <span className="ml-auto shrink-0 text-[0.6429rem] leading-none text-warn border border-warn/35 rounded px-1 py-0.5">即将支持</span>}
                 </button>
               )
             })}

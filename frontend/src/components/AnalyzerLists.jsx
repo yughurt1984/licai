@@ -57,12 +57,12 @@ function PlanInline({ row, spec, nextDay, onClose }) {
       setMsg(`已记入 ${body.plan_date} 的计划, 在复盘页「交易计划」里看和改`)
     } catch (e) { setMsg(e?.message || '保存失败') }
   }
-  const inp = 'bg-surface border border-border rounded px-2 py-1 text-[11.5px] text-text outline-none focus:border-accent/60'
+  const inp = 'bg-surface border border-border rounded px-2 py-1 text-[0.8214rem] text-text outline-none focus:border-accent/60'
   const sideTxt = (spec.side || 'BUY') === 'BUY' ? '买入' : '卖出'
   const opTxt = (spec.op || '<=') === '<=' ? '跌到 ≤' : '涨到 ≥'
   return (
     <div className="mt-2 rounded-lg border border-accent/40 bg-surface-3/60 px-3 py-2">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+      <div className="flex flex-wrap items-center gap-1.5 text-[0.8214rem]">
         <span className="text-text-bright">{row.name || row.code}<span className="text-text-muted font-mono ml-1">{row.code}</span></span>
         <span className="text-text-muted">{sideTxt} · {opTxt}</span>
         <input className={`${inp} w-20`} value={f.price} onChange={set('price')} title="触发价" />
@@ -72,10 +72,10 @@ function PlanInline({ row, spec, nextDay, onClose }) {
         <input className={`${inp} w-[118px]`} type="date" value={f.plan_date} onChange={set('plan_date')} />
         <input className={`${inp} flex-1 min-w-[160px]`} value={f.reason} onChange={set('reason')} title="理由" />
         <button onClick={submit} disabled={!f.price}
-          className="px-3 py-1 rounded bg-accent/20 text-accent text-[11.5px] hover:bg-accent/30 disabled:opacity-40 cursor-pointer">记下</button>
-        <button onClick={onClose} className="text-[11px] text-text-muted hover:text-text cursor-pointer">关闭</button>
+          className="px-3 py-1 rounded bg-accent/20 text-accent text-[0.8214rem] hover:bg-accent/30 disabled:opacity-40 cursor-pointer">记下</button>
+        <button onClick={onClose} className="text-[0.7857rem] text-text-muted hover:text-text cursor-pointer">关闭</button>
       </div>
-      {msg && <div className="text-[11px] text-text-dim mt-1">{msg}</div>}
+      {msg && <div className="text-[0.7857rem] text-text-dim mt-1">{msg}</div>}
     </div>
   )
 }
@@ -99,12 +99,12 @@ function ListTable({ lst, onPick, onPlan }) {
   const click = (key) => setSort(s => (s && s.key === key ? { key, desc: !s.desc } : { key, desc: true }))
   const cols = lst.columns || []
   const stats = lst.kind === 'stats'
-  if (!rows.length) return <div className="text-[11px] text-text-dim py-2">{stats ? '还没有数据' : '当天没有符合的票'}</div>
+  if (!rows.length) return <div className="text-[0.7857rem] text-text-dim py-2">{stats ? '还没有数据' : '当天没有符合的票'}</div>
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-[11px] border-collapse">
+      <table className="w-full text-[0.7857rem] border-collapse">
         <thead>
-          <tr className="text-[10px] text-text-muted">
+          <tr className="text-[0.7143rem] text-text-muted">
             {!stats && <th className="text-left font-normal py-1 pr-3">名称 · 代码</th>}
             {!stats && <th className="text-left font-normal py-1 pr-3">行业</th>}
             {cols.map(c => (
@@ -123,7 +123,7 @@ function ListTable({ lst, onPick, onPlan }) {
               {!stats && (
                 <td className="py-[3px] pr-3 whitespace-nowrap">
                   <span className="text-text-bright">{r.name || r.code}</span>
-                  <span className="text-text-muted font-mono text-[10px] ml-1.5">{r.code}</span>
+                  <span className="text-text-muted font-mono text-[0.7143rem] ml-1.5">{r.code}</span>
                 </td>
               )}
               {!stats && <td className="py-[3px] pr-3 text-text-muted whitespace-nowrap">{r.industry || ''}</td>}
@@ -134,7 +134,7 @@ function ListTable({ lst, onPick, onPlan }) {
               {lst.plan && (
                 <td className="py-[3px] pl-2 text-right whitespace-nowrap">
                   <button onClick={(e) => { e.stopPropagation(); onPlan(r) }}
-                    className="text-[10.5px] text-accent hover:underline cursor-pointer">记入计划</button>
+                    className="text-[0.75rem] text-accent hover:underline cursor-pointer">记入计划</button>
                 </td>
               )}
             </tr>
@@ -143,7 +143,7 @@ function ListTable({ lst, onPick, onPlan }) {
       </table>
       {rows.length > shown && (
         <button onClick={() => setShown(n => n + PAGE)}
-          className="mt-1.5 text-[10.5px] text-text-muted hover:text-text cursor-pointer">
+          className="mt-1.5 text-[0.75rem] text-text-muted hover:text-text cursor-pointer">
           再显示 {Math.min(PAGE, rows.length - shown)} 只(共 {rows.length})
         </button>
       )}
@@ -172,19 +172,19 @@ export default function AnalyzerLists() {
   return (
     <div className="bg-surface-2 border border-border rounded-xl p-4 md:p-5">
       <div className="flex items-baseline gap-2 mb-2 flex-wrap">
-        <h3 className="text-[14px] font-semibold text-text-bright m-0">{cur.group_title || lists[0].group_title || '每日清单'}</h3>
-        <span className="text-[10.5px] text-text-muted">{cur.display_name} · 数据日 {cur.date}</span>
+        <h3 className="text-[1rem] font-semibold text-text-bright m-0">{cur.group_title || lists[0].group_title || '每日清单'}</h3>
+        <span className="text-[0.75rem] text-text-muted">{cur.display_name} · 数据日 {cur.date}</span>
         {cur.note && (
-          <button onClick={() => setOpenNote(v => !v)} className="ml-auto text-[10.5px] text-text-muted hover:text-text cursor-pointer">
+          <button onClick={() => setOpenNote(v => !v)} className="ml-auto text-[0.75rem] text-text-muted hover:text-text cursor-pointer">
             {openNote ? '收起说明' : '说明'}
           </button>
         )}
       </div>
-      {openNote && <div className="text-[10.5px] text-text-dim leading-relaxed mb-2">{cur.note}</div>}
+      {openNote && <div className="text-[0.75rem] text-text-dim leading-relaxed mb-2">{cur.note}</div>}
       <div className="flex gap-1.5 mb-2 flex-wrap">
         {lists.map((l, i) => (
           <button key={`${l.analyzer}-${l.id}`} onClick={() => { setTab(i); setPlanRow(null) }}
-            className={`text-[11px] px-2 py-0.5 rounded cursor-pointer border ${i === tab ? 'border-accent text-text-bright' : 'border-border text-text-muted hover:text-text'}`}>
+            className={`text-[0.7857rem] px-2 py-0.5 rounded cursor-pointer border ${i === tab ? 'border-accent text-text-bright' : 'border-border text-text-muted hover:text-text'}`}>
             {l.title}({(l.rows || []).length})
           </button>
         ))}

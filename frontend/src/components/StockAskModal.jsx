@@ -277,29 +277,29 @@ export default function StockAskModal({ stock, onClose, initialQuestion = '' }) 
           className="absolute left-0 top-0 h-full w-[6px] -ml-[3px] cursor-col-resize z-10 hover:bg-accent/40 transition-colors" />
         {/* header */}
         <div className="flex items-baseline gap-2 px-4 py-3 border-b border-border-subtle shrink-0">
-          <span className="text-[15px] font-semibold text-text-bright">{stock.name}</span>
-          <span className="text-[11px] font-mono text-text-muted">{stock.code}</span>
+          <span className="text-[1.0714rem] font-semibold text-text-bright">{stock.name}</span>
+          <span className="text-[0.7857rem] font-mono text-text-muted">{stock.code}</span>
           {stock.pct != null && (
-            <span className={`text-[13px] font-mono font-semibold ${pctColor(stock.pct)}`}>{stock.pct >= 0 ? '+' : ''}{stock.pct}%</span>
+            <span className={`text-[0.9286rem] font-mono font-semibold ${pctColor(stock.pct)}`}>{stock.pct >= 0 ? '+' : ''}{stock.pct}%</span>
           )}
-          {stock['行业'] && <span className="text-[10.5px] text-text-dim ml-1">{stock['行业']}</span>}
+          {stock['行业'] && <span className="text-[0.75rem] text-text-dim ml-1">{stock['行业']}</span>}
           <button onClick={deepDive} disabled={loading}
             title="四层视角在同一份事实上各自成文, 再挑出彼此的冲突点与证伪条件。约 3 分半, 期间可以关掉抽屉"
-            className="ml-auto text-[11px] px-2 py-[3px] rounded-full border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed">
+            className="ml-auto text-[0.7857rem] px-2 py-[3px] rounded-full border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed">
             深挖
           </button>
-          <button onClick={close} className="text-text-dim hover:text-text text-[20px] leading-none px-1">×</button>
+          <button onClick={close} className="text-text-dim hover:text-text text-[1.4286rem] leading-none px-1">×</button>
         </div>
 
         {/* 对话流 */}
         <div ref={scrollBox} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
           {history.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center gap-2">
-              <div className="text-[12px] text-text-dim">问点 {stock.name} 的事</div>
+              <div className="text-[0.8571rem] text-text-dim">问点 {stock.name} 的事</div>
               <div className="flex flex-wrap gap-1.5 justify-center max-w-[420px]">
                 {['今天为什么这么走', '量价配合怎么看', '最近有什么消息/题材', '基本面和同行对比'].map((s, i) => (
                   <button key={i} onClick={() => ask(s)}
-                    className="text-[11px] px-2.5 py-1 rounded-full border border-accent/30 bg-accent/8 text-accent/90 hover:bg-accent/15 hover:border-accent/50">
+                    className="text-[0.7857rem] px-2.5 py-1 rounded-full border border-accent/30 bg-accent/8 text-accent/90 hover:bg-accent/15 hover:border-accent/50">
                     {s}
                   </button>
                 ))}
@@ -308,7 +308,7 @@ export default function StockAskModal({ stock, onClose, initialQuestion = '' }) 
           )}
           {history.map((it, i) => (
             <div key={i}>
-              <div className="text-[12px] text-text-bright bg-surface-3 rounded-lg px-3 py-1.5 inline-block">{it.q}</div>
+              <div className="text-[0.8571rem] text-text-bright bg-surface-3 rounded-lg px-3 py-1.5 inline-block">{it.q}</div>
               <div className="mt-2 px-3 py-2.5 rounded-lg bg-accent/8 border border-accent/25">
                 <ToolCallStrip steps={it.steps} settled={it.answer != null || it.done} />
                 {(it.charts || []).length > 0 && (
@@ -320,9 +320,9 @@ export default function StockAskModal({ stock, onClose, initialQuestion = '' }) 
                   </div>
                 )}
                 {it.err
-                  ? <div className="text-[11.5px] text-bull-bright">出错: {it.err}</div>
+                  ? <div className="text-[0.8214rem] text-bull-bright">出错: {it.err}</div>
                   : it.answer == null
-                    ? (it.steps.length === 0 && <div className="text-[11.5px] text-text-dim">分析中…</div>)
+                    ? (it.steps.length === 0 && <div className="text-[0.8214rem] text-text-dim">分析中…</div>)
                     : <div className="relative">
                         <MiniMarkdown text={it.typed} sources={it.sources} />
                         {!it.done && <span className="inline-block w-1.5 h-3.5 bg-accent/70 align-middle animate-pulse ml-0.5" />}
@@ -340,19 +340,19 @@ export default function StockAskModal({ stock, onClose, initialQuestion = '' }) 
               onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) ask() }}
               disabled={loading}
               placeholder={`问点 ${stock.name} 的事 例: 今天为什么这么走 / 量价怎么看`}
-              className="flex-1 text-[12px] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none disabled:opacity-50" />
+              className="flex-1 text-[0.8571rem] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none disabled:opacity-50" />
             <button onClick={() => ask()} disabled={loading || !q.trim()}
-              className="text-[12px] px-3.5 py-2 rounded-lg bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed">
+              className="text-[0.8571rem] px-3.5 py-2 rounded-lg bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed">
               {loading ? '分析中' : '问'}
             </button>
             {loading && (
               <button onClick={stopRun} title="真停掉这一轮(关抽屉不用停, 它会自己跑完)"
-                className="text-[12px] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text-dim hover:text-bear-bright hover:border-bear/40 shrink-0">
+                className="text-[0.8571rem] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text-dim hover:text-bear-bright hover:border-bear/40 shrink-0">
                 停
               </button>
             )}
           </div>
-          <div className="text-[10px] text-text-muted pt-2 mt-2 border-t border-border-subtle">
+          <div className="text-[0.7143rem] text-text-muted pt-2 mt-2 border-t border-border-subtle">
             纯客观解读，不构成任何买卖建议
             {loading && ' · 关掉抽屉它也会在后台跑完并进历史'}
           </div>

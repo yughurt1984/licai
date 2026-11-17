@@ -18,6 +18,8 @@ class HoldingCreate(BaseModel):
     strike_price: Optional[float] = None      # 期权/权证行权价(合约固定属性; 仅 options/warrant 用)
     option_type: Optional[str] = None         # 期权类型 CALL / PUT(与 direction 正交, 合约属性)
     sub_assets_type: Optional[str] = None  # 资产小类(assets_classify 键): 落库并由它推导大类/引擎列
+    coupon_rate: Optional[float] = None    # 固收(并入持仓): 票面利率/业绩基准(小数 0.0265); 展示+复盘用, 记账走 DIVIDEND
+    maturity_date: Optional[str] = None    # 固收: 到期日 YYYY-MM-DD; 行内展示剩余天数
 
 
 class HoldingUpdate(BaseModel):
@@ -26,6 +28,8 @@ class HoldingUpdate(BaseModel):
     cost_price: Optional[float] = None
     broker: Optional[str] = None
     strike_price: Optional[float] = None   # 期权行权价(合约固定属性)
+    coupon_rate: Optional[float] = None    # 固收: 票面利率/业绩基准(小数)
+    maturity_date: Optional[str] = None    # 固收: 到期日 YYYY-MM-DD
 
 
 class HoldingResponse(BaseModel):
@@ -51,10 +55,10 @@ class HoldingResponse(BaseModel):
     fx_pnl: Optional[float] = None      # 港美股: 浮动盈亏里本金的汇兑部分(原币成本×现汇率 − 按成交日汇率的人民币成本)
     sector: Optional[str] = None  # 顶级行业, e.g. "有色金属" / "汽车" — 用于前端分组
     broker: Optional[str] = None
-    main_assets_type: Optional[str] = None         # 中类(common_share/futures/options/...): 钉住的引擎列; 展示分类一律看 sub_assets_type
+    main_assets_type: Optional[str] = None         # 中类(mm_fund/futures/...); 衍生品按它拆 期货/期权, 基金子分组按它合并
     sub_assets_type: Optional[str] = None         # 资产小类(assets_classify 键) — 前后端资产类型识别的唯一标准
     assets_class: Optional[str] = None             # 大类(stock/fund/...), 来自 assets_classify, 前端展示分类派生源
-    main_assets_type: Optional[str] = None         # 中类(mm_fund/futures/...); 衍生品按它拆 期货/期权
+    assets_type_name: Optional[str] = None         # 中类中文名(如 ETF基金/场外基金), 来自 assets_classify, 基金子分组标签
     sub_assets_type_name: Optional[str] = None     # 小类中文名(徽标展示)
     direction: Optional[str] = None               # LONG | SHORT (期货/期权)
     contract_multiplier: Optional[float] = None   # 每手乘数

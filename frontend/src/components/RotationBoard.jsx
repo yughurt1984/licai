@@ -39,28 +39,28 @@ export default function RotationBoard({ scope, kind, groups, trend, hotTag, coll
     <div className="shrink-0 border-b border-border flex flex-col min-h-0">
       <div className="flex items-baseline gap-2 px-4 py-2 shrink-0">
         <button onClick={onToggle} title={collapsed ? '展开轮动板' : '收起, 只留一行摘要'}
-          className="text-[13px] font-semibold text-text-bright hover:text-accent flex items-baseline gap-1">
-          <span className="text-[10px] text-text-muted">{collapsed ? '▸' : '▾'}</span>
+          className="text-[0.9286rem] font-semibold text-text-bright hover:text-accent flex items-baseline gap-1">
+          <span className="text-[0.7143rem] text-text-muted">{collapsed ? '▸' : '▾'}</span>
           {isAmt ? '今天的钱堆在哪条线上' : '今天涨的是哪条线'}
         </button>
-        <span className="text-[10.5px] text-text-muted hidden md:inline">
+        <span className="text-[0.75rem] text-text-muted hidden md:inline">
           {isAmt ? '按成交额榜前 100 只聚' : '按涨幅榜前 100 只聚'}
           {trend?.dates?.length ? ` · 走势近 ${trend.dates.length} 日` : ''}
         </span>
         {hotTag && (
-          <button onClick={() => onPickTag?.('')} className="text-[10px] text-accent hover:underline">
+          <button onClick={() => onPickTag?.('')} className="text-[0.7143rem] text-accent hover:underline">
             只看「{hotTag}」· 清除
           </button>
         )}
         <div className="ml-auto flex items-center gap-1">
           {['概念', '行业'].map(k => (
             <button key={k} onClick={() => onKindChange?.(k)}
-              className={`text-[11px] px-2 py-0.5 rounded border ${kind === k ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
+              className={`text-[0.7857rem] px-2 py-0.5 rounded border ${kind === k ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
               {k}
             </button>
           ))}
           <button onClick={onToggle}
-            className="text-[11px] px-2 py-0.5 rounded border border-transparent text-text-dim hover:text-text">
+            className="text-[0.7857rem] px-2 py-0.5 rounded border border-transparent text-text-dim hover:text-text">
             {collapsed ? '展开' : '收起'}
           </button>
         </div>
@@ -75,7 +75,7 @@ export default function RotationBoard({ scope, kind, groups, trend, hotTag, coll
             return (
               <button key={g.name} onClick={() => onPickTag?.(on ? '' : g.name)}
                 title={`${g.n} 只上榜 · 合计成交 ${g.amt_yi}亿 · 均${g.avg_pct >= 0 ? '+' : ''}${g.avg_pct}%`}
-                className={`text-[10.5px] px-1.5 py-0.5 rounded shrink-0 border ${on ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
+                className={`text-[0.75rem] px-1.5 py-0.5 rounded shrink-0 border ${on ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
                 {g.name}
                 <span className="text-text-muted">{isAmt ? ` ${Math.round(g.amt_yi)}亿` : ` ${g.n}只`}</span>
                 {tr && tr.d1_share_pp != null && Math.abs(tr.d1_share_pp) >= 1 && (
@@ -101,10 +101,10 @@ export default function RotationBoard({ scope, kind, groups, trend, hotTag, coll
                 {/* 名字: 点一下把左边的榜筛到这条线 */}
                 <button onClick={() => onPickTag?.(on ? '' : g.name)}
                   title={(g.aliases || []).length ? `同义并入: ${g.aliases.join('、')}` : '点一下只看这条线的票'}
-                  className={`text-[12.5px] w-[104px] shrink-0 text-left truncate ${on ? 'text-accent' : 'text-text-bright hover:text-accent'}`}>
+                  className={`text-[0.8929rem] w-[104px] shrink-0 text-left truncate ${on ? 'text-accent' : 'text-text-bright hover:text-accent'}`}>
                   {g.name}
                 </button>
-                <span className="text-[10px] text-text-muted font-mono w-[54px] shrink-0">
+                <span className="text-[0.7143rem] text-text-muted font-mono w-[54px] shrink-0">
                   {g.n}只{g.limit_n > 0 ? ` 停${g.limit_n}` : ''}
                 </span>
                 {/* 成交额条: 粗细就是这条线的钱, 一眼比得出来 */}
@@ -113,11 +113,11 @@ export default function RotationBoard({ scope, kind, groups, trend, hotTag, coll
                     <div className="h-full rounded-sm bg-accent/55"
                       style={{ width: `${Math.max(2, (g.amt_yi / maxAmt) * 100)}%` }} />
                   </div>
-                  <span className="text-[11px] font-mono text-text-dim w-[52px] text-right shrink-0">
+                  <span className="text-[0.7857rem] font-mono text-text-dim w-[52px] text-right shrink-0">
                     {g.amt_yi >= 100 ? Math.round(g.amt_yi) : g.amt_yi}亿
                   </span>
                 </div>
-                <span className={`text-[11.5px] font-mono w-[52px] text-right shrink-0 ${pctColor(g.avg_pct)}`}>
+                <span className={`text-[0.8214rem] font-mono w-[52px] text-right shrink-0 ${pctColor(g.avg_pct)}`}>
                   {g.avg_pct >= 0 ? '+' : ''}{g.avg_pct}%
                 </span>
                 {/* 份额走势 + 较上日变化: 全市场放量时绝对值一起涨, 份额才看得出钱在挪 */}
@@ -126,23 +126,23 @@ export default function RotationBoard({ scope, kind, groups, trend, hotTag, coll
                 <span className="w-[112px] shrink-0 text-right leading-tight">
                   {tr && tr.d1_share_pp != null ? (
                     <>
-                      <span className={`text-[11px] font-mono ${tr.d1_share_pp > 0 ? 'text-bear-bright' : tr.d1_share_pp < 0 ? 'text-bull-bright' : 'text-text-dim'}`}>
+                      <span className={`text-[0.7857rem] font-mono ${tr.d1_share_pp > 0 ? 'text-bear-bright' : tr.d1_share_pp < 0 ? 'text-bull-bright' : 'text-text-dim'}`}>
                         {tr.d1_share_pp > 0 ? '↑' : tr.d1_share_pp < 0 ? '↓' : '·'}{Math.abs(tr.d1_share_pp)}
                       </span>
-                      <span className="text-[9.5px] text-text-muted ml-1">{tr.label}</span>
-                      <span className="block text-[9px] text-text-muted"
+                      <span className="text-[0.6786rem] text-text-muted ml-1">{tr.label}</span>
+                      <span className="block text-[0.6429rem] text-text-muted"
                         title="曲线只统计全程都有本地日线的成分股, 缺一天的整只剔掉">
                         按 {tr.basket_n}/{tr.total_n} 只算
                       </span>
                     </>
-                  ) : <span className="text-[9.5px] text-text-muted">走势数据不足</span>}
+                  ) : <span className="text-[0.6786rem] text-text-muted">走势数据不足</span>}
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-1 pl-[4px] max-w-[720px]">
-                <span className="text-[9.5px] text-text-muted shrink-0">领头</span>
+                <span className="text-[0.6786rem] text-text-muted shrink-0">领头</span>
                 {(g.tops || []).map(t => (
                   <button key={t.code} onClick={() => onPickStock?.({ code: t.code, name: t.name, pct: t.pct })}
-                    className="text-[10.5px] text-text-dim hover:text-accent whitespace-nowrap">
+                    className="text-[0.75rem] text-text-dim hover:text-accent whitespace-nowrap">
                     {t.name} <span className={pctColor(t.pct)}>{t.pct >= 0 ? '+' : ''}{t.pct}%</span>
                     <span className="text-text-muted"> {t.amt_yi}亿</span>
                   </button>
@@ -153,7 +153,7 @@ export default function RotationBoard({ scope, kind, groups, trend, hotTag, coll
         })}
       </div>
 
-      <div className={`shrink-0 px-4 py-1.5 border-t border-border-subtle text-[9.5px] text-text-muted leading-relaxed ${collapsed ? 'hidden' : ''}`}>
+      <div className={`shrink-0 px-4 py-1.5 border-t border-border-subtle text-[0.6786rem] text-text-muted leading-relaxed ${collapsed ? 'hidden' : ''}`}>
         <div>
           条形=这条线在榜上的成交额 · 曲线=它占榜单成交额的比重近几日的形状 · ↑↓=比重较上一日的变化(百分点)
           {trend?.today_partial ? ' · 今天还没收盘, 最后一格是半天的量' : ''}

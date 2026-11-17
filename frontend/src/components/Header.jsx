@@ -15,7 +15,7 @@ export default function Header({ marketStatus, lastUpdate, onRefresh, refreshing
       <div className="max-w-[1440px] mx-auto px-3 md:px-4 h-12 flex items-center justify-between">
         <div className="flex items-center gap-1.5 md:gap-2">
           <img src="/icon-192.svg" alt="logo" className="h-6 w-6 rounded-md shrink-0" />
-          <h1 className="text-[15px] font-semibold tracking-tight text-accent mr-1">
+          <h1 className="text-[1.0714rem] font-semibold tracking-tight text-accent mr-1">
             理财助手
           </h1>
           {MARKETS.map(m => {
@@ -24,7 +24,7 @@ export default function Header({ marketStatus, lastUpdate, onRefresh, refreshing
             const text = open ? '交易中' : st === 'rest' ? '休息' : '已收盘'
             return (
               <span key={m.key} title={`${m.label} ${text}`} className={`
-                inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[11px] font-medium tracking-wide shrink-0
+                inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[0.7857rem] font-medium tracking-wide shrink-0
                 ${open
                   ? 'bg-bull/15 text-bull-bright border border-bull-border'
                   : 'bg-surface-3 text-text-dim border border-border'}
@@ -38,7 +38,7 @@ export default function Header({ marketStatus, lastUpdate, onRefresh, refreshing
           })}
         </div>
 
-        <div className="flex items-center gap-2 text-[12px] text-text-dim">
+        <div className="flex items-center gap-2 text-[0.8571rem] text-text-dim">
           {lastUpdate && (
             <span className="hidden sm:inline font-mono">
               {lastUpdate.toLocaleTimeString('zh-CN')}
@@ -58,7 +58,7 @@ export default function Header({ marketStatus, lastUpdate, onRefresh, refreshing
               <button onClick={onSettings} title="设置"
                 className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer">
                 <span className="w-6 h-6 rounded-full overflow-hidden bg-accent/15 border border-accent/30
-                                 flex items-center justify-center text-accent text-[11px] font-medium shrink-0">
+                                 flex items-center justify-center text-accent text-[0.7857rem] font-medium shrink-0">
                   {avatarUrl
                     ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
                     : (user.display_name || user.username).trim().charAt(0).toUpperCase()}

@@ -123,7 +123,7 @@ async def today_pnl() -> dict:
 
 async def _compute() -> dict:
     from database import (get_all_holdings, get_position_actions,
-                          list_external_assets, list_external_actions, is_derivative_kind)
+                          is_derivative_kind)
     from services.market_data import (get_realtime_quotes, normalize_stock_code,
                                       split_stock_code, code_fx)
 
@@ -219,10 +219,6 @@ async def _compute() -> dict:
         cur = float((holdings.get(code) or {}).get("shares") or 0)
         if not (cur or f["bought_shares"] or f["sold_shares"]):
             continue                                 # 只是昨天(北京)有流水、当天已无持仓也无买卖
-        if mkt in ("HK", "US") and not (f["bought_shares"] or f["sold_shares"]):
-            from services.market_data import quote_today_valid
-            if quote_today_valid(mkt, q) is False:
-                continue                             # 港股今天不开市 / 美股那场已经不算今天: 不计今日盈亏
         # 外部工具写入的快照行可能内部矛盾: price/prev_close 隐含涨跌与 change_pct 对不上
         # (实测 AAPL 行 price 343.91/prev 342.1 隐含 +0.53%, change_pct 却是 -1.1%)。
         # 各处展示的今日%都以 change_pct 为准, 这里同样: 偏差超 0.5 个百分点按 change_pct 反推昨收。
@@ -247,50 +243,6 @@ async def _compute() -> dict:
             "opened_today": f["bought_shares"] >= cur > 0,
         })
 
-    # ---------- 场外资产 / 场内 ETF ----------
-    from api.assets_routes import _enrich
-    assets = await list_external_assets()
-    enriched = await asyncio.gather(*[_enrich(a) for a in assets])
-    for a in enriched:
-        t = a.get("asset_type")
-        if t in ("CASH", "WEALTH"):
-            continue                                  # 无份额/单价口径, 当日盈亏不适用
-        if t == "BOT":
-            # OKX 网格无"份额×单价"口径, 沿用前端原有代理: floatProfit(未实现浮动)×汇率。
-            # 严格说不是"当日"而是当前未实现, 标 estimated; 收进来是为了两个前端都只读
-            # 这一个总数, 不再各自补算(否则顶栏与持仓总览会因重复/漏算给出两个数)。
-            q = a.get("quote") or {}
-            fp = q.get("float_profit_usdt")
-            if fp is None:
-                continue
-            items.append({
-                "code": a.get("code"), "type": t, "name": a.get("name") or a.get("code"),
-                "today_pnl": round(float(fp) * float(q.get("usdcny") or 7.2), 2),
-                "shares": 0, "bought": 0, "sold": 0,
-                "closed_today": False, "opened_today": False, "estimated": True,
-            })
-            continue
-        q = a.get("quote") or {}
-        cur = float(a.get("shares") or 0)
-        f = _flow(await list_external_actions(a["id"]), day)
-        if not (cur or f["bought_shares"] or f["sold_shares"]):
-            continue
-        # 现单价: 场内 ETF = 实时市价, 场外 = 官方净值(优先)/盘中估值
-        now_unit = q.get("nav") or q.get("est_nav")
-        pct = q.get("today_change_pct")
-        prev_unit = (now_unit / (1 + pct / 100)) if (now_unit and pct is not None) else None
-        pnl = _one(now_unit, prev_unit, cur, f)
-        items.append({
-            "code": a.get("code"), "type": t,
-            "name": a.get("name") or a.get("code"),
-            "today_pnl": round(pnl, 2) if pnl is not None else None,
-            "shares": cur, "bought": f["bought_shares"], "sold": f["sold_shares"],
-            "closed_today": cur <= 0 and f["sold_shares"] > 0,
-            "opened_today": f["bought_shares"] >= cur > 0,
-            # 净值滞后时今日%是底层代理估的, 当日盈亏同样是估计值, 透出让前端标注
-            "estimated": bool(q.get("proxy_change_pct") is not None
-                              and q.get("nav_date") and q.get("nav_date") != day),
-        })
 
     known = [i for i in items if i["today_pnl"] is not None]
     unknown = [i for i in items if i["today_pnl"] is None]
@@ -303,5 +255,6 @@ async def _compute() -> dict:
         "items": items,
         "note": "当日盈亏 = 现市值 + 今日卖出所得 − 昨收市值 − 今日买入成本; "
                 "含今日清仓的已实现, 今日新建仓以买入价为基准。金额含手续费。"
+                "行情源在休市日给的是最近交易日的涨跌, 本口径一律按行情自带数据算, 与前端列表一致。"
                 "场外基金净值 T+1, 标 estimated 的按底层代理估, 净值公布后会修正。",
     }

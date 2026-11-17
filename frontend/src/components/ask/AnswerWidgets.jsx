@@ -34,10 +34,10 @@ function Frame({ title, code, children }) {
   return (
     <div className="my-2 rounded-lg border border-border bg-surface-2/60 overflow-hidden max-w-[720px]">
       <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border-subtle">
-        <span className="text-[11.5px] font-medium text-text-bright">{title}</span>
+        <span className="text-[0.8214rem] font-medium text-text-bright">{title}</span>
         {code && (
           <button onClick={() => openStock(code)}
-            className="text-[11px] text-accent hover:underline cursor-pointer">打开详情</button>
+            className="text-[0.7857rem] text-accent hover:underline cursor-pointer">打开详情</button>
         )}
       </div>
       {children}
@@ -79,8 +79,8 @@ function MinuteWidget({ code }) {
   const name = card?.stock_name || code
   return (
     <Frame title={`${name}(${code}) 分时${data?.date ? ' · ' + data.date : ''}`} code={code}>
-      {err ? <div className="px-3 py-6 text-[12px] text-text-muted">{err}</div>
-        : !data || !prevClose ? <div className="px-3 py-6 text-[12px] text-text-muted">加载中…</div>
+      {err ? <div className="px-3 py-6 text-[0.8571rem] text-text-muted">{err}</div>
+        : !data || !prevClose ? <div className="px-3 py-6 text-[0.8571rem] text-text-muted">加载中…</div>
           : <MinuteChart points={data.points || []} prevClose={prevClose} day={data.date} height={260} />}
     </Frame>
   )
@@ -134,9 +134,9 @@ function CompareWidget({ items, days, mode }) {
   const title = d?.series?.map(s => s.label).join(' vs ') || items.join(' vs ')
   return (
     <Frame title={`${title} · ${mode === '分时' ? '当日分时' : `近${days}日`}走势对比`}>
-      {err && <div className="px-3 py-6 text-[12px] text-text-muted">{err}</div>}
+      {err && <div className="px-3 py-6 text-[0.8571rem] text-text-muted">{err}</div>}
       {d?.series?.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 px-2.5 pt-1.5 text-[11px]">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 px-2.5 pt-1.5 text-[0.7857rem]">
           {d.series.map((s, i) => {
             const v = hover ? hover.vals[i] : s.points?.[s.points.length - 1]?.pct
             return (
@@ -153,10 +153,10 @@ function CompareWidget({ items, days, mode }) {
         </div>
       )}
       {d && !d.series?.length
-        ? <div className="px-3 py-6 text-[12px] text-text-muted">这几项都没取到可画的数据</div>
+        ? <div className="px-3 py-6 text-[0.8571rem] text-text-muted">这几项都没取到可画的数据</div>
         : <div ref={wrapRef} style={{ height: 240 }} />}
       {(d?.basis || d?.notes?.length > 0) && (
-        <div className="px-2.5 pb-1.5 text-[10.5px] text-text-muted">{[d.basis, ...(d.notes || [])].filter(Boolean).join('; ')}</div>
+        <div className="px-2.5 pb-1.5 text-[0.75rem] text-text-muted">{[d.basis, ...(d.notes || [])].filter(Boolean).join('; ')}</div>
       )}
     </Frame>
   )

@@ -219,15 +219,15 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
     onDone?.()
   }
 
-  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[13px] text-text outline-none focus:border-accent'
+  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[0.9286rem] text-text outline-none focus:border-accent'
 
   return (
-    <div className="px-6 py-3 bg-surface-2/50 border-b border-border flex flex-wrap gap-2 items-end text-[13px]">
+    <div className="px-6 py-3 bg-surface-2/50 border-b border-border flex flex-wrap gap-2 items-end text-[0.9286rem]">
       {/* 资产类型(中类) / 币种 / 市场自动匹配: 选项全部来自 PG assets_classify
           fix-income 大类, 中类加行即生效, 前端零改动。已锁小类时显示静态徽标。 */}
       {subRow ? (
         <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-text-dim">分类</label>
+          <label className="text-[0.7857rem] text-text-dim">分类</label>
           <div className={`${inp} w-40 !bg-surface-3/40 text-text-bright flex items-center`}>
             {subRow.sub_assets_type_name || sub}
           </div>
@@ -240,12 +240,12 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
 
       {/* 代码 / 名称: quote 模式防抖查名(底表优先→行情兜底), yield 模式手填 */}
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">{isQuote || isBondMain ? '债券代码' : '产品代码'}</label>
+        <label className="text-[0.7857rem] text-text-dim">{isQuote || isBondMain ? '债券代码' : '产品代码'}</label>
         <input className={`${inp} w-28 font-mono`} placeholder={isQuote ? '113050' : isBondMain ? '019547.SH' : '可空'}
           value={code} onChange={e => setCode(e.target.value.toUpperCase())} />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">{isQuote || isBondMain ? '债券名称' : '产品名称'}{!isQuote && ' *'}</label>
+        <label className="text-[0.7857rem] text-text-dim">{isQuote || isBondMain ? '债券名称' : '产品名称'}{!isQuote && ' *'}</label>
         <input className={`${inp} w-28`} placeholder={nameLooking ? '查询中...' : (isQuote ? '可留空' : isBondMain ? '24国债09' : '招银季季宝')}
           value={name} onChange={e => setName(e.target.value)} />
       </div>
@@ -254,20 +254,20 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
       {isYield && (
         <>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">
-              买入本金 <span className="text-text-muted text-[10px]">{curSymbol}</span>
+            <label className="text-[0.7857rem] text-text-dim">
+              买入本金 <span className="text-text-muted text-[0.7143rem]">{curSymbol}</span>
             </label>
             <input type="number" step="0.01" value={principal}
               onChange={e => setPrincipal(e.target.value)}
               className={`${inp} w-28 font-mono`} placeholder="50000" />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">
+            <label className="text-[0.7857rem] text-text-dim">
               {isBondMain ? '票面利率 %' : '年化收益率 %'} *
               <Tooltip content={
                 <div className="leading-relaxed">
                   <div className="text-text-bright font-semibold mb-0.5">{isBondMain ? '票面利率' : '年化收益率'}</div>
-                  <div className="text-text-dim text-[10.5px]">
+                  <div className="text-text-dim text-[0.75rem]">
                     {isBondMain
                       ? '债券票面利率(单利, 按持有天数计提应计利息)'
                       : '理财填业绩比较基准/预期年化(单利计提估值); 到期兑付按它估算最后一笔利息'}
@@ -281,33 +281,33 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
               className={`${inp} w-20 font-mono`} placeholder="2.65" />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">期限 (天)</label>
+            <label className="text-[0.7857rem] text-text-dim">期限 (天)</label>
             <input type="number" step="1" value={termDays}
               onChange={e => { termTouched.current = true; setTermDays(e.target.value) }}
               className={`${inp} w-20 font-mono`} placeholder="93"
               title="封闭期/存续期天数; 填了自动推算到期日, 开放式可空" />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">起息日</label>
+            <label className="text-[0.7857rem] text-text-dim">起息日</label>
             <input type="date" value={valueDate} onChange={e => setValueDate(e.target.value)}
               className={`${inp} w-36 font-mono`} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">到期日</label>
+            <label className="text-[0.7857rem] text-text-dim">到期日</label>
             <input type="date" value={maturityDate}
               onChange={e => { maturityTouched.current = true; setMaturityDate(e.target.value) }}
               className={`${inp} w-36 font-mono`}
               title="填了自动反算期限(天); 开放式理财可空" />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">付息方式</label>
+            <label className="text-[0.7857rem] text-text-dim">付息方式</label>
             <select value={interestType} onChange={e => setInterestType(e.target.value)}
               className={`${inp} w-32`}>
               {INTEREST_TYPES.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">风险等级</label>
+            <label className="text-[0.7857rem] text-text-dim">风险等级</label>
             <select value={riskLevel} onChange={e => setRiskLevel(e.target.value)}
               className={`${inp} w-20`} title="可空">
               <option value="">无</option>
@@ -315,7 +315,7 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
             </select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">平台/发行机构</label>
+            <label className="text-[0.7857rem] text-text-dim">平台/发行机构</label>
             <input value={platform} onChange={e => setPlatform(e.target.value)} className={`${inp} w-28`}
               placeholder="招商银行 / 支付宝" />
           </div>
@@ -328,8 +328,8 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
       {isQuote && (
         <>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">
-              {isNetPrice ? '买入净价' : '买入价格'} <span className="text-text-muted text-[10px]">{curSymbol}</span>
+            <label className="text-[0.7857rem] text-text-dim">
+              {isNetPrice ? '买入净价' : '买入价格'} <span className="text-text-muted text-[0.7143rem]">{curSymbol}</span>
             </label>
             <input type="number" className={`${inp} w-24 font-mono`}
               placeholder={isNetPrice ? '101.50' : '113.50'} step={0.0001} value={unitPrice}
@@ -339,16 +339,16 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
           {isNetPrice && (
             <>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-text-dim">
+                <label className="text-[0.7857rem] text-text-dim">
                   应计利息
                   <Tooltip content={
                     <div className="leading-relaxed">
                       <div className="text-text-bright font-semibold mb-0.5">应计利息 (每张)</div>
-                      <div className="text-text-dim text-[10.5px]">全价 = 净价 + 应计利息</div>
-                      <div className="text-text-dim text-[10.5px] mt-0.5">
+                      <div className="text-text-dim text-[0.75rem]">全价 = 净价 + 应计利息</div>
+                      <div className="text-text-dim text-[0.75rem] mt-0.5">
                         应计利息 ≈ 面值 100 × 票面利率 × 距上次付息天数 ÷ 365
                       </div>
-                      <div className="text-text-dim text-[10.5px] mt-1">
+                      <div className="text-text-dim text-[0.75rem] mt-1">
                         从行情软件当日报价页抄应计利息; 留空按 0 计
                       </div>
                     </div>
@@ -362,7 +362,7 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
                   onChange={e => setAccrued(e.target.value)} />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-text-dim">全价 <span className="text-text-muted text-[10px]">自动</span></label>
+                <label className="text-[0.7857rem] text-text-dim">全价 <span className="text-text-muted text-[0.7143rem]">自动</span></label>
                 <input type="number" readOnly tabIndex={-1}
                   className={`${inp} w-24 font-mono text-text-dim bg-surface-3/40`}
                   value={dirtyPrice != null ? dirtyPrice.toFixed(4) : ''} placeholder="自动"
@@ -371,8 +371,8 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
             </>
           )}
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">
-              数量 <span className="text-text-muted text-[10px]">张</span>
+            <label className="text-[0.7857rem] text-text-dim">
+              数量 <span className="text-text-muted text-[0.7143rem]">张</span>
             </label>
             <input type="number" className={`${inp} w-20 font-mono`}
               placeholder="100" min={10} step={10} value={shares}
@@ -380,19 +380,19 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
               onChange={e => setShares(e.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">税费 <span className="text-text-muted text-[10px]">自动算·可改</span></label>
+            <label className="text-[0.7857rem] text-text-dim">税费 <span className="text-text-muted text-[0.7143rem]">自动算·可改</span></label>
             <input type="number" className={`${inp} w-20 font-mono`}
               placeholder="0" step={0.01} min={0} value={fee}
               title="手续费(人民币): 默认按费率配置自动估算, 可手动覆盖; 留空由后端按费率自动算"
               onChange={e => { setFeeTouched(true); setFee(e.target.value) }} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">买入日期</label>
+            <label className="text-[0.7857rem] text-text-dim">买入日期</label>
             <input type="date" className={`${inp} w-36 font-mono`}
               value={valueDate || ''} onChange={e => setValueDate(e.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-text-dim">券商</label>
+            <label className="text-[0.7857rem] text-text-dim">券商</label>
             <select className={`${inp} w-28`} value={selectedBroker} onChange={e => setSelectedBroker(e.target.value)}>
               <option value="">无</option>
               {brokersOfType(brokers, 'FUND').map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
@@ -401,18 +401,18 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
         </>
       )}
 
-      <button onClick={submit} className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[13px] hover:opacity-90 cursor-pointer">
+      <button onClick={submit} className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[0.9286rem] hover:opacity-90 cursor-pointer">
         保存
       </button>
       <button onClick={onCancel}
-        className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[13px] hover:text-text cursor-pointer">
+        className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[0.9286rem] hover:text-text cursor-pointer">
         取消
       </button>
 
       {/* ── yield 模式第二行: 备注 ── */}
       {isYield && (
         <div className="flex flex-col gap-1 w-full">
-          <label className="text-[11px] text-text-dim">备注</label>
+          <label className="text-[0.7857rem] text-text-dim">备注</label>
           <input value={note} onChange={e => setNote(e.target.value)} className={`${inp} w-full max-w-[480px]`}
             placeholder="锁定期 / 申赎规则 / 其他说明 (可空)" />
         </div>
@@ -420,7 +420,7 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
 
       {/* 单利计提预览 (yield 模式, 与后端 _accrued_estimate 同式): 到期本息 + 日利息 */}
       {isYield && (expectedMaturity != null || dailyInterest != null) && (
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 w-full text-[10.5px] font-mono text-bull">
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 w-full text-[0.75rem] font-mono text-bull">
           {expectedMaturity != null && (
             <span>✓ 预计到期本息 ¥{expectedMaturity.toFixed(2)}
               <span className="text-text-dim ml-1.5">
@@ -438,7 +438,7 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
       {isQuote && quoteTotal != null && (() => {
         const avg = sNum > 0 ? quoteTotal / sNum : 0
         return (
-          <div className="w-full text-[10.5px] font-mono text-bull">
+          <div className="w-full text-[0.75rem] font-mono text-bull">
             ✓ {sNum} 张 × {isNetPrice ? '全价' : ''}¥{quotePrice.toFixed(4)}
             {isNetPrice && accruedNum > 0 && ` (净价 ¥${netNum.toFixed(4)} + 应计 ¥${accruedNum.toFixed(4)})`}
             = ¥{quoteGross.toFixed(2)}
@@ -448,7 +448,7 @@ export function AddFixIncomeForm({ sub, onDone, onCancel, brokers = [] }) {
         )
       })()}
 
-      <div className="w-full text-[10px] text-text-muted pb-1">
+      <div className="w-full text-[0.7143rem] text-text-muted pb-1">
         {isQuote
           ? (isNetPrice
             ? '交易所债净价报价: 全价 = 净价 + 应计利息, 成本按全价落库(真实每张支付) · 记入持仓账本(holdings/position_actions), 与理财同属固定收益分组'

@@ -74,37 +74,37 @@ export default function PortfolioCurve() {
   return (
     <div className="mb-3">
       <div className="flex items-center gap-2 mb-1.5">
-        <div className="text-[11px] text-text-muted tracking-wider">组合净值曲线（TWR · 出入金已剥离）</div>
+        <div className="text-[0.7857rem] text-text-muted tracking-wider">组合净值曲线（TWR · 出入金已剥离）</div>
         <div className="ml-auto flex gap-1">
           {PERIODS.map(p => (
             <button key={p.key} onClick={() => setDays(p.key)}
-              className={`text-[10.5px] px-2 py-0.5 rounded ${days === p.key ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+              className={`text-[0.75rem] px-2 py-0.5 rounded ${days === p.key ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
               {p.label}
             </button>
           ))}
         </div>
       </div>
       {loading && !data && <SkeletonCard bare rows={4} label="逐日重建组合市值中…（首算要拉各标的的历史K线, 之后走缓存）" />}
-      {!loading && err && <div className="text-[11.5px] text-text-dim py-3">{typeof err === 'string' ? err : '曲线暂不可达'}</div>}
+      {!loading && err && <div className="text-[0.8214rem] text-text-dim py-3">{typeof err === 'string' ? err : '曲线暂不可达'}</div>}
       {data && !err && (
         <>
           <div className="flex items-center gap-4 mb-1 flex-wrap">
-            <span className="text-[11px] text-text-muted">区间收益 <span className={`font-mono font-semibold text-[13px] ${colorOf(m['区间收益%'])}`}>{fmtPct(m['区间收益%'])}</span></span>
-            <span className="text-[11px] text-text-muted">最大回撤 <span className="font-mono font-semibold text-[13px] text-text">{m['最大回撤%']}%</span></span>
-            <span className="text-[11px] text-text-muted">沪深300 <span className={`font-mono text-[12px] ${colorOf(m['基准收益%'])}`}>{fmtPct(m['基准收益%'])}</span></span>
-            <span className="text-[11px] text-text-muted">超额 <span className={`font-mono font-semibold text-[13px] ${colorOf(m['超额%'])}`}>{fmtPct(m['超额%'])}</span></span>
-            <span className="text-[10px] text-text-dim ml-auto">起点 {m['起点']}</span>
+            <span className="text-[0.7857rem] text-text-muted">区间收益 <span className={`font-mono font-semibold text-[0.9286rem] ${colorOf(m['区间收益%'])}`}>{fmtPct(m['区间收益%'])}</span></span>
+            <span className="text-[0.7857rem] text-text-muted">最大回撤 <span className="font-mono font-semibold text-[0.9286rem] text-text">{m['最大回撤%']}%</span></span>
+            <span className="text-[0.7857rem] text-text-muted">沪深300 <span className={`font-mono text-[0.8571rem] ${colorOf(m['基准收益%'])}`}>{fmtPct(m['基准收益%'])}</span></span>
+            <span className="text-[0.7857rem] text-text-muted">超额 <span className={`font-mono font-semibold text-[0.9286rem] ${colorOf(m['超额%'])}`}>{fmtPct(m['超额%'])}</span></span>
+            <span className="text-[0.7143rem] text-text-dim ml-auto">起点 {m['起点']}</span>
           </div>
           {data.coverage?.missing_prices?.length > 0 && (
-            <div className="text-[10px] text-warn mb-0.5">
+            <div className="text-[0.7143rem] text-warn mb-0.5">
               部分标的取不到历史价({data.coverage.missing_prices.join('、')}), 该部分市值未计入曲线
             </div>
           )}
           <Chart dates={data.dates} twr={data.twr} bench={data.bench.series} />
           <div className="flex items-center gap-3 mt-0.5">
-            <span className="text-[9.5px] text-text-dim"><span className="inline-block w-3 h-[2px] align-middle mr-1" style={{ background: 'var(--color-accent)' }} />我的组合</span>
-            <span className="text-[9.5px] text-text-dim"><span className="inline-block w-3 h-[2px] align-middle mr-1 bg-text-muted opacity-70" />沪深300</span>
-            <span className="text-[9px] text-text-dim ml-auto">现金/理财/机器人按成本基线近似 · 不构成买卖建议</span>
+            <span className="text-[0.6786rem] text-text-dim"><span className="inline-block w-3 h-[2px] align-middle mr-1" style={{ background: 'var(--color-accent)' }} />我的组合</span>
+            <span className="text-[0.6786rem] text-text-dim"><span className="inline-block w-3 h-[2px] align-middle mr-1 bg-text-muted opacity-70" />沪深300</span>
+            <span className="text-[0.6429rem] text-text-dim ml-auto">现金/理财/机器人按成本基线近似 · 不构成买卖建议</span>
           </div>
         </>
       )}

@@ -24,7 +24,7 @@ export const TYPE_COLOR = {
 export const TYPE_ORDER = ['A', 'F', 'W', 'M', 'C', 'R', 'T', 'O']
 
 export const ASSET_TYPE_TO_KEY = { FUND: 'F', CRYPTO: 'C', BOT: 'R', WEALTH: 'W', CASH: 'M' }
-// W 桶已由 fix-income(固定收益) 大类驱动(fix_income_assets 账本), WEALTH 只是老数据兼容标记。
+// W 桶由 fix-income(固定收益) 大类驱动 —— 固收已并入持仓账本(holdings), nav/quote 型行按目录大类自动归桶。
 
 // 持仓视图的展示桶(A/F/W/M/C/R/T/O) → 录入入口的大类(assets_class)。
 // 仅用于「快速添加」按钮按当前筛选桶直接打开对应大类表单; 期货/期权同归 derivatives。
@@ -46,7 +46,7 @@ export const SUB_TO_TYPE = {
   cn_futures: 'T', hk_futures: 'T', us_futures: 'T',
   cn_options: 'O', hk_options: 'O', us_options: 'O', hk_warrant: 'O',
   crypto_perpetual: 'C', crypto_spot: 'C',
-  cn_wealth: 'W', cn_bond: 'W',   // 固定收益(fix-income): 理财 / 债券
+  cn_wealth: 'W', cn_bond: 'W',   // 固定收益(fix-income): 理财 / 债券(兜底, 目录信息缺失时才走这)
 }
 
 // 由 assets_classify 行(后端随持仓透传)推导展示类型 —— 单一事实来源。
@@ -58,7 +58,7 @@ export function typeFromClassify(cls = {}) {
   if (ac === 'fund') return 'F'                   // 兜底(中类未带 fund 字样)
   if (ac === 'crypto') return 'C'
   if (ac === 'cash_equal') return 'M'              // 纯现金等价物(非货基)
-  if (ac === 'fix-income') return 'W'              // 固定收益(理财/债券, valuation_type=yield)
+  if (ac === 'fix-income') return 'W'              // 固定收益(理财 nav / 债券 quote, 已并入持仓账本)
   if (ac === 'derivatives') return /fut/.test(mt) ? 'T' : 'O'   // 期货/期权同属衍生品, 按中类拆
   return null   // commodity / forex / insurance: 暂无独立展示桶
 }
@@ -91,17 +91,29 @@ export const STOCK_MARKETS = {
   JP: { label: '日股', placeholder: '7203', hint: '日本代码', minShares: 1, step: 'any' },
 }
 
-// Fund subcategory(基金类别): 由 assets_classify 小类(市场×形态)派生展示名,
-// 不再按基金名关键词猜行业/主题 —— 行业分类已整体下线, 归类只看基金本身是什么。
-const FUND_MARKET_LABEL = { cn: '', hk: '港股', us: '美股' }
-const FUND_KIND_LABEL = {
+// 基金子分组统一按中类 main_assets_type 合并: 中国/香港/美国 ETF 都归到一组, 不再按市场拆
+// (旧的按小类拼"港股ETF"是前端自造标签, 数据库里根本没有, 已废弃)。
+// 标签优先用数据库 assets_type_name(中类中文名, 后端随持仓透传), 缺失时按中类键兜底。
+const FUND_MAIN_LABEL = {
   etf_fund: 'ETF', lof_fund: 'LOF', otc_fund: '场外基金',
   private_fund: '私募基金', reits_fund: 'REITs', mm_fund: '货币基金',
 }
-export function fundKindLabel(sub = '') {
-  const m = String(sub || '').trim().match(/^(cn|hk|us)_(.+)$/)
-  if (!m || !FUND_KIND_LABEL[m[2]]) return '基金'
-  return FUND_MARKET_LABEL[m[1]] ? FUND_MARKET_LABEL[m[1]] + FUND_KIND_LABEL[m[2]] : FUND_KIND_LABEL[m[2]]
+// 合法基金中类键集合。main_assets_type 是引擎钉住列(用于衍生品判定), 数据可能缺失/钉错
+// (实测 REITs 行被钉成 common_share) → 分组前必须校验, 非法时从 sub_assets_type 推导。
+export const FUND_MAINS = Object.keys(FUND_MAIN_LABEL)
+
+// 从基金小类推导规范中类: 小类 = 市场前缀 + 中类, 如 cn_reits_fund → reits_fund,
+// hk_etf_fund → etf_fund。这样中/港/美 ETF 仍合并到一组, REITs 也不会落进 common_share。
+export function fundMainFromSub(sub = '') {
+  const s = String(sub || '').trim().toLowerCase()
+  return FUND_MAINS.find(m => s.endsWith(m)) || ''
+}
+
+export function fundKindLabel(main = '', typeName = '') {
+  const name = String(typeName || '').trim()
+  if (name) return name
+  const mt = String(main || '').trim().toLowerCase()
+  return FUND_MAIN_LABEL[mt] || mt || '基金'
 }
 
 // A-share industry: keyword-driven. 优先匹配后端拉的真实行业字符串

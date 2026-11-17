@@ -77,8 +77,11 @@ def is_thscode(code: str) -> bool:
 
 
 def ths_kind(code: str) -> str:
-    """thscode → 'fut' | 'opt'。期权 thscode 判不了就按期货处理(仅影响 asset_type 标注)。"""
-    return "opt" if ".SH" in code.upper() and code.upper().startswith(("10", "90")) else "fut"
+    """thscode → 'fut' | 'opt'。必须与 _looks_option 同口径 —— 它决定端点(/api/options
+    vs /futures)、QuoteRow.market、行情入库 sub_assets_type。旧逻辑只认 .SH 开头 10/90
+    的 ETF 期权, 认不出 MO2611-P-6500.CFE 这类股指/商品期权拼码 → 被误判成期货、小类落
+    成 cn_futures。统一委托 _looks_option(认 -C-/-P- 拼码 + .SH/.SZ 数字 ETF 期权)。"""
+    return "opt" if _looks_option(code) else "fut"
 
 
 _api_key_cache: list = [None, 0.0]      # (key, ts)
@@ -176,24 +179,57 @@ _name_cache: dict[str, tuple[str, float]] = {}
 _NAME_TTL = 6 * 3600
 
 
+def _parse_option_code(thscode: str):
+    """期权拼码 → (品种, 月份YYMM, C/P, 行权价)。MO2611-P-6500.CFE → ('MO','2611','P','6500')。
+    非拼码(期货/ETF期权数字码)返回 None。"""
+    body = (thscode or "").strip().upper().partition(".")[0]
+    m = re.match(r"^([A-Z]+)(\d{4})-([CP])-(\d+(?:\.\d+)?)$", body)
+    return (m.group(1), m.group(2), m.group(3), m.group(4)) if m else None
+
+
 async def _name_of(thscode: str) -> str:
-    """合约名称: 底稿(symbol_dict) → 合约详情(长缓存)。给 quote 行带名字, 供底稿登记与前端显示。"""
+    """合约名称: 底稿(symbol_dict 精确码) → 合约详情 → 期权拼码本地构造(长缓存)。
+    期权是开仓现拼的合约码(MO2611-P-6500.CFE), symbol_dict 只有品种行(MO)、没有完整合约码,
+    合约详情端点又是期货的(/api/futures)查不到期权 —— 两条 lookup 都落空导致 name 为空。
+    最后按拼码本地构造「品种名 月份 认沽/认购 行权价」, 品种名查 symbol_dict 的 ticker 行。"""
     hit = _name_cache.get(thscode)
     if hit and time.time() - hit[1] < _NAME_TTL:
         return hit[0]
+    parts = _parse_option_code(thscode)
+    vrow = None
     try:
         from database import get_db
         db = await get_db()
         try:
             cur = await db.execute("SELECT name FROM symbol_dict WHERE UPPER(code) = ? LIMIT 1", (thscode.upper(),))
             row = await cur.fetchone()
+            if row and row["name"]:
+                _name_cache[thscode] = (row["name"], time.time())
+                return row["name"]
+            # 期权拼码: 用品种行(按 ticker/code=MO)的中文名拼完整合约名。
+            # 同一品种码可能在多交易所各有品种行(MO.DCE 豆粕期权 / MO.CFE 中证1000期权),
+            # 按合约后缀优先匹配, 避免张冠李戴。
+            if parts:
+                variety, _, _, _ = parts
+                _exch = thscode.upper().partition(".")[2]
+                cur = await db.execute(
+                    "SELECT name FROM symbol_dict "
+                    "WHERE UPPER(ticker) = ? OR UPPER(code) = ? "
+                    "ORDER BY (UPPER(COALESCE(suffix,'')) = ?) DESC LIMIT 1",
+                    (variety, variety, _exch))
+                vrow = await cur.fetchone()
         finally:
             await db.close()
-        if row and row["name"]:
-            _name_cache[thscode] = (row["name"], time.time())
-            return row["name"]
     except Exception:
         pass
+    # 期权拼码本地构造名: 即使底稿查不到, 也用裸品种码拼出非空名称(不依赖期货详情端点)
+    if parts:
+        variety, month, cp, strike = parts
+        vname = vrow["name"] if vrow and vrow["name"] else variety
+        cp_cn = "认沽" if cp == "P" else "认购"
+        nm = f"{vname} {month} {cp_cn} {strike}"
+        _name_cache[thscode] = (nm, time.time())
+        return nm
     try:
         d = await contract_detail(thscode)
         nm = (d or {}).get("name") or ""
@@ -227,19 +263,18 @@ async def quote(thscode: str) -> Optional[dict]:
     try:
         from datetime import datetime as _dt, timedelta as _td, timezone as _tz
         kind = "options" if _looks_option(thscode) else "futures"
-        # 日K窗口: start=昨日起点(北京时间, t-1)留足昨收算涨跌幅, end=当前时刻(t); time_period=day_1(端外唯一允许)
-        _start = int((_dt.now(_tz(_td(hours=8))).replace(hour=0, minute=0, second=0, microsecond=0)
-                      - _td(days=1)).timestamp() * 1000)
-        _end = int(_dt.now(_tz.utc).timestamp() * 1000)
-        daily = await _get(f"/api/{kind}/prices/daily",
-                           {"thscode": thscode, "time_period": "day_1", "start": _start, "end": _end})
+        # 日K不传 start/end —— fuyao 两个端点(futures/options)对窗口过滤都返回空 item
+        # (实测 2026-11), 省略参数拿最近100根; 涨跌/昨收全部从这100根序列里取。
+        daily = await _get(f"/api/{kind}/prices/daily", {"thscode": thscode, "time_period": "day_1"})
         klines = (daily or {}).get("item") or []
         closes = [float(k["close_price"]) for k in klines if k.get("close_price") is not None]
         if not closes:
             _quote_cache[thscode] = (None, time.time())
             return None
 
-        today = (_dt.now(_tz.utc) + _td(hours=8)).strftime("%Y-%m-%d")
+        _bj = _dt.now(_tz.utc) + _td(hours=8)
+        today = _bj.strftime("%Y-%m-%d")
+        tomorrow = (_bj + _td(days=1)).strftime("%Y-%m-%d")
 
         def _bar_date(k: dict) -> str:
             try:
@@ -250,21 +285,29 @@ async def quote(thscode: str) -> Optional[dict]:
 
         last_date = _bar_date(klines[-1]) if klines else ""
         price, quote_time = closes[-1], last_date
-        if last_date != today:
-            # 日K还没有今天的 bar: 盘中 → 分时拿现价; 休市日 → 保持最近收盘
+        got_intraday = False
+        # 末根 bar 是否"当前交易时段": 今天, 或期货夜盘归属的明天(周日晚21:00开盘的夜盘
+        # 记入下一交易日, bar 已是实时更新) —— 此时现价就是末根收盘, 不需要分时。
+        current_bar = last_date in (today, tomorrow)
+        if not current_bar:
+            # 日K末根不是当前时段: 盘中 → 分时拿现价; 休市日 → 保持最近收盘。
+            # 分时在休市日返回的是上一交易日的残留(末点=周五 15:00 收盘), 不是今天的实时价 ——
+            # 只有末点时间是今天才采用, 否则 price==末根收盘、涨跌恒 0, 还会把"昨收=末根"用错。
             try:
                 intraday = await _get(f"/api/{kind}/prices/intraday", {"thscode": thscode})
                 pts = (intraday or {}).get("item") or []
-                if pts and pts[-1].get("price") is not None:
+                pt_time = _pts_time(pts) if pts else ""
+                if pts and pts[-1].get("price") is not None and pt_time[:10] == today:
                     price = float(pts[-1]["price"])
-                    quote_time = _pts_time(pts) or today
+                    quote_time = pt_time or today
+                    got_intraday = True
             except Exception as e:
                 print(f"[ths_fuyao] {thscode} intraday 失败(用日K收盘兜底): {str(e)[:100]}")
 
         if not price:
             _quote_cache[thscode] = (None, time.time())
             return None
-        prev_close = closes[-2] if (last_date == today and len(closes) >= 2) else closes[-1]
+        prev_close = _prev_close_of(closes, last_date, today, got_intraday, tomorrow)
         change_pct = round((price - prev_close) / prev_close * 100, 3) if prev_close else None
         # OHLC/量额取日K末根: 今天盘中bar(实时累计)或最近交易日bar —— 分时只替代现价
         bar = klines[-1] if klines else {}
@@ -314,6 +357,20 @@ def _looks_option(thscode: str) -> bool:
     if exch in ("SH", "SZ") and body.isdigit():
         return True
     return False
+
+
+def _prev_close_of(closes: list[float], last_date: str, today: str, got_intraday: bool,
+                   tomorrow: str = "") -> float | None:
+    """昨收取值: ① 末根是当前时段 bar(今天, 或期货夜盘归属的明天) → 倒数第二根;
+    ② 末根非当前时段但拿到今日分时现价 → 末根(最近交易日收盘);
+    ③ 末根非当前时段且分时也没拿到(休市日) → 倒数第二根(涨跌=最近交易日相对其前一日)。
+    ③ 若误取末根, 现价==昨收 → change_pct=0(期权休市日今日盈亏恒 0 的 bug)。"""
+    if not closes:
+        return None
+    current_bar = last_date == today or (bool(tomorrow) and last_date == tomorrow)
+    if len(closes) >= 2 and (current_bar or not got_intraday):
+        return closes[-2]
+    return closes[-1]
 
 
 def _pts_time(pts: list) -> str:

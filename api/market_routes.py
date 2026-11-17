@@ -155,7 +155,8 @@ async def market_refresh(body: MarketRefreshReq):
     codes = [normalize_stock_code(c) for c in (body.codes or []) if str(c or "").strip()]
     if not codes:
         from database import get_all_holdings
-        codes = [h["stock_code"] for h in await get_all_holdings()]
+        # 已清仓(shares=0)的行不刷: 主列表不展示, 也不该为死仓标的耗行情额度
+        codes = [h["stock_code"] for h in await get_all_holdings() if (h.get("shares") or 0) > 0]
     codes = sorted(set(codes))
     if not codes:
         return {"ok": True, "auto_fetch": quote_auto_fetch(),
@@ -214,18 +215,35 @@ async def market_status_route():
 
 @router.get("/logo")
 async def market_logo(code: str = ""):
-    """股票/基金 logo(PNG 128px, transparent): 本地 icons/ 磁盘缓存 → 未命中且配置了
-    LOGOSTREAM_API_KEY(config.env)时联网拉 logostream 落盘再回。
+    """股票/基金 logo(PNG 128px, transparent): DB(market.logo_cache) + icons/ 磁盘缓存 → 未命中且
+    配置了 LOGOSTREAM_API_KEY(config.env)时联网拉 logostream 落盘再回。
     404 = 无 logo / 未配 key / 非股票码(场外基金/加密/期货), 前端 <img> onError
     退回首字母圆标。浏览器侧 Cache-Control 一天: logo 基本不变, 二次进页面零请求。"""
     from fastapi import Response
     from services import logostream
     got = await logostream.get_logo(code)
     if not got:
-        return Response(status_code=404)
+        # 404 也让浏览器缓存 6h(miss 30 天重试/pass 永久跳过, 后端秒回无上游):
+        # 没有它, 前端每次渲染都重问一遍, 日志被无意义的重复 GET 刷屏。
+        return Response(status_code=404, headers={"Cache-Control": "public, max-age=21600"})
     data, ctype = got
     return Response(content=data, media_type=ctype,
                     headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/flag")
+async def market_flag(cc: str = ""):
+    """国家/地区旗(logostream /country/{ISO 3166-1 alpha-2}, 1x1 方形): assets 页的市场/
+    交易所徽标统一改国旗(A→CN, HK→HK, US→US, JP→JP…)。icons/flags/ 磁盘缓存 —— 国旗按
+    国家确定性存在, 无 miss 语义, 不入 logo_cache。无效码 404, 前端退回文字徽标。"""
+    from fastapi import Response
+    from services import logostream
+    got = await logostream.get_flag(cc)
+    if not got:
+        return Response(status_code=404, headers={"Cache-Control": "public, max-age=21600"})
+    data, ctype = got
+    return Response(content=data, media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=604800"})
 
 
 @router.get("/trading-day")

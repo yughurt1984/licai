@@ -5,12 +5,12 @@ import { saveDraft } from './save'
 // AI 识别结果的 editable 卡片: 一条交易一张卡, 字段集随资产类型切换 ——
 // 字段与持仓页对应表单(AddAShareForm/AddAssetForm/AddFuturesForm)保持同款语义,
 // 但做成紧凑单卡, 方便一次核对 LLM 吐出的多笔。
-const inp = 'bg-bg border border-border rounded px-2 py-1 text-[12.5px] text-text font-mono outline-none focus:border-accent w-full'
+const inp = 'bg-bg border border-border rounded px-2 py-1 text-[0.8929rem] text-text font-mono outline-none focus:border-accent w-full'
 
 function Field({ label, title, children }) {
   return (
     <label className="flex flex-col gap-0.5 min-w-0">
-      <span className="text-[10px] text-text-muted whitespace-nowrap" title={title}>{label}</span>
+      <span className="text-[0.7143rem] text-text-muted whitespace-nowrap" title={title}>{label}</span>
       {children}
     </label>
   )
@@ -34,7 +34,7 @@ function SideChips({ value, onChange, buyLabel, sellLabel }) {
         const on = (i === 0 ? value === 'BUY' || value === 'OPEN' : value === 'SELL' || value === 'CLOSE')
         return (
           <button key={lbl} type="button" onClick={() => onChange(i === 0)}
-            className={`px-2.5 text-[12px] cursor-pointer transition-colors font-medium
+            className={`px-2.5 text-[0.8571rem] cursor-pointer transition-colors font-medium
               ${on ? `${tone} bg-surface-3 font-semibold` : 'text-text-dim hover:text-text'}`}>
             {lbl}
           </button>
@@ -67,13 +67,13 @@ export function DraftCard({ draft, ctx, onChange, onRemove }) {
   // 已入账: 折叠成一行结果, 留个"撤销状态"入口没必要 —— 持仓页自己能删
   if (d.state === 'saved') {
     return (
-      <div className="px-3 py-2 border-b border-border-subtle flex items-center gap-2 text-[12.5px]"
+      <div className="px-3 py-2 border-b border-border-subtle flex items-center gap-2 text-[0.8929rem]"
         style={{ background: 'rgba(95,168,108,0.06)' }}>
         <span className="text-bull font-semibold">✓ 已入账</span>
         <span className="text-text">{d.msg}</span>
-        <span className="text-text-muted text-[11px] truncate">{d.name || d.code}</span>
+        <span className="text-text-muted text-[0.7857rem] truncate">{d.name || d.code}</span>
         <button onClick={() => onRemove(d.id)}
-          className="ml-auto text-[11px] text-text-muted hover:text-text cursor-pointer shrink-0">关闭</button>
+          className="ml-auto text-[0.7857rem] text-text-muted hover:text-text cursor-pointer shrink-0">关闭</button>
       </div>
     )
   }
@@ -85,26 +85,26 @@ export function DraftCard({ draft, ctx, onChange, onRemove }) {
     <div className="px-3 md:px-6 py-2.5 border-b border-border-subtle space-y-2">
       {/* 卡头: 类型徽章 + 名称/代码 + 置信度 + 依据 + 操作 */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="px-1.5 py-0.5 rounded text-[10.5px] font-semibold shrink-0"
+        <span className="px-1.5 py-0.5 rounded text-[0.75rem] font-semibold shrink-0"
           style={{ background: `${tint}1f`, color: tint, border: `1px solid ${tint}55` }}>
           {TYPE_META[d.type]?.label || d.type}{d.type === 'A' ? `·${d.market}` : ''}
         </span>
         <input className="bg-transparent border-b border-transparent hover:border-border-med focus:border-accent
-          text-[13px] font-medium text-text-bright outline-none w-40 min-w-0"
+          text-[0.9286rem] font-medium text-text-bright outline-none w-40 min-w-0"
           value={d.name} placeholder="名称"
           onChange={e => set({ name: e.target.value })} />
-        <span className="text-[10.5px] text-text-dim">核对无误后入账</span>
+        <span className="text-[0.75rem] text-text-dim">核对无误后入账</span>
         {conf != null && (
-          <span className={`text-[10.5px] font-mono px-1.5 rounded ${lowConf ? 'text-warn' : 'text-text-muted'}`}
+          <span className={`text-[0.75rem] font-mono px-1.5 rounded ${lowConf ? 'text-warn' : 'text-text-muted'}`}
             title="AI 对这条解析的自报把握, <60% 建议逐字段核对">把握 {conf}%</span>
         )}
         <div className="ml-auto flex items-center gap-2">
           <button onClick={save} disabled={busy}
-            className="px-3 py-1 rounded bg-accent text-bg text-[12px] font-medium hover:opacity-90 disabled:opacity-50 cursor-pointer">
+            className="px-3 py-1 rounded bg-accent text-bg text-[0.8571rem] font-medium hover:opacity-90 disabled:opacity-50 cursor-pointer">
             {busy ? '入账中…' : '入账'}
           </button>
           <button onClick={() => onRemove(d.id)}
-            className="text-[11px] text-text-muted hover:text-text cursor-pointer">忽略</button>
+            className="text-[0.7857rem] text-text-muted hover:text-text cursor-pointer">忽略</button>
         </div>
       </div>
 
@@ -213,11 +213,11 @@ export function DraftCard({ draft, ctx, onChange, onRemove }) {
       {(d.evidence || err || d.state === 'failed') && (
         <div className="flex flex-col gap-0.5">
           {d.evidence && (
-            <div className="text-[10.5px] text-text-muted font-mono truncate" title={d.evidence}>
+            <div className="text-[0.75rem] text-text-muted font-mono truncate" title={d.evidence}>
               依据: {d.evidence}
             </div>
           )}
-          {err && <div className="text-[11.5px] text-bear">✗ {err}</div>}
+          {err && <div className="text-[0.8214rem] text-bear">✗ {err}</div>}
         </div>
       )}
     </div>

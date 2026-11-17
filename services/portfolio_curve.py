@@ -59,8 +59,7 @@ def _flow_cash(act: dict, *, etf: bool) -> float:
 
 async def _collect_universe() -> dict:
     """两类账本归一成逐标的流水表 + 无价资产的成本基线流水。"""
-    from database import get_position_actions, list_external_assets, list_external_actions
-    from services.external_assets import _is_onchain_etf
+    from database import get_position_actions
 
     stocks: dict[str, list] = {}
     for a in await get_position_actions(limit=5000):
@@ -79,41 +78,12 @@ async def _collect_universe() -> dict:
             rec["shares"] = -float(a.get("shares") or 0)
         stocks.setdefault(code, []).append(rec)
 
-    etfs: dict[str, list] = {}
-    baseline: list[dict] = []
-    for x in await list_external_assets():
-        is_etf = (x.get("asset_type") or "") == "FUND" and _is_onchain_etf(str(x.get("code") or ""))
-        for act in await list_external_actions(x["id"]):
-            if (act.get("status") or "confirmed") != "confirmed":
-                continue
-            td = (act.get("trade_date") or "")[:10]
-            if not td:
-                continue
-            t = (act.get("action_type") or "").upper()
-            if is_etf:
-                rec = {"date": td, "shares": 0.0, "cash": _flow_cash(act, etf=True), "type": t}
-                if t == "SPLIT" and float(act.get("shares") or 0) > 0:
-                    rec["split"] = float(act["shares"])
-                elif t in ACQUIRE:
-                    rec["shares"] = float(act.get("shares") or 0)
-                elif t in RELEASE:
-                    rec["shares"] = -float(act.get("shares") or 0)
-                etfs.setdefault(str(x.get("code") or ""), []).append(rec)
-            else:
-                # 场外基金/理财/现金/机器人: 成本基线。申购/存入进, 赎回/取出出
-                cash = float(act.get("amount") or 0)
-                if cash <= 0:
-                    continue
-                if t in ACQUIRE_BASE:
-                    baseline.append({"date": td, "cash": cash})
-                elif t in RELEASE_BASE:
-                    baseline.append({"date": td, "cash": -cash})
-
-    for lst in (*stocks.values(), *etfs.values()):
+    for lst in stocks.values():
         lst.sort(key=lambda r: r["date"])
-    baseline.sort(key=lambda r: r["date"])
-    codes = sorted(set(stocks) | set(etfs))
-    return {"stocks": stocks, "etfs": etfs, "baseline": baseline, "codes": codes,
+    codes = sorted(stocks)
+    # 外部资产双账本已合并进 holdings 并整体下线: etfs/baseline 恒空, 保留返回形状
+    # 兼容下游(_baseline_at 等)。
+    return {"stocks": stocks, "etfs": {}, "baseline": [], "codes": codes,
             "fx_codes": {c for c in codes if code_currency(c) != "CNY"}}
 
 

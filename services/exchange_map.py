@@ -73,7 +73,7 @@ async def resolve_source_code(mic: Optional[str], source: str) -> Optional[str]:
 
 # 市场段位(symbol_dict.suffix 口径: SH/SZ/HK/BJ) → exchange.mic(唯一确定, 不歧义)。
 _SUFFIX_TO_MIC = {
-    "SH": "XSHG", "SZ": "XSHE", "HK": "XHKG", "BJ": "BJSE",
+    "SH": "XSHG", "SZ": "XSHE", "HK": "XHKG", "BJ": "BJSE", "JP": "XTKS",
 }
 
 

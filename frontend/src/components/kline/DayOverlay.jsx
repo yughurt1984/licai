@@ -91,28 +91,28 @@ export function DayOverlay({ day, code, getBars, onClose, onJumpDay, actions = n
         style={{ height: '62%',
                  background: 'color-mix(in srgb, var(--color-surface-2) 94%, transparent)', backdropFilter: 'blur(2px)' }}>
         <div className="flex items-baseline gap-2 px-1 mb-0.5">
-          <span className="text-[11px] font-mono text-text-bright">{(minData?.date || day.date).toString().replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')}</span>
+          <span className="text-[0.7857rem] font-mono text-text-bright">{(minData?.date || day.date).toString().replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')}</span>
           {['分时', '龙虎榜'].map(t => (
             <button key={t} onClick={() => setOvTab(t)}
-              className={`text-[10.5px] px-1.5 py-0.5 rounded cursor-pointer ${ovTab === t ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text'}`}>
+              className={`text-[0.75rem] px-1.5 py-0.5 rounded cursor-pointer ${ovTab === t ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text'}`}>
               {t}
             </button>
           ))}
           {/* 逐笔精绘开关: 1分钟采样丢失分钟内秒级尖峰(盘口被打空的"闪电"), 逐笔用全天逐笔还原 */}
           {ovTab === '分时' && (
             <button onClick={() => setTick(v => !v)} title="用全天逐笔重画, 还原分钟内的秒级尖峰(闪电), 数据量更大"
-              className={`text-[10.5px] px-1.5 py-0.5 rounded cursor-pointer ${tick ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text'}`}>
+              className={`text-[0.75rem] px-1.5 py-0.5 rounded cursor-pointer ${tick ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text'}`}>
               逐笔精绘
             </button>
           )}
-          <span className="text-[9.5px] text-text-dim">{ovTab === '分时' ? `基准=${day?.prevIsOpen ? '开盘' : '前收'} ${fmt(adjPrev)}${adjusted ? `(除权校正·${adjusted})` : ''} · ` : ''}点K线空白处收起</span>
+          <span className="text-[0.6786rem] text-text-dim">{ovTab === '分时' ? `基准=${day?.prevIsOpen ? '开盘' : '前收'} ${fmt(adjPrev)}${adjusted ? `(除权校正·${adjusted})` : ''} · ` : ''}点K线空白处收起</span>
           <button onClick={onClose}
-            className="ml-auto text-text-dim hover:text-text text-[15px] leading-none px-1 cursor-pointer">×</button>
+            className="ml-auto text-text-dim hover:text-text text-[1.0714rem] leading-none px-1 cursor-pointer">×</button>
         </div>
         {ovTab === '分时' && (
           <div ref={ovBodyRef} className="flex-1 min-h-0">
-            {minErr && <div className="text-center py-6 text-[11.5px] text-text-dim">{minErr}</div>}
-            {!minErr && !minData && <div className="text-center py-6 text-[11.5px] text-text-dim">分时加载中…</div>}
+            {minErr && <div className="text-center py-6 text-[0.8214rem] text-text-dim">{minErr}</div>}
+            {!minErr && !minData && <div className="text-center py-6 text-[0.8214rem] text-text-dim">分时加载中…</div>}
             {minData && (
               <MinuteChart points={minData.points} prevClose={adjPrev} actions={actions || []}
                 day={minData.date || day.date} height="100%" tickMode={tick}
@@ -121,36 +121,36 @@ export function DayOverlay({ day, code, getBars, onClose, onJumpDay, actions = n
           </div>
         )}
         {ovTab === '龙虎榜' && (
-          !lhb ? <div className="flex-1 flex items-center justify-center text-[11.5px] text-text-dim">席位明细加载中…</div>
+          !lhb ? <div className="flex-1 flex items-center justify-center text-[0.8214rem] text-text-dim">席位明细加载中…</div>
           : (!lhb['买入']?.length && !lhb['卖出']?.length)
           ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[11.5px] text-text-dim px-4 text-center">
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[0.8214rem] text-text-dim px-4 text-center">
               <span>{lhb.note || '该日未上龙虎榜'}</span>
               {(lhb['最近上榜日'] || []).length > 0 && (
                 <span className="flex items-baseline gap-1.5 flex-wrap justify-center">
-                  <span className="text-[10.5px]">它最近的上榜日:</span>
+                  <span className="text-[0.75rem]">它最近的上榜日:</span>
                   {lhb['最近上榜日'].map(d => {
                     const arr = getBars()
                     const i = arr.findIndex(b => b.time === d)
                     return i >= 0
                       ? <button key={d}
                           onClick={() => { onJumpDay({ date: d, prevClose: arr[i - 1]?.close ?? arr[i].open, prevIsOpen: !arr[i - 1], tab: '龙虎榜' }) }}
-                          className="text-[10.5px] px-1.5 py-0.5 rounded bg-accent/15 text-accent hover:bg-accent/25 cursor-pointer font-mono">
+                          className="text-[0.75rem] px-1.5 py-0.5 rounded bg-accent/15 text-accent hover:bg-accent/25 cursor-pointer font-mono">
                           {d.slice(2)}
                         </button>
-                      : <span key={d} className="text-[10.5px] font-mono text-text-muted" title="超出当前K线窗口">{d.slice(2)}</span>
+                      : <span key={d} className="text-[0.75rem] font-mono text-text-muted" title="超出当前K线窗口">{d.slice(2)}</span>
                   })}
                 </span>
               )}
             </div>
           )
           : (
-            <div className="flex-1 min-h-0 flex flex-col text-[12.5px] overflow-y-auto">
-              {lhb['上榜原因'] && <div className="px-1 text-[10.5px] text-text-dim mb-1 shrink-0">上榜原因: {lhb['上榜原因']}</div>}
+            <div className="flex-1 min-h-0 flex flex-col text-[0.8929rem] overflow-y-auto">
+              {lhb['上榜原因'] && <div className="px-1 text-[0.75rem] text-text-dim mb-1 shrink-0">上榜原因: {lhb['上榜原因']}</div>}
               <div className="grid grid-cols-2 gap-5 px-1 flex-1 content-start">
                 {[['买入', 'text-bear-bright'], ['卖出', 'text-bull-bright']].map(([side, cls]) => (
                   <div key={side}>
-                    <div className={`mb-1 text-[13px] font-semibold ${cls}`}>{side}前五 · 计 {(lhb[`${side}总计万`] / 1e4).toFixed(2)}亿</div>
+                    <div className={`mb-1 text-[0.9286rem] font-semibold ${cls}`}>{side}前五 · 计 {(lhb[`${side}总计万`] / 1e4).toFixed(2)}亿</div>
                     {(lhb[side] || []).map((s, i) => (
                       <div key={i} className="flex items-baseline gap-1.5 py-1.5 border-b border-border-subtle/40">
                         {s.席位 === '机构专用' || s.席位.includes('股通')
@@ -159,15 +159,15 @@ export function DayOverlay({ day, code, getBars, onClose, onJumpDay, actions = n
                               className="text-text truncate flex-1 text-left cursor-pointer hover:text-accent underline decoration-dotted decoration-border underline-offset-2">
                               {s.席位.replace(/(股份|有限责任)?公司|证券营业部/g, '')}
                             </button>}
-                        {s.标签 && <span className="text-[10px] px-1 rounded bg-accent/15 text-accent shrink-0">{s.标签}</span>}
-                        <span className="text-[10.5px] text-text-dim font-mono shrink-0">{s['占成交%']}%</span>
+                        {s.标签 && <span className="text-[0.7143rem] px-1 rounded bg-accent/15 text-accent shrink-0">{s.标签}</span>}
+                        <span className="text-[0.75rem] text-text-dim font-mono shrink-0">{s['占成交%']}%</span>
                         <span className={`font-mono font-semibold shrink-0 ${cls}`}>{(s.金额万 / 1e4).toFixed(2)}亿</span>
                       </div>
                     ))}
                   </div>
                 ))}
               </div>
-              <div className="px-1 pt-1 text-[9.5px] text-text-dim shrink-0">{lhb.note}</div>
+              <div className="px-1 pt-1 text-[0.6786rem] text-text-dim shrink-0">{lhb.note}</div>
             </div>
           )
         )}

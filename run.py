@@ -17,8 +17,6 @@ from services import llm_client
 from api.portfolio_routes import router as portfolio_router
 from api.market_routes import router as market_router
 from api.settings_routes import router as settings_router
-from api.assets_routes import router as assets_router
-from api.fix_income_routes import router as fix_income_router
 from api.briefing_routes import router as briefing_router
 from api.broker_routes import router as broker_router
 from api.auth_routes import router as auth_router
@@ -69,6 +67,36 @@ async def lifespan(app: FastAPI):
         await market_store.warm_fx_cache()
     except Exception as e:
         print(f"[startup] 汇率缓存预热失败(用磁盘/远端兜底): {e}")
+
+    # 已实现事件全量重建(幂等): 加权平均口径的 realized_events 由流水重放生成,
+    # 启动时逐用户逐标的重建 —— 覆盖部署迁移与任何手工修库, 写路径另有增量挂钩。
+    try:
+        from services.position_ledger import rebuild_all_realized_events
+        _n = await rebuild_all_realized_events()
+        if _n:
+            print(f"[startup] 已实现事件重建完成: {_n} 个标的")
+    except Exception as e:
+        print(f"[startup] 已实现事件重建失败: {e}")
+
+    # 汇率日度刷新(SAFE 中间价, 单源一天一个价): fx_daily 缺最新交易日才联网(一天最多一次),
+    # 失败不影响启动 —— 当日统计沿用 PG/磁盘里最近已知值。此动作不受 quote_auto_fetch 门控:
+    # 它是记账折算的数据底座, 启动后台抓一次即可, 页面路径仍零外网。
+    try:
+        from services.market_data import fx_refresh_if_stale
+        _fx = await fx_refresh_if_stale()
+        _fx_desc = ", ".join(f"{k}:{v}天" for k, v in sorted(_fx.items())[:6])
+        print(f"[startup] 汇率中间价已入库({len(_fx)} 币种: {_fx_desc}{'…' if len(_fx) > 6 else ''})")
+    except Exception as e:
+        print(f"[startup] 汇率刷新失败(沿用现有数据): {e}")
+    # logo 启动对账: 严格按持仓比对 market.logo_cache 状态机
+    # (hit 回镜像 / miss 30 天内跳过 / miss 过期或无行联网重取 / stop 永久跳过)。
+    # 放在行情对账之后, 失败不影响启动。
+    try:
+        from services.logostream import refresh_holdings_logos
+        stats = await refresh_holdings_logos()
+        print(f"[startup] logo 对账: {stats}")
+    except Exception as e:
+        print(f"[startup] logo 对账失败(不影响启动): {e}")
 
     # 飞书 webhook 是个人配置(PER_USER_KEYS): 不在启动时恢复, 由各后台循环在
     # run_as_user(uid) 里 feishu_notify.refresh_config() 按用户加载。
@@ -159,8 +187,6 @@ app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 app.include_router(portfolio_router)
 app.include_router(market_router)
 app.include_router(settings_router)
-app.include_router(assets_router)
-app.include_router(fix_income_router)
 app.include_router(briefing_router)
 app.include_router(broker_router)
 app.include_router(auth_router)

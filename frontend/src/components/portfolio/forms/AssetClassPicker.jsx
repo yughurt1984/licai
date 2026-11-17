@@ -142,28 +142,28 @@ export function AssetClassPicker({ err, mainOptions, currencyOptions, matched,
   return (
     <>
       <div className="flex flex-col gap-1">
-        <label className="text-[12px] text-text-dim">资产类型</label>
+        <label className="text-[0.8571rem] text-text-dim">资产类型</label>
         <select className={`${inp} ${wMain}`} value={main} disabled={mainLocked}
           onChange={e => onMain?.(e.target.value)}>
           {mainOptions.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[12px] text-text-dim">币种</label>
+        <label className="text-[0.8571rem] text-text-dim">币种</label>
         <select className={`${inp} ${wCur}`} value={currency} onChange={e => onCurrency?.(e.target.value)}>
           {currencyOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[12px] text-text-dim"
+        <label className="text-[0.8571rem] text-text-dim"
           title={matched ? `sub_assets_type: ${matched.sub_assets_type}` : undefined}>
-          市场 <span className="text-text-muted text-[11px]">自动匹配</span>
+          市场 <span className="text-text-muted text-[0.7857rem]">自动匹配</span>
         </label>
         <div className={`${inp} ${wMkt} !bg-surface-3/40 text-text-bright flex items-center`}>
           {matched?.sub_assets_type_name || '—'}
         </div>
       </div>
-      {err && <div className="text-[10.5px] text-warn w-full pb-1">{err}。</div>}
+      {err && <div className="text-[0.75rem] text-warn w-full pb-1">{err}。</div>}
     </>
   )
 }

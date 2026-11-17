@@ -36,78 +36,32 @@ DEMO_HOLDINGS = [
     ("300750", "宁德时代",  100, 240.00, 50),   # 电气新能源
 ]
 
-DEMO_ASSETS = [
-    # FUND (5 只, 含场内宽基/行业主题/商品 + 场外 + QDII; 真实公开代码方便实时行情可拉)
-    # buy_days_ago: 初始建仓日, 让份额流水有历史(净值曲线用)
-    {
-        "asset_type": "FUND", "code": "510300", "name": "沪深300ETF",
-        "platform": "证券账户", "cost_amount": 2100, "shares": 500, "buy_days_ago": 90,
-    },
-    {
-        "asset_type": "FUND", "code": "512480", "name": "半导体ETF",
-        "platform": "证券账户", "cost_amount": 3200, "shares": 3000, "buy_days_ago": 70,
-    },
-    {
-        "asset_type": "FUND", "code": "518880", "name": "黄金ETF",
-        "platform": "证券账户", "cost_amount": 4500, "shares": 1000, "buy_days_ago": 55,
-    },
-    {
-        "asset_type": "FUND", "code": "000041",
-        "name": "华夏全球精选股票(QDII)C",
-        "platform": "公募平台", "cost_amount": 2500, "shares": 1000, "buy_days_ago": 45,
-    },
-    {
-        "asset_type": "FUND", "code": "000217", "name": "华安黄金ETF联接C",
-        "platform": "公募平台", "cost_amount": 6000, "shares": 3000, "buy_days_ago": 40,
-    },
-    # WEALTH (理财) 已迁入固定收益账本 → 见下方 DEMO_FIX_INCOME
-    # CASH (3 只, 货币基金/活期, 名称泛化)
-    {
-        "asset_type": "CASH", "code": "mmf-a", "name": "货币基金 A",
-        "platform": "支付平台 A", "cost_amount": 5000, "manual_value": 5000,
-        "annual_yield_rate": 0.015,
-    },
-    {
-        "asset_type": "CASH", "code": "mmf-b", "name": "货币基金 B",
-        "platform": "支付平台 B", "cost_amount": 2000, "manual_value": 2000,
-        "annual_yield_rate": 0.014,
-    },
-    {
-        "asset_type": "CASH", "code": "mmf-c", "name": "活期账户",
-        "platform": "银行 A", "cost_amount": 3000, "manual_value": 3000,
-        "annual_yield_rate": 0.016,
-    },
-    # CRYPTO (1 只, 通用)
-    {
-        "asset_type": "CRYPTO", "code": "BTC-USDT", "name": "比特币",
-        "platform": "加密交易所", "cost_amount": 18000, "shares": 0.05, "buy_days_ago": 85,
-    },
-]
 
-# 固定收益 (fix-income 大类: 理财/债券, fix_income_assets 账本)
-# sub_assets_type: cn_wealth=理财 / cn_bond=债券 (assets_classify 种子行)
+# 固定收益 (fix-income 大类: 已并入 holdings 账本)
+#   理财 = nav 型(净值化): shares=本金/净值, cost_price=申购净值
+#   债券 = quote 型(面值模型): 按"张"(1张=100面值)记, coupon_rate=票面利率, 到期 SELL 原价
 DEMO_FIX_INCOME = [
     {
         "code": "DEMO001", "name": "稳健型理财 1 号 (演示)",
-        "sub_assets_type": "cn_wealth", "main_assets_type": "bank_wealth",
-        "platform": "银行 A", "principal": 5000,
-        "annual_yield_rate": 0.025, "value_date": (date.today() - timedelta(days=60)).strftime("%Y-%m-%d"),
-        "term_days": 93, "interest_type": "bullet", "risk_level": "R2",
+        "sub_assets_type": "cn_wealth",
+        "shares": 4834.9, "nav": 1.0342,              # 申购 5000 元 ÷ 净值 1.0342 ≈ 4834.9 份
+        "coupon_rate": 0.025,
+        "buy_days_ago": 60,
     },
     {
         "code": "DEMO002", "name": "日开型理财 (演示)",
-        "sub_assets_type": "cn_wealth", "main_assets_type": "bank_wealth",
-        "platform": "银行 B", "principal": 10000,
-        "annual_yield_rate": 0.022, "value_date": (date.today() - timedelta(days=30)).strftime("%Y-%m-%d"),
-        "interest_type": "monthly", "risk_level": "R1",
+        "sub_assets_type": "cn_wealth",
+        "shares": 9803.9, "nav": 1.0200,              # 申购 10000 元 ÷ 净值 1.02 ≈ 9803.9 份
+        "coupon_rate": 0.022,
+        "buy_days_ago": 30,
     },
     {
         "code": "019547.SH", "name": "24国债09 (演示)",
-        "sub_assets_type": "cn_bond", "main_assets_type": "bond",
-        "platform": "证券账户", "principal": 8000,
-        "annual_yield_rate": 0.020, "value_date": (date.today() - timedelta(days=15)).strftime("%Y-%m-%d"),
+        "sub_assets_type": "cn_national_bond",
+        "shares": 80, "price": 100.20,                # 80 张 × 面值 100, 按净价买入
+        "coupon_rate": 0.020,
         "maturity_date": (date.today() + timedelta(days=350)).strftime("%Y-%m-%d"),
-        "term_days": 365, "interest_type": "annual", "risk_level": "R1",
+        "buy_days_ago": 15,
     },
 ]
 
@@ -117,8 +71,7 @@ DEMO_FIX_INCOME = [
 # demo 会清掉的用户数据表(不碰 app_config/symbol_dict/brokers/kline_cache/
 # ask_*/tool_gap/prompt_rule/user_memory —— 配置与基础设施要保留)
 _DEMO_TABLES = [
-    "holdings", "position_actions", "external_assets", "external_asset_actions",
-    "fix_income_assets", "fix_income_asset_actions",
+    "holdings", "position_actions",
     "unwind_plans", "unwind_tranches", "custom_alerts", "alert_config",
     "cashflow_monthly", "morning_briefings", "portfolio_snapshots",
     "watchlist", "watchlist_group", "position_thesis", "thesis_revision",
@@ -157,7 +110,6 @@ async def seed_into():
     """直接调 database API, 不走 HTTP. 服务器没启动时也能跑."""
     from database import (
         init_db, add_holding, add_position_action,
-        add_external_asset,
     )
     from services.position_ledger import compute_position_state
     from database import get_position_actions, update_holding
@@ -189,71 +141,22 @@ async def seed_into():
         if state["shares"] > 0:
             await update_holding(code, shares=state["shares"], cost_price=state["cost_price"])
 
-    # 外部资产(基金带日期回填的初始申购流水, 份额账本/净值曲线可用;
-    # 申购价同样按建仓日真实净值/收盘取)
-    from database import add_external_action
-    from services.external_assets import _is_onchain_etf
-    for a in DEMO_ASSETS:
-        cost_amount, unit = a["cost_amount"], None
-        if a.get("shares") and a.get("buy_days_ago"):
-            d0 = (date.today() - timedelta(days=a["buy_days_ago"])).strftime("%Y-%m-%d")
-            code = a["code"]
-            if a["asset_type"] == "FUND":
-                if _is_onchain_etf(code):
-                    unit = await _close_on(code, d0)
-                else:
-                    try:
-                        from services.portfolio_curve import _otc_nav_hist_sync
-                        navs = _otc_nav_hist_sync(code)
-                        ks = sorted(k for k in navs if k <= d0)
-                        unit = navs[ks[-1]] if ks else None
-                    except Exception:
-                        unit = None
-            if unit:
-                cost_amount = round(unit * a["shares"], 2)
-        aid = await add_external_asset(
-            asset_type=a["asset_type"],
-            code=a["code"],
-            name=a["name"],
-            platform=a.get("platform", ""),
-            cost_amount=cost_amount,
-            shares=a.get("shares"),
-            manual_value=a.get("manual_value"),
-            note=a.get("note", ""),
-            annual_yield_rate=a.get("annual_yield_rate"),
-            start_date=a.get("start_date"),
-        )
-        if a.get("shares") and a.get("buy_days_ago"):
-            d0 = (date.today() - timedelta(days=a["buy_days_ago"])).strftime("%Y-%m-%d")
-            await add_external_action(
-                aid, "BUY", amount=cost_amount, shares=a["shares"],
-                unit_price=unit or round(cost_amount / a["shares"], 4),
-                trade_date=d0, note="initial (demo)")
-
-    # 固定收益(理财/债券): fix_income_assets + 种子 BUY 流水 (本金账本)
-    from database import add_fix_income_asset, add_fix_income_action, recompute_fix_income_asset
+    # 固定收益(理财/债券): 已并入 holdings —— 理财 nav 型(份额×净值), 债券 quote 型(张×价格)
     for f in DEMO_FIX_INCOME:
-        fid = await add_fix_income_asset(
-            code=f["code"], name=f["name"], principal=0,
-            sub_assets_type=f.get("sub_assets_type"),
-            main_assets_type=f.get("main_assets_type"),
-            platform=f.get("platform", ""),
-            manual_value=f.get("manual_value"),
-            annual_yield_rate=f.get("annual_yield_rate"),
-            value_date=f.get("value_date"),
-            maturity_date=f.get("maturity_date"),
-            term_days=f.get("term_days"),
-            interest_type=f.get("interest_type", "bullet"),
-            risk_level=f.get("risk_level"),
-            note="demo",
-        )
-        await add_fix_income_action(
-            fid, "BUY", amount=f["principal"],
-            yield_rate=f.get("annual_yield_rate"),
-            trade_date=f.get("value_date"), note="initial (demo)")
-        await recompute_fix_income_asset(fid)
-    print(f"✓ 已写入 {len(DEMO_HOLDINGS)} 只 A股 + {len(DEMO_ASSETS)} 笔外部资产"
-          f" + {len(DEMO_FIX_INCOME)} 笔固定收益到 PostgreSQL")
+        buy_date = (date.today() - timedelta(days=f["buy_days_ago"])).strftime("%Y-%m-%d")
+        price = f.get("nav") or f.get("price")
+        await add_holding(f["code"], f["name"], f["shares"], price,
+                          sub_assets_type=f.get("sub_assets_type"),
+                          purchase_date=buy_date,
+                          coupon_rate=f.get("coupon_rate"),
+                          maturity_date=f.get("maturity_date"))
+        await add_position_action(f["code"], "BUY", price, f["shares"],
+                                  trade_date=buy_date, note="initial (demo)")
+        actions = await get_position_actions(f["code"], limit=500)
+        state = compute_position_state(actions, stock_code=f["code"])
+        if state["shares"] > 0:
+            await update_holding(f["code"], shares=state["shares"], cost_price=state["cost_price"])
+    print(f"✓ 已写入 {len(DEMO_HOLDINGS)} 只 A股 + {len(DEMO_FIX_INCOME)} 笔固定收益到 PostgreSQL")
 
 
 def _demo_dsn() -> str:

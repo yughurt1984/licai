@@ -9,19 +9,19 @@ function DriftPanel({ drift }) {
   return (
     <div className="mt-3 pt-3 border-t border-border">
       <div className="flex items-baseline gap-2 mb-1.5">
-        <span className="text-[12px] font-semibold text-text-bright">逻辑漂移</span>
-        <span className="text-[10px] text-text-muted">
+        <span className="text-[0.8571rem] font-semibold text-text-bright">逻辑漂移</span>
+        <span className="text-[0.7143rem] text-text-muted">
           共 {drift.修订次数} 版{drift.距末版天数 != null ? ` · 末版距今 ${drift.距末版天数} 天` : ''}
         </span>
       </div>
       {changes.length === 0 && (
-        <p className="text-[10.5px] text-text-muted m-0">只写过一版, 没有改写记录。</p>
+        <p className="text-[0.75rem] text-text-muted m-0">只写过一版, 没有改写记录。</p>
       )}
       {changes.map(c => {
         const v = c.判定 || {}
         const t = c.文本变化 || {}
         return (
-          <div key={c.rev} className={`mb-1.5 px-2 py-1.5 rounded-lg border text-[10.5px] ${DRIFT_TONE[v.档] || DRIFT_TONE['判不了']}`}>
+          <div key={c.rev} className={`mb-1.5 px-2 py-1.5 rounded-lg border text-[0.75rem] ${DRIFT_TONE[v.档] || DRIFT_TONE['判不了']}`}>
             <div className="flex items-baseline gap-1.5">
               <span className="font-semibold">第{c.rev}版</span>
               <span className="text-text-muted">{c.日期}</span>
@@ -41,12 +41,12 @@ function DriftPanel({ drift }) {
         )
       })}
       {track.逐次走低 && (
-        <p className="text-[10.5px] text-bear-bright m-0 mb-1">{track.说明}</p>
+        <p className="text-[0.75rem] text-bear-bright m-0 mb-1">{track.说明}</p>
       )}
       {drift.自末版以来 && (
-        <p className="text-[10.5px] text-text-muted m-0">{drift.自末版以来}</p>
+        <p className="text-[0.75rem] text-text-muted m-0">{drift.自末版以来}</p>
       )}
-      <p className="text-[10px] text-text-muted m-0 mt-1 leading-relaxed">{drift.口径}</p>
+      <p className="text-[0.7143rem] text-text-muted m-0 mt-1 leading-relaxed">{drift.口径}</p>
     </div>
   )
 }
@@ -88,20 +88,20 @@ export function ThesisModal({ row, onClose, onSaved }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-surface-2 border border-border rounded-xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4 md:p-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-baseline gap-2 mb-1">
-          <h3 className="text-[14px] font-semibold text-text-bright m-0">买入逻辑</h3>
-          <span className="text-[12px] text-text-bright">{name}</span>
-          <span className="font-mono text-[10.5px] text-text-muted">{code}</span>
+          <h3 className="text-[1rem] font-semibold text-text-bright m-0">买入逻辑</h3>
+          <span className="text-[0.8571rem] text-text-bright">{name}</span>
+          <span className="font-mono text-[0.75rem] text-text-muted">{code}</span>
           <button onClick={onClose} className="ml-auto text-text-muted hover:text-text cursor-pointer">✕</button>
         </div>
-        <p className="text-[10.5px] text-text-muted mb-2">记下当初为什么买、看中什么、预期。以后问 AI「这只逻辑还成立吗」会照这个客观复盘。每次改动都会连同当时的股价与基本面一起存档, 用来分辨改的是事实还是说法。</p>
+        <p className="text-[0.75rem] text-text-muted mb-2">记下当初为什么买、看中什么、预期。以后问 AI「这只逻辑还成立吗」会照这个客观复盘。每次改动都会连同当时的股价与基本面一起存档, 用来分辨改的是事实还是说法。</p>
         <textarea value={text} onChange={e => setText(e.target.value)} disabled={loading}
           rows={6}
           placeholder={loading ? '加载中…' : '例: 国产算力龙头, 中科院系国资背景; 看好 AI 数据中心需求; 等存储涨价兑现到业绩'}
-          className="w-full text-[12px] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none resize-y" />
+          className="w-full text-[0.8571rem] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none resize-y" />
         <div className="flex items-center gap-2 mt-3">
-          {created && <span className="text-[10px] text-text-muted">记于 {created}{updated && updated !== created ? ` · 改于 ${updated}` : ''}</span>}
+          {created && <span className="text-[0.7143rem] text-text-muted">记于 {created}{updated && updated !== created ? ` · 改于 ${updated}` : ''}</span>}
           <button onClick={save} disabled={saving || loading}
-            className="ml-auto text-[12px] px-3.5 py-1.5 rounded-lg bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 transition-colors cursor-pointer disabled:opacity-40">
+            className="ml-auto text-[0.8571rem] px-3.5 py-1.5 rounded-lg bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 transition-colors cursor-pointer disabled:opacity-40">
             {saving ? '保存中…' : '保存'}
           </button>
         </div>

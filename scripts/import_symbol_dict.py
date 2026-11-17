@@ -112,15 +112,16 @@ _OPT_SOURCES = [
 def _pull_opt():
     import akshare as ak
     rows, seen = [], set()
-    for name in _OPT_SOURCES:
+    # akshare 1.20.6x: option_current_em 拆成 option_current_day_sse/szse(上交所/深交所各一次)
+    for ex, fn in (("sse", ak.option_current_day_sse), ("szse", ak.option_current_day_szse)):
         try:
-            df = ak.option_current_em(symbol=name)
+            df = fn()
         except Exception as e:
-            print(f"  [opt] {name} 拉取失败(跳过): {str(e)[:80]}")
+            print(f"  [opt] {ex} 拉取失败(跳过): {str(e)[:80]}")
             continue
         for _, r in df.iterrows():
-            code = str(r.get("期权代码") or r.get("代码") or "").strip()
-            label = str(r.get("期权名称") or r.get("名称") or "").strip()
+            code = str(r.get("期权代码") or r.get("代码") or r.get("合约代码") or "").strip()
+            label = str(r.get("期权名称") or r.get("名称") or r.get("合约名称") or "").strip()
             if code and code not in seen:
                 seen.add(code)
                 rows.append((code, label or code, code, "cn_options", ""))

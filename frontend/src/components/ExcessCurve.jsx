@@ -85,7 +85,7 @@ export default function ExcessCurve() {
 
   if (loading && !data) return <SkeletonCard bare rows={4} label="超额收益计算中…（首算要拉各标的的历史K线, 之后走缓存）" />
   if (err && !data?.dates) {
-    return <div className="text-[11.5px] text-text-dim py-3">{err}</div>
+    return <div className="text-[0.8214rem] text-text-dim py-3">{err}</div>
   }
   if (!data?.dates) return null
 
@@ -99,11 +99,11 @@ export default function ExcessCurve() {
     <div className="mb-3">
       {/* 控制条: 基准 + 区间 (chips 同跑赢基准对照) */}
       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-        <div className="text-[11px] text-text-muted tracking-wider">超额 = 当前收益 − 基准收益（同起点归一）</div>
+        <div className="text-[0.7857rem] text-text-muted tracking-wider">超额 = 当前收益 − 基准收益（同起点归一）</div>
         <div className="ml-auto flex gap-1 items-center flex-wrap">
           {SYMBOLS.map(s => (
             <button key={s.v} onClick={() => pick(s.v)}
-              className="px-2 py-0.5 rounded text-[10.5px] cursor-pointer"
+              className="px-2 py-0.5 rounded text-[0.75rem] cursor-pointer"
               style={{
                 border: '1px solid',
                 borderColor: symbol === s.v ? 'var(--color-accent)' : 'var(--color-border-med)',
@@ -116,7 +116,7 @@ export default function ExcessCurve() {
           <span className="mx-0.5 text-text-muted">·</span>
           {PERIODS.map(p => (
             <button key={p.key} onClick={() => pickDays(p.key)}
-              className={`px-2 py-0.5 rounded text-[10.5px] cursor-pointer ${days === p.key ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+              className={`px-2 py-0.5 rounded text-[0.75rem] cursor-pointer ${days === p.key ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
               {p.label}
             </button>
           ))}
@@ -124,34 +124,34 @@ export default function ExcessCurve() {
       </div>
 
       <div className="flex items-center gap-4 mb-1 flex-wrap">
-        <span className="text-[11px] text-text-muted">区间超额
-          <span className="font-mono font-semibold text-[13px] ml-1"
+        <span className="text-[0.7857rem] text-text-muted">区间超额
+          <span className="font-mono font-semibold text-[0.9286rem] ml-1"
             style={{ color: toneOf(m['超额%']) }}>{fmtPct(m['超额%'])}</span>
         </span>
-        <span className="text-[11px] text-text-muted">我的
-          <span className="font-mono text-[12px] ml-1"
+        <span className="text-[0.7857rem] text-text-muted">我的
+          <span className="font-mono text-[0.8571rem] ml-1"
             style={{ color: toneOf(m['区间收益%']) }}>{fmtPct(m['区间收益%'])}</span>
         </span>
-        <span className="text-[11px] text-text-muted">
+        <span className="text-[0.7857rem] text-text-muted">
           {SYMBOLS.find(s => s.v === symbol)?.label || symbol}
-          <span className="font-mono text-[12px] ml-1"
+          <span className="font-mono text-[0.8571rem] ml-1"
             style={{ color: toneOf(m['基准收益%']) }}>{fmtPct(m['基准收益%'])}</span>
         </span>
         {beatPct != null && (
-          <span className="text-[11px] text-text-muted">跑赢 <span className="font-mono text-[12px] text-text">{beatPct}%</span> 的交易日</span>
+          <span className="text-[0.7857rem] text-text-muted">跑赢 <span className="font-mono text-[0.8571rem] text-text">{beatPct}%</span> 的交易日</span>
         )}
-        <span className="text-[10px] text-text-dim ml-auto">起点 {m['起点'] || '--'}</span>
+        <span className="text-[0.7143rem] text-text-dim ml-auto">起点 {m['起点'] || '--'}</span>
       </div>
 
       <Chart dates={dates} excess={excess} />
 
       <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-        <span className="text-[9.5px] text-text-dim"><span className="inline-block w-2.5 h-[7px] align-middle mr-1" style={{ background: WIN, opacity: 0.8 }} />跑赢基准</span>
-        <span className="text-[9.5px] text-text-dim"><span className="inline-block w-2.5 h-[7px] align-middle mr-1" style={{ background: LOSE, opacity: 0.8 }} />跑输基准</span>
+        <span className="text-[0.6786rem] text-text-dim"><span className="inline-block w-2.5 h-[7px] align-middle mr-1" style={{ background: WIN, opacity: 0.8 }} />跑赢基准</span>
+        <span className="text-[0.6786rem] text-text-dim"><span className="inline-block w-2.5 h-[7px] align-middle mr-1" style={{ background: LOSE, opacity: 0.8 }} />跑输基准</span>
         {cov.missing_prices?.length > 0 && (
-          <span className="text-[9.5px] text-warn">部分标的取不到历史价({cov.missing_prices.join('、')}), 该部分市值未计入</span>
+          <span className="text-[0.6786rem] text-warn">部分标的取不到历史价({cov.missing_prices.join('、')}), 该部分市值未计入</span>
         )}
-        <span className="text-[9px] text-text-dim ml-auto">{data.note}</span>
+        <span className="text-[0.6429rem] text-text-dim ml-auto">{data.note}</span>
       </div>
     </div>
   )

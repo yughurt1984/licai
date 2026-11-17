@@ -82,8 +82,8 @@ export default function AuthPage({ onAuthed }) {
     setStatus({ text: '', ok: null })
   }
 
-  const inputCls = 'w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent transition-colors'
-  const tabCls = (active) => `flex-1 py-2 text-[13px] rounded-md transition-colors cursor-pointer ${
+  const inputCls = 'w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-[0.9286rem] text-text outline-none focus:border-accent transition-colors'
+  const tabCls = (active) => `flex-1 py-2 text-[0.9286rem] rounded-md transition-colors cursor-pointer ${
     active ? 'bg-surface text-text font-medium shadow-sm' : 'text-text-dim hover:text-text'}`
 
   return (
@@ -93,11 +93,11 @@ export default function AuthPage({ onAuthed }) {
         <div className="text-center mb-6 fade-up">
           {/* 圆标 logo: 参考站式品牌位, 头像上传前的占位也同款(见 AccountPage) */}
           <div className="w-14 h-14 mx-auto rounded-full bg-accent/15 border border-accent/30
-                          flex items-center justify-center text-accent text-[22px] font-semibold mb-3">
+                          flex items-center justify-center text-accent text-[1.5714rem] font-semibold mb-3">
             理
           </div>
-          <h1 className="text-[22px] font-semibold tracking-tight text-text-bright">理财助手</h1>
-          <p className="text-[12px] text-text-dim mt-1.5">
+          <h1 className="text-[1.5714rem] font-semibold tracking-tight text-text-bright">理财助手</h1>
+          <p className="text-[0.8571rem] text-text-dim mt-1.5">
             {mode === 'login' ? '登录后查看你的持仓与市场数据' : '创建账号 · 首个注册用户看到独立空账本'}
           </p>
         </div>
@@ -143,7 +143,7 @@ export default function AuthPage({ onAuthed }) {
                   <button type="button" onClick={sendCode}
                     disabled={sending || countdown > 0 || !email.trim()}
                     className="shrink-0 px-3 rounded-lg border border-accent/40 bg-accent/10 text-accent
-                               text-[12px] whitespace-nowrap hover:bg-accent/20 disabled:opacity-40
+                               text-[0.8571rem] whitespace-nowrap hover:bg-accent/20 disabled:opacity-40
                                disabled:cursor-not-allowed transition-opacity cursor-pointer">
                     {sending ? '发送中…' : countdown > 0 ? `${countdown}s` : '发送验证码'}
                   </button>
@@ -179,7 +179,7 @@ export default function AuthPage({ onAuthed }) {
             )}
 
             {status.text && (
-              <p className={`text-[12px] ${status.ok === true ? 'text-bull' : 'text-bear'}`}>{status.text}</p>
+              <p className={`text-[0.8571rem] ${status.ok === true ? 'text-bull' : 'text-bear'}`}>{status.text}</p>
             )}
 
             <button
@@ -187,7 +187,7 @@ export default function AuthPage({ onAuthed }) {
               disabled={busy || (mode === 'login'
                 ? !identifier.trim() || !password
                 : !username.trim() || !email.trim() || !code.trim() || !password)}
-              className="w-full py-2.5 rounded-lg bg-accent text-bg-deeper text-[13px] font-medium
+              className="w-full py-2.5 rounded-lg bg-accent text-bg-deeper text-[0.9286rem] font-medium
                          hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity cursor-pointer"
             >
               {busy ? '请稍候…' : (mode === 'login' ? '登录' : '注册并登录')}
@@ -197,11 +197,11 @@ export default function AuthPage({ onAuthed }) {
           {/* 分隔线 + 微信预留入口: wechat_openid 列已建, WECHAT_APP_ID 配置后接真实流程 */}
           <div className="flex items-center gap-3 pt-1">
             <div className="flex-1 border-t border-border-subtle" />
-            <span className="text-[11px] text-text-muted">其他方式</span>
+            <span className="text-[0.7857rem] text-text-muted">其他方式</span>
             <div className="flex-1 border-t border-border-subtle" />
           </div>
           <button type="button" onClick={() => setStatus({ text: WECHAT_HINT, ok: null })}
-            className="w-full py-2.5 rounded-lg border border-border bg-surface-2/60 text-[13px] text-text-dim
+            className="w-full py-2.5 rounded-lg border border-border bg-surface-2/60 text-[0.9286rem] text-text-dim
                        hover:text-text hover:border-border-med transition-colors cursor-pointer flex items-center justify-center gap-2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
               {/* 微信气泡双圆(简化): 主气泡 + 次气泡 */}
@@ -209,11 +209,11 @@ export default function AuthPage({ onAuthed }) {
               <path d="M15.7 9.5c-2.9 0-5.2 1.9-5.2 4.3s2.3 4.3 5.2 4.3c.6 0 1.2-.1 1.7-.2l1.9 1-.5-1.8c1.3-.8 2.1-2 2.1-3.3 0-2.4-2.3-4.3-5.2-4.3zm-1.7 2.4a.8.8 0 110 1.6.8.8 0 010-1.6zm3.4 0a.8.8 0 110 1.6.8.8 0 010-1.6z" />
             </svg>
             {mode === 'login' ? '微信登录' : '微信注册'}
-            <span className="text-[10.5px] text-text-muted">暂未开通</span>
+            <span className="text-[0.75rem] text-text-muted">暂未开通</span>
           </button>
         </div>
 
-        <p className="text-center text-[11px] text-text-muted mt-4">
+        <p className="text-center text-[0.7857rem] text-text-muted mt-4">
           本机/局域网部署 · 数据存本地 PostgreSQL
         </p>
       </div>

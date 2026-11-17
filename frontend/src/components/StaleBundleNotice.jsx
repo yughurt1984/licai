@@ -40,7 +40,7 @@ export default function StaleBundleNotice() {
   return (
     <button onClick={() => window.location.reload()}
       title={`当前 ${MINE} → 最新 ${stale}`}
-      className="fixed bottom-3 right-3 z-50 text-[11px] px-2.5 py-1.5 rounded-lg
+      className="fixed bottom-3 right-3 z-50 text-[0.7857rem] px-2.5 py-1.5 rounded-lg
                  bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 shadow-xl">
       前端已更新, 这个页面还是旧版 · 点此刷新
     </button>

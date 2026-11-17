@@ -46,11 +46,11 @@ export default function MorningBriefing() {
       <section className="rounded-xl border border-border bg-surface/60 px-3 md:px-5 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-[13px] font-semibold text-text-bright m-0">早盘简报</h3>
-            <p className="text-[11px] text-text-dim mt-1 mb-0">每日 9:00 自动生成 · 客观信息摘要 + 风险提示，不含操作建议</p>
+            <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">早盘简报</h3>
+            <p className="text-[0.7857rem] text-text-dim mt-1 mb-0">每日 9:00 自动生成 · 客观信息摘要 + 风险提示，不含操作建议</p>
           </div>
           <button onClick={refresh} disabled={refreshing}
-            className="px-3 py-1 rounded-md text-[11px] border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50">
+            className="px-3 py-1 rounded-md text-[0.7857rem] border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50">
             {refreshing ? '生成中...' : '立即生成'}
           </button>
         </div>
@@ -64,14 +64,14 @@ export default function MorningBriefing() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-center justify-between"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">早盘简报</h3>
-          <span className="text-[11px] font-mono text-text-dim">{data.date}</span>
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">早盘简报</h3>
+          <span className="text-[0.7857rem] font-mono text-text-dim">{data.date}</span>
           {!data.is_today && (
-            <span className="text-[10px] px-1.5 py-[1px] rounded bg-warn/20 text-warn border border-warn/40">非今日</span>
+            <span className="text-[0.7143rem] px-1.5 py-[1px] rounded bg-warn/20 text-warn border border-warn/40">非今日</span>
           )}
         </div>
         <button onClick={refresh} disabled={refreshing}
-          className="px-2.5 py-[3px] rounded-md text-[11px] border border-border-med text-text-dim hover:text-text hover:border-accent transition-colors cursor-pointer disabled:opacity-50">
+          className="px-2.5 py-[3px] rounded-md text-[0.7857rem] border border-border-med text-text-dim hover:text-text hover:border-accent transition-colors cursor-pointer disabled:opacity-50">
           {refreshing ? '更新中...' : '重新生成'}
         </button>
       </div>
@@ -86,41 +86,41 @@ export default function MorningBriefing() {
             <div key={b.stock_code} className="px-3 md:px-5 py-3"
               style={{ borderLeft: `3px solid ${meta.color}` }}>
               <div className="flex items-start gap-3">
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-[2px] rounded shrink-0"
+                <span className="inline-flex items-center gap-1 text-[0.7857rem] font-semibold px-2 py-[2px] rounded shrink-0"
                   style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.color}50` }}>
                   <span>{meta.icon}</span>
                   <span>{meta.label}</span>
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[13px] font-semibold text-text-bright">{b.stock_name}</span>
-                    <span className="font-mono text-[10px] text-text-muted">{b.stock_code}</span>
-                    <span className="font-mono text-[11px] text-text-dim">
+                    <span className="text-[0.9286rem] font-semibold text-text-bright">{b.stock_name}</span>
+                    <span className="font-mono text-[0.7143rem] text-text-muted">{b.stock_code}</span>
+                    <span className="font-mono text-[0.7857rem] text-text-dim">
                       ¥{b.current_price?.toFixed(2)} · {b.pnl_pct >= 0 ? '+' : ''}{b.pnl_pct?.toFixed(1)}%
                     </span>
-                    <span className="text-[10px] text-text-muted ml-auto">
+                    <span className="text-[0.7143rem] text-text-muted ml-auto">
                       置信度 <span style={{ color: conf.color }}>{conf.label}</span>
                     </span>
                   </div>
                   {b.summary && (
-                    <p className="text-[12px] text-text mt-1 mb-0 leading-relaxed">{b.summary}</p>
+                    <p className="text-[0.8571rem] text-text mt-1 mb-0 leading-relaxed">{b.summary}</p>
                   )}
                   {b.error && (
-                    <p className="text-[11px] text-bear-bright mt-1 mb-0">{b.error}</p>
+                    <p className="text-[0.7857rem] text-bear-bright mt-1 mb-0">{b.error}</p>
                   )}
                   {b.risk && (
-                    <p className="text-[11px] mt-1 mb-0 flex items-start gap-1" style={{ color: 'var(--color-warn)' }}>
+                    <p className="text-[0.7857rem] mt-1 mb-0 flex items-start gap-1" style={{ color: 'var(--color-warn)' }}>
                       <span>⚠</span><span>{b.risk}</span>
                     </p>
                   )}
                   {hasDetail && (
                     <button onClick={() => setExpanded(e => ({ ...e, [b.stock_code]: !e[b.stock_code] }))}
-                      className="text-[11px] text-accent hover:underline mt-1 cursor-pointer">
+                      className="text-[0.7857rem] text-accent hover:underline mt-1 cursor-pointer">
                       {isExp ? '收起 ▴' : '要点 ▾'}
                     </button>
                   )}
                   {isExp && b.points && b.points.length > 0 && (
-                    <ul className="mt-2 pt-2 border-t border-border-subtle text-[11.5px] text-text-dim m-0 pl-4 list-disc space-y-0.5 leading-relaxed">
+                    <ul className="mt-2 pt-2 border-t border-border-subtle text-[0.8214rem] text-text-dim m-0 pl-4 list-disc space-y-0.5 leading-relaxed">
                       {b.points.map((p, i) => <li key={i}>{p}</li>)}
                     </ul>
                   )}

@@ -153,14 +153,14 @@ export function CandleChart({ series, cost, actions, warmup = [] }) {
     setHover(points[Math.max(0, Math.min(points.length - 1, i))])
   }
 
-  if (points.length < 2) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">暂无数据</div>
+  if (points.length < 2) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">暂无数据</div>
 
   return (
     <div className="relative">
       {/* 副图切换钮: 放在价格区与副图之间的空隙(右侧), 不压副图内容 */}
       <div className="absolute right-1 z-10 flex gap-1" style={{ top: `${((volTop - 24) / H * 100).toFixed(1)}%` }}>
         {[['vol', '量'], ['macd', 'MACD'], ['kdj', 'KDJ']].map(([k, lbl]) => (
-          <button key={k} onClick={() => setSub(k)} className="px-1.5 py-[1px] rounded text-[9.5px] font-mono cursor-pointer"
+          <button key={k} onClick={() => setSub(k)} className="px-1.5 py-[1px] rounded text-[0.6786rem] font-mono cursor-pointer"
             style={{ border: '1px solid', borderColor: sub === k ? 'var(--color-accent)' : 'var(--color-border-med)', color: sub === k ? 'var(--color-accent)' : 'var(--color-text-muted)', background: sub === k ? 'rgba(200,168,118,.1)' : 'rgba(26,25,35,.7)' }}>{lbl}</button>
         ))}
       </div>
@@ -270,7 +270,7 @@ export function CandleChart({ series, cost, actions, warmup = [] }) {
         {hover && <line x1={hover.x} y1={P.t} x2={hover.x} y2={P.t + innerH} stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="2 3" />}
       </svg>
       {hover && (
-        <div className="absolute top-2 right-2 bg-surface-2 border border-border-med rounded-md px-2.5 py-1.5 text-[11px] font-mono pointer-events-none">
+        <div className="absolute top-2 right-2 bg-surface-2 border border-border-med rounded-md px-2.5 py-1.5 text-[0.7857rem] font-mono pointer-events-none">
           <div className="text-text-dim">{hover.date}</div>
           <div className="flex gap-x-2 flex-wrap">
             <span>O <span className="text-text">{fmtVal(hover.open)}</span></span>

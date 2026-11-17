@@ -1,16 +1,12 @@
 import StockKlineModal from '../StockKlineModal'
 import { QualityModal } from './QualityModal'
 import { ThesisModal } from './ThesisModal'
-import { AssetActionsModal } from './actions'
 import { AddAShareForm } from './forms/AddAShareForm'
 import { AddFundForm } from './forms/AddFundForm'
 import { AddFuturesForm } from './forms/AddFuturesForm'
 import { AddFixIncomeForm } from './forms/AddFixIncomeForm'
-import { FixIncomeEditRow } from './forms/fix_income'
 import { AssetEntryMenu } from './forms/AssetEntryMenu'
 import { FuturesLotRow } from './forms/FuturesLotRow'
-import { EditAssetRow } from './forms/EditAssetRow'
-import { AddLotRow, CashAdjustRow, ReduceLotRow } from './forms/lots'
 
 // 持仓页的全部弹窗与内联表单, 一处收口。开关状态来自 usePortfolioModals 的
 // open/show/hide, 这里只负责"开着的那个渲染成什么"。
@@ -19,9 +15,7 @@ import { AddLotRow, CashAdjustRow, ReduceLotRow } from './forms/lots'
 // 工具栏和列表之间 —— 读主组件时它是纯噪音, 而改弹窗时又要在 800 行里翻。
 export function PortfolioModals({
   open, show, hide, brokers,
-  onAdd,                 // A股 新增完成: 通知外层刷新 holdings
-  onAssetsChanged,       // 资产类改动: 重载 /api/assets
-  onFixIncomeChanged,    // 固定收益改动: 重载 /api/fix-income
+  onAdd,                 // 新增完成: 通知外层刷新 holdings(固收已并入持仓)
   onRealizedChanged,     // 影响已实现的改动(加减仓/流水)
   onThesisSaved,         // 买入逻辑存好: 重拉有逻辑的代码集合
 }) {
@@ -44,11 +38,11 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {/* 基金: ETF/LOF/REITs/货基(场内) 或 场外开放式; 按小类 valuation_type 决定表单模式与账本 */}
+      {/* 基金: ETF/LOF/REITs/货基(场内) 或 场外开放式; 全部走持仓账本 holdings(POST /api/portfolio) */}
       {addCls === 'fund' && (
         <AddFundForm sub={addSub || undefined}
           brokers={brokers}
-          onDone={() => { hide('add'); onAssetsChanged() }}
+          onDone={() => { hide('add'); onAdd?.() }}
           onCancel={() => hide('add')} />
       )}
       {/* 衍生品(期货/期权): futures/options/warrant 中类决定 fut/opt, 一个入口覆盖 */}
@@ -57,41 +51,21 @@ export function PortfolioModals({
           brokers={brokers}
           onDone={() => { hide('add'); onAdd?.() }} onCancel={() => hide('add')} />
       )}
-      {/* 固定收益(理财/债券全谱系): 中类从 assets_classify fix-income 大类自动同步,
-          按 valuation_type 路由入库 —— yield→/api/fix-income, quote→/api/portfolio(holdings) */}
+      {/* 固定收益(理财/债券全谱系): 已并入持仓账本 —— 中类从 assets_classify fix-income
+          大类自动同步, nav(理财净值化)/quote(债券) 双模式统一 POST /api/portfolio */}
       {addCls === 'fix-income' && (
         <AddFixIncomeForm sub={addSub || undefined}
           brokers={brokers}
-          onDone={() => { hide('add'); onAdd?.(); onFixIncomeChanged?.() }}
+          onDone={() => { hide('add'); onAdd?.() }}
           onCancel={() => hide('add')} />
       )}
       {/* 其余大类(现金/加密/机器人/商品/外汇/保险…): 表单待单独开发 */}
       {addCls && addCls !== 'menu' && !['stock', 'fund', 'derivatives', 'fix-income'].includes(addCls) && (
-        <div className="px-6 py-4 bg-surface-2/50 border-b border-border text-[12.5px] text-text-muted">
+        <div className="px-6 py-4 bg-surface-2/50 border-b border-border text-[0.8929rem] text-text-muted">
           「{addCls}」添加表单待单独开发。
         </div>
       )}
 
-      {open.edit && (
-        <EditAssetRow asset={open.edit}
-          brokers={brokers}
-          onDone={() => { hide('edit'); onAssetsChanged() }}
-          onCancel={() => hide('edit')} />
-      )}
-
-      {/* 固定收益: 资产行编辑(名称/年化/起息日/到期日/付息方式/风险等级/状态...) */}
-      {open.editFix && (
-        <FixIncomeEditRow asset={open.editFix}
-          onDone={() => { hide('editFix'); onFixIncomeChanged?.() }}
-          onCancel={() => hide('editFix')} />
-      )}
-
-      {open.addLot && (
-        <AddLotRow asset={open.addLot}
-          brokers={brokers}
-          onDone={() => { hide('addLot'); onRealizedChanged() }}
-          onCancel={() => hide('addLot')} />
-      )}
 
       {/* 期货/期权: 加仓(同向 OPEN) / 平仓(CLOSE), 走持仓流水端点 */}
       {open.futLot && (
@@ -103,24 +77,6 @@ export function PortfolioModals({
         <FuturesLotRow holding={open.futClose} mode="close"
           onDone={() => { hide('futClose'); onAdd?.(); onRealizedChanged() }}
           onCancel={() => hide('futClose')} />
-      )}
-
-      {open.reduce && (
-        <ReduceLotRow asset={open.reduce}
-          onDone={() => { hide('reduce'); onRealizedChanged() }}
-          onCancel={() => hide('reduce')} />
-      )}
-
-      {open.cashAdjust && (
-        <CashAdjustRow asset={open.cashAdjust}
-          onDone={() => { hide('cashAdjust'); onAssetsChanged() }}
-          onCancel={() => hide('cashAdjust')} />
-      )}
-
-      {open.actions && (
-        <AssetActionsModal asset={open.actions}
-          onClose={() => hide('actions')}
-          onChanged={() => onRealizedChanged()} />
       )}
 
       {open.kline && (

@@ -1,7 +1,8 @@
 # api/broker_routes.py
 from __future__ import annotations
+from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from database import (
@@ -12,6 +13,37 @@ router = APIRouter(prefix="/api/brokers", tags=["brokers"])
 
 BROKER_TYPES = ["A股", "港股", "美股", "期货", "Crypto"]
 BROKER_UNITS = ["笔", "股", "张", "%"]
+
+_BROKER_ICON_DIR: Optional[Path] = None   # 懒初始化: 项目根/icons/brokers
+_CTYPE_BY_EXT = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                 "webp": "image/webp", "svg": "image/svg+xml", "gif": "image/gif"}
+
+
+def _broker_icon_file(name: str) -> Optional[Path]:
+    """券商名 → icons/brokers/{name}.{png|jpg|…}。名字做路径安全校验(拦路径分隔符)。"""
+    global _BROKER_ICON_DIR
+    safe = (name or "").strip()
+    if not safe or len(safe) > 64 or any(ch in safe for ch in '/\\:*?"<>|'):
+        return None
+    if _BROKER_ICON_DIR is None:
+        _BROKER_ICON_DIR = Path(__file__).resolve().parent.parent / "icons" / "brokers"
+    for ext in ("png", "jpg", "jpeg", "webp", "svg", "gif"):
+        f = _BROKER_ICON_DIR / f"{safe}.{ext}"
+        if f.is_file():
+            return f
+    return None
+
+
+@router.get("/logo")
+async def broker_logo(name: str = ""):
+    """券商 logo: 纯本地文件 icons/brokers/{券商名}.png(名字 = brokers 表的 name 字段,
+    手动放图即生效 —— 券商无上游数据源, 不走 logostream)。找不到 404, 前端退回纯文字。"""
+    f = _broker_icon_file(name)
+    if not f:
+        return Response(status_code=404)
+    ctype = _CTYPE_BY_EXT.get(f.suffix.lstrip(".").lower(), "image/png")
+    return Response(content=f.read_bytes(), media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=604800"})
 
 
 class BrokerCreate(BaseModel):

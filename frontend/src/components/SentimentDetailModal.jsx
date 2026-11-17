@@ -24,9 +24,9 @@ function VolBars({ series, intraday, unit }) {
         const showDate = (n - 1 - i) % step === 0   // 从最新往前隔位, 保证最新一根有标签
         return (
           <div key={i} className="flex-1 flex flex-col items-center justify-end gap-1 h-full min-w-0" title={`${t.date}${isToday ? ' 今日盘中' : ''}: ${t.v}${unit}`}>
-            <span className={`text-[8.5px] font-mono leading-none ${isToday ? 'text-bear-bright font-semibold' : 'text-text-dim'}`}>{t.v}</span>
+            <span className={`text-[0.6071rem] font-mono leading-none ${isToday ? 'text-bear-bright font-semibold' : 'text-text-dim'}`}>{t.v}</span>
             <div className={`w-full max-w-[20px] rounded-t ${color}`} style={{ height: h, outline: isToday ? '1px solid var(--color-accent)' : 'none', outlineOffset: 1 }} />
-            <span className={`text-[8.5px] leading-none h-2.5 ${isToday ? 'text-accent font-semibold' : 'text-text-muted'}`}>{showDate ? t.date : ''}</span>
+            <span className={`text-[0.6071rem] leading-none h-2.5 ${isToday ? 'text-accent font-semibold' : 'text-text-muted'}`}>{showDate ? t.date : ''}</span>
           </div>
         )
       })}
@@ -83,7 +83,7 @@ function IntradayLine({ intra, metric, unit }) {
   const hv = hp ? val(hp) : null
   return (
     <div>
-      <div className="flex items-baseline gap-3 mb-1.5 text-[11px] flex-wrap">
+      <div className="flex items-baseline gap-3 mb-1.5 text-[0.7857rem] flex-wrap">
         <span className="text-text-muted">{intra.market}·实际量能 <b className="text-text-bright font-mono">{fmt(actual)}</b></span>
         <span className="text-text-muted">
           {intra.projected?.final ? '今日量能' : '预测量能'} <b className={`font-mono ${up ? 'text-bear-bright' : 'text-bull-bright'}`}>{fmt(projLast)}</b>
@@ -93,7 +93,7 @@ function IntradayLine({ intra, metric, unit }) {
       <div className="flex">
         <div className="relative shrink-0 w-11 mr-1" style={{ height: H }}>
           {grid.map((g, k) => (
-            <span key={k} className={`absolute right-0 text-[8px] font-mono leading-none ${g > 0 ? 'text-bear' : g < 0 ? 'text-bull' : 'text-text-muted'}`}
+            <span key={k} className={`absolute right-0 text-[0.5714rem] font-mono leading-none ${g > 0 ? 'text-bear' : g < 0 ? 'text-bull' : 'text-text-muted'}`}
               style={{ top: `${(k / (grid.length - 1)) * 100}%`, transform: 'translateY(-2px)' }}>
               {g >= 0 ? '+' : ''}{g.toFixed(2)}%
             </span>
@@ -114,7 +114,7 @@ function IntradayLine({ intra, metric, unit }) {
             )}
           </svg>
           {hp && (
-            <div className="absolute top-0 pointer-events-none bg-surface-2 border border-border rounded px-1.5 py-1 text-[9.5px] leading-tight shadow-lg z-10"
+            <div className="absolute top-0 pointer-events-none bg-surface-2 border border-border rounded px-1.5 py-1 text-[0.6786rem] leading-tight shadow-lg z-10"
               style={{ left: `${(hi / (n - 1)) * 100}%`, transform: `translateX(${hi / (n - 1) > 0.7 ? '-105%' : '8px'})` }}>
               <div className="text-text-muted font-mono">{hp.time}</div>
               <div className="text-text-bright font-mono">{fmt(hv)}</div>
@@ -129,7 +129,7 @@ function IntradayLine({ intra, metric, unit }) {
           {ticks.map((tk, k) => {
             const p = (tk.i / (n - 1)) * 100
             return (
-              <span key={k} className="absolute text-[8px] text-text-muted whitespace-nowrap"
+              <span key={k} className="absolute text-[0.5714rem] text-text-muted whitespace-nowrap"
                 style={{ left: `${p}%`, transform: p < 4 ? 'none' : p > 96 ? 'translateX(-100%)' : 'translateX(-50%)' }}>
                 {tk.t}
               </span>
@@ -137,12 +137,12 @@ function IntradayLine({ intra, metric, unit }) {
           })}
         </div>
       </div>
-      <div className="flex items-center gap-3 text-[9px] text-text-muted mt-1 pl-12 flex-wrap">
+      <div className="flex items-center gap-3 text-[0.6429rem] text-text-muted mt-1 pl-12 flex-wrap">
         <span><span style={{ color: '#e8913a' }}>—</span> 预测量能(按当时节奏外推全天)</span>
         <span><span style={{ color: '#5b8def' }}>—</span> 昨日总量能 {fmt(prevFull)}</span>
         <span className="text-text-dim">纵轴=较昨日%</span>
       </div>
-      <div className="text-[9px] text-text-dim mt-0.5 pl-12">预测=今日已成交+按近5日节奏估剩余; 越往后越准, 收盘=实际。粗估参考。</div>
+      <div className="text-[0.6429rem] text-text-dim mt-0.5 pl-12">预测=今日已成交+按近5日节奏估剩余; 越往后越准, 收盘=实际。粗估参考。</div>
     </div>
   )
 }
@@ -207,9 +207,9 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
   const secList = Object.entries(bySec).sort((a, b) => b[1].length - a[1].length)
 
   const Chip = ({ s, color }) => (
-    <span className="inline-flex items-baseline gap-1 text-[11.5px] bg-surface-3 rounded px-1.5 py-0.5">
+    <span className="inline-flex items-baseline gap-1 text-[0.8214rem] bg-surface-3 rounded px-1.5 py-0.5">
       <span className="text-text-bright">{s.name}</span>
-      <span className={`font-mono text-[10px] ${color}`}>{s.pct > 0 ? '+' : ''}{s.pct}%</span>
+      <span className={`font-mono text-[0.7143rem] ${color}`}>{s.pct > 0 ? '+' : ''}{s.pct}%</span>
     </span>
   )
 
@@ -220,15 +220,15 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
         {/* 头 */}
         <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <h3 className="text-[15px] font-semibold text-text-bright m-0">市场情绪明细</h3>
-            {summary?.mood && <span className="text-[12px]" style={{ color: summary.moodColor }}>{summary.mood}</span>}
-            <span className="text-[11px] text-text-muted font-mono">{d?.date || ''}</span>
+            <h3 className="text-[1.0714rem] font-semibold text-text-bright m-0">市场情绪明细</h3>
+            {summary?.mood && <span className="text-[0.8571rem]" style={{ color: summary.moodColor }}>{summary.mood}</span>}
+            <span className="text-[0.7857rem] text-text-muted font-mono">{d?.date || ''}</span>
           </div>
-          <button onClick={onClose} className="text-text-dim hover:text-text text-[18px] leading-none px-2 cursor-pointer">×</button>
+          <button onClick={onClose} className="text-text-dim hover:text-text text-[1.2857rem] leading-none px-2 cursor-pointer">×</button>
         </div>
 
         {/* 关键指标 */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-3 text-[11px]">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-3 text-[0.7857rem]">
           {[
             ['涨停', summary?.n_zt, up],
             ['跌停', summary?.n_dt, down],
@@ -238,7 +238,7 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
             ['两市量', v.amount_wy != null ? `${v.amount_wy}万亿` : '--', 'text-text-bright'],
           ].map(([l, val, cls], i) => (
             <div key={i} className="bg-surface-3 rounded-md px-2 py-1.5">
-              <div className="text-text-dim text-[10px] mb-0.5">{l}</div>
+              <div className="text-text-dim text-[0.7143rem] mb-0.5">{l}</div>
               <div className={`font-mono font-semibold ${cls}`}>{val ?? '--'}</div>
             </div>
           ))}
@@ -252,7 +252,7 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
           if (!names.length) {
             return (v.trend || []).length > 1 && (
               <div className="mb-4 px-3 py-3 rounded-lg bg-surface-3/50 border border-border-subtle">
-                <div className="text-[10.5px] text-text-muted mb-2">近14日沪市成交量(亿股) · 每根较<b className="text-text-dim">前一日</b>放量红/缩量绿{v.intraday ? ' · 末根今日盘中' : ''}</div>
+                <div className="text-[0.75rem] text-text-muted mb-2">近14日沪市成交量(亿股) · 每根较<b className="text-text-dim">前一日</b>放量红/缩量绿{v.intraday ? ' · 末根今日盘中' : ''}</div>
                 <VolBars series={(v.trend || []).map(t => ({ date: t.date, v: t.vol }))} intraday={v.intraday} unit="亿股" />
               </div>
             )
@@ -268,48 +268,48 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
               <div className="flex items-center gap-1 mb-2 flex-wrap">
                 {names.map(k => (
                   <button key={k} onClick={() => setMkt(k)}
-                    className={`text-[10.5px] px-1.5 py-0.5 rounded ${mkt === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>{k}</button>
+                    className={`text-[0.75rem] px-1.5 py-0.5 rounded ${mkt === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>{k}</button>
                 ))}
                 <span className="text-text-muted mx-1">·</span>
                 {[['amt', '成交额'], ['vol', '成交量']].map(([k, lb]) => (
                   <button key={k} onClick={() => setMetric(k)}
-                    className={`text-[10.5px] px-1.5 py-0.5 rounded ${metric === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>{lb}</button>
+                    className={`text-[0.75rem] px-1.5 py-0.5 rounded ${metric === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>{lb}</button>
                 ))}
                 <span className="text-text-muted mx-1">·</span>
                 {[['daily', '近14日'], ['intraday', '当日分时']].map(([k, lb]) => (
                   <button key={k} onClick={() => setView(k)}
-                    className={`text-[10.5px] px-1.5 py-0.5 rounded ${view === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>{lb}</button>
+                    className={`text-[0.75rem] px-1.5 py-0.5 rounded ${view === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>{lb}</button>
                 ))}
               </div>
               {/* 当前实时读数(盘中随分钟刷新, 收盘后为定格) */}
               {rtVal != null && (
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="text-[17px] font-mono font-semibold text-text-bright">{rtVal >= 10000 ? `${(rtVal / 10000).toFixed(2)}万亿` : `${rtVal}${unit === '亿元' ? '亿元' : '亿股'}`}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${live ? 'bg-bear/15 text-bear-bright' : 'bg-surface-2 text-text-dim'}`}>{live ? '盘中实时' : '今日收盘'}</span>
-                  <span className="text-[10.5px] text-text-muted">{mkt}{metric === 'amt' ? '成交额' : '成交量'}</span>
+                  <span className="text-[1.2143rem] font-mono font-semibold text-text-bright">{rtVal >= 10000 ? `${(rtVal / 10000).toFixed(2)}万亿` : `${rtVal}${unit === '亿元' ? '亿元' : '亿股'}`}</span>
+                  <span className={`text-[0.7143rem] px-1.5 py-0.5 rounded ${live ? 'bg-bear/15 text-bear-bright' : 'bg-surface-2 text-text-dim'}`}>{live ? '盘中实时' : '今日收盘'}</span>
+                  <span className="text-[0.75rem] text-text-muted">{mkt}{metric === 'amt' ? '成交额' : '成交量'}</span>
                 </div>
               )}
               {view === 'daily' ? (
                 <>
-                  <div className="text-[10px] text-text-muted mb-1.5">
+                  <div className="text-[0.7143rem] text-text-muted mb-1.5">
                     近14日{metric === 'amt' ? '成交额(亿元)' : '成交量(亿股)'} · 较前一日放量红/缩量绿{live ? ' · 末根今日盘中' : ''}
                   </div>
                   {series.length > 1
                     ? <VolBars series={series} intraday={live} unit={unit} />
-                    : <div className="text-[11px] text-text-dim py-3 text-center">暂无足够历史</div>}
+                    : <div className="text-[0.7857rem] text-text-dim py-3 text-center">暂无足够历史</div>}
                 </>
               ) : (
                 <>
                   {(intra?.points || []).length > 1
                     ? <IntradayLine intra={intra} metric={metric} unit={unit} />
-                    : <div className="text-[11px] text-text-dim py-3 text-center">分时加载中…</div>}
+                    : <div className="text-[0.7857rem] text-text-dim py-3 text-center">分时加载中…</div>}
                 </>
               )}
             </div>
           )
         })()}
         {v.label && v.ratio != null && (
-          <div className="text-[10px] text-text-muted -mt-2 mb-4 px-1">
+          <div className="text-[0.7143rem] text-text-muted -mt-2 mb-4 px-1">
             注: 头部「{v.label}{v.ratio > 0 ? '+' : ''}{v.ratio}%」是<b className="text-text-dim">沪市今日 较前5日均值</b>口径, 与柱色的"较前一日"基准不同。
           </div>
         )}
@@ -318,27 +318,27 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
         <div className="flex gap-1 mb-3 border-b border-border-subtle">
           {[['ladder', '连板梯队'], ['sector', '板块热点'], ['dt', `跌停 ${d?.n_dt || 0}`]].map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
-              className={`text-[12px] px-3 py-1.5 -mb-px border-b-2 ${tab === k ? 'border-accent text-text-bright font-medium' : 'border-transparent text-text-dim hover:text-text'}`}>
+              className={`text-[0.8571rem] px-3 py-1.5 -mb-px border-b-2 ${tab === k ? 'border-accent text-text-bright font-medium' : 'border-transparent text-text-dim hover:text-text'}`}>
               {label}
             </button>
           ))}
         </div>
 
-        {loading && <div className="text-center py-6 text-text-dim text-[12px]">明细加载中…</div>}
+        {loading && <div className="text-center py-6 text-text-dim text-[0.8571rem]">明细加载中…</div>}
 
         {/* 连板梯队: 每个高度的具体股票 */}
         {!loading && tab === 'ladder' && (
           <div className="space-y-2.5">
-            {lbLevels.length === 0 && <div className="text-text-dim text-[12px]">今日无 2 板以上个股</div>}
+            {lbLevels.length === 0 && <div className="text-text-dim text-[0.8571rem]">今日无 2 板以上个股</div>}
             {lbLevels.map(lb => (
               <div key={lb} className="flex gap-2">
-                <span className="text-[12px] font-semibold text-accent shrink-0 w-12">{lb}板</span>
+                <span className="text-[0.8571rem] font-semibold text-accent shrink-0 w-12">{lb}板</span>
                 <div className="flex flex-wrap gap-1.5">
                   {byLb[lb].map((s, i) => <Chip key={i} s={s} color={up} />)}
                 </div>
               </div>
             ))}
-            <div className="text-[11px] text-text-muted pt-1">首板(1板)共 {zt.filter(s => s.lb <= 1).length} 只</div>
+            <div className="text-[0.7857rem] text-text-muted pt-1">首板(1板)共 {zt.filter(s => s.lb <= 1).length} 只</div>
           </div>
         )}
 
@@ -347,7 +347,7 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
           <div className="space-y-2.5">
             {secList.map(([sec, stocks], i) => (
               <div key={i} className="flex gap-2">
-                <span className="text-[12px] text-text-bright shrink-0 w-20 truncate">{sec}<span className="text-accent font-mono ml-1">{stocks.length}</span></span>
+                <span className="text-[0.8571rem] text-text-bright shrink-0 w-20 truncate">{sec}<span className="text-accent font-mono ml-1">{stocks.length}</span></span>
                 <div className="flex flex-wrap gap-1.5">
                   {stocks.map((s, j) => <Chip key={j} s={s} color={up} />)}
                 </div>
@@ -359,12 +359,12 @@ export default function SentimentDetailModal({ summary, volume, onClose }) {
         {/* 跌停 */}
         {!loading && tab === 'dt' && (
           <div className="flex flex-wrap gap-1.5">
-            {(d?.dt || []).length === 0 && <div className="text-text-dim text-[12px]">今日无跌停</div>}
+            {(d?.dt || []).length === 0 && <div className="text-text-dim text-[0.8571rem]">今日无跌停</div>}
             {(d?.dt || []).map((s, i) => <Chip key={i} s={s} color={down} />)}
           </div>
         )}
 
-        <div className="text-[10px] text-text-muted pt-3 mt-3 border-t border-border-subtle">
+        <div className="text-[0.7143rem] text-text-muted pt-3 mt-3 border-t border-border-subtle">
           纯客观情绪数据 · 不构成任何买卖建议
         </div>
       </div>

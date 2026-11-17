@@ -39,10 +39,10 @@ export function FuturesLotRow({ holding, mode, onDone, onCancel }) {
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
-  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[12.5px] text-text font-mono outline-none focus:border-accent w-24'
+  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[0.8929rem] text-text font-mono outline-none focus:border-accent w-24'
   const field = (label, value, set, placeholder, step = '0.01', type = 'number') => (
     <div className="flex flex-col gap-1">
-      <label className="text-[10.5px] text-text-muted">{label}</label>
+      <label className="text-[0.75rem] text-text-muted">{label}</label>
       <input type={type} step={step} min="0" className={inp} placeholder={placeholder}
         value={value} onChange={e => set(e.target.value)} />
     </div>
@@ -52,8 +52,8 @@ export function FuturesLotRow({ holding, mode, onDone, onCancel }) {
     <div className="rounded-lg border border-border-med bg-surface-2/60 p-3 fade-up">
       <div className="flex flex-wrap items-end gap-2">
         <div className="flex flex-col gap-1">
-          <label className="text-[10.5px] text-text-muted">操作</label>
-          <span className={`text-[12.5px] font-semibold ${direction === 'LONG' ? 'text-bull' : 'text-bear'}`}>
+          <label className="text-[0.75rem] text-text-muted">操作</label>
+          <span className={`text-[0.8929rem] font-semibold ${direction === 'LONG' ? 'text-bull' : 'text-bear'}`}>
             {isClose ? '平仓' : '加仓'} · {holding.stock_name || holding.stock_code}
             <span className="text-text-dim font-normal"> ({direction === 'LONG' ? '多' : '空'} · 现持 {holding.shares} 手)</span>
           </span>
@@ -65,14 +65,14 @@ export function FuturesLotRow({ holding, mode, onDone, onCancel }) {
         {field('时刻', tradeTime, setTradeTime, 'HH:MM', undefined, 'time')}
         <div className="flex gap-2 pb-0.5">
           <button onClick={submit} disabled={busy}
-            className="px-4 py-1.5 rounded-md bg-accent text-bg text-[12.5px] font-medium hover:opacity-90 disabled:opacity-50 cursor-pointer">
+            className="px-4 py-1.5 rounded-md bg-accent text-bg text-[0.8929rem] font-medium hover:opacity-90 disabled:opacity-50 cursor-pointer">
             {busy ? '提交中…' : '提交'}
           </button>
           <button onClick={onCancel}
-            className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[12.5px] hover:text-text cursor-pointer">取消</button>
+            className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[0.8929rem] hover:text-text cursor-pointer">取消</button>
         </div>
       </div>
-      {err && <p className="text-[12px] text-bear m-0">{err}</p>}
+      {err && <p className="text-[0.8571rem] text-bear m-0">{err}</p>}
     </div>
   )
 }

@@ -26,7 +26,7 @@ function cond(p) {
 function PlanRow({ p, onCancel }) {
   const [label, cls] = STATUS[p.status] || [p.status, 'text-text-dim border-border']
   return (
-    <tr className="border-b border-border-subtle text-[12px]">
+    <tr className="border-b border-border-subtle text-[0.8571rem]">
       <td className="px-2 py-1.5 whitespace-nowrap text-text-muted">{p.plan_date.slice(5)}</td>
       <td className="px-2 py-1.5 whitespace-nowrap">
         <button onClick={() => openStock(p.code, p.name)} className="text-text-bright hover:text-accent hover:underline cursor-pointer">
@@ -37,12 +37,12 @@ function PlanRow({ p, onCancel }) {
       <td className="px-2 py-1.5 whitespace-nowrap text-text-dim">{p.invalid_price ? `${p.invalid_op === '<=' ? '≤' : '≥'} ${p.invalid_price}` : '—'}</td>
       <td className="px-2 py-1.5 text-text-dim max-w-[260px] truncate" title={p.reason}>{p.reason || '—'}</td>
       <td className="px-2 py-1.5 whitespace-nowrap">
-        <span className={`inline-block border rounded px-1.5 py-[1px] text-[11px] ${cls}`}>{label}</span>
-        {p.triggered_at && <span className="ml-1.5 text-[11px] text-text-muted">{p.triggered_at.slice(0, 5)} @{p.triggered_price}</span>}
+        <span className={`inline-block border rounded px-1.5 py-[1px] text-[0.7857rem] ${cls}`}>{label}</span>
+        {p.triggered_at && <span className="ml-1.5 text-[0.7857rem] text-text-muted">{p.triggered_at.slice(0, 5)} @{p.triggered_price}</span>}
       </td>
       <td className="px-2 py-1.5 text-right">
         {(p.status === 'active' || p.status === 'triggered') && (
-          <button onClick={() => onCancel(p.id)} className="text-[11px] text-text-muted hover:text-bear cursor-pointer">取消</button>
+          <button onClick={() => onCancel(p.id)} className="text-[0.7857rem] text-text-muted hover:text-bear cursor-pointer">取消</button>
         )}
       </td>
     </tr>
@@ -67,7 +67,7 @@ function AddForm({ nextDay, onAdded }) {
       onAdded()
     } catch (e) { setErr(e?.message || '保存失败') }
   }
-  const inp = 'bg-surface-2 border border-border rounded px-2 py-1 text-[12px] text-text outline-none focus:border-accent/60'
+  const inp = 'bg-surface-2 border border-border rounded px-2 py-1 text-[0.8571rem] text-text outline-none focus:border-accent/60'
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-t border-border-subtle">
       <input className={`${inp} w-24`} placeholder="代码" value={f.code} onChange={set('code')} />
@@ -75,14 +75,14 @@ function AddForm({ nextDay, onAdded }) {
       <select className={inp} value={f.trigger_op} onChange={set('trigger_op')}><option value="<=">跌到 ≤</option><option value=">=">涨到 ≥</option></select>
       <input className={`${inp} w-20`} placeholder="触发价" value={f.trigger_price} onChange={set('trigger_price')} />
       <input className={`${inp} w-20`} placeholder="数量" value={f.qty} onChange={set('qty')} />
-      <span className="text-[11px] text-text-muted">失效</span>
+      <span className="text-[0.7857rem] text-text-muted">失效</span>
       <select className={inp} value={f.invalid_op} onChange={set('invalid_op')}><option value="<=">≤</option><option value=">=">≥</option></select>
       <input className={`${inp} w-20`} placeholder="失效价" value={f.invalid_price} onChange={set('invalid_price')} />
       <input className={`${inp} flex-1 min-w-[140px]`} placeholder="理由(为什么这么做)" value={f.reason} onChange={set('reason')} />
       <input className={`${inp} w-[118px]`} type="date" value={f.plan_date || nextDay || ''} onChange={set('plan_date')} />
       <button onClick={submit} disabled={!f.code || !f.trigger_price}
-        className="px-3 py-1 rounded bg-accent/20 text-accent text-[12px] hover:bg-accent/30 disabled:opacity-40 cursor-pointer">记下</button>
-      {err && <span className="text-[11px] text-bear w-full">{err}</span>}
+        className="px-3 py-1 rounded bg-accent/20 text-accent text-[0.8571rem] hover:bg-accent/30 disabled:opacity-40 cursor-pointer">记下</button>
+      {err && <span className="text-[0.7857rem] text-bear w-full">{err}</span>}
     </div>
   )
 }
@@ -96,14 +96,14 @@ function Review({ date }) {
   const counts = Object.entries(r['汇总'] || {})
   return (
     <div className="px-3 py-2 border-t border-border-subtle">
-      <div className="flex flex-wrap items-baseline gap-2 text-[12px] mb-1.5">
+      <div className="flex flex-wrap items-baseline gap-2 text-[0.8571rem] mb-1.5">
         <span className="font-medium text-text-bright">{r.date} 计划对照执行</span>
         {counts.map(([k, n]) => <span key={k} className={VERDICT_CLS[k] || 'text-text-dim'}>{k} {n}</span>)}
         {r['计划外成交']?.length > 0 && <span className="text-bear">计划外成交 {r['计划外成交'].length}</span>}
         {r['提示'] && <span className="text-text-muted">· {r['提示']}</span>}
       </div>
       {(r.plans?.length > 0 || r['计划外成交']?.length > 0) && (
-        <table className="w-full text-[11.5px] border-collapse">
+        <table className="w-full text-[0.8214rem] border-collapse">
           <tbody>
             {r.plans.map((p, i) => (
               <tr key={i} className="border-b border-border-subtle">
@@ -158,15 +158,15 @@ export default function TradePlans() {
     <section className="rounded-xl border border-border bg-surface/60 overflow-hidden">
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-baseline gap-2 flex-wrap"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
-        <h3 className="text-[13px] font-semibold text-text-bright m-0">交易计划</h3>
-        <span className="text-[11px] text-text-dim">你定计划 · 盘中到价推飞书 · 收盘后对照执行 · 也可在问答里口述让 AI 记下</span>
+        <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">交易计划</h3>
+        <span className="text-[0.7857rem] text-text-dim">你定计划 · 盘中到价推飞书 · 收盘后对照执行 · 也可在问答里口述让 AI 记下</span>
       </div>
       {plans.length === 0
-        ? <div className="px-3 py-3 text-[12px] text-text-muted">今天({d?.today})和下一个交易日({d?.next})还没有计划。</div>
+        ? <div className="px-3 py-3 text-[0.8571rem] text-text-muted">今天({d?.today})和下一个交易日({d?.next})还没有计划。</div>
         : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
-              <thead><tr className="text-[11px] text-text-muted text-left">
+              <thead><tr className="text-[0.7857rem] text-text-muted text-left">
                 {['日期', '标的', '方向', '触发', '失效', '理由', '状态', ''].map(h => <th key={h} className="px-2 py-1 font-normal">{h}</th>)}
               </tr></thead>
               <tbody>{plans.map(p => <PlanRow key={p.id} p={p} onCancel={cancel} />)}</tbody>
@@ -174,10 +174,10 @@ export default function TradePlans() {
           </div>
         )}
       <AddForm nextDay={d?.next} onAdded={load} />
-      <div className="px-3 pt-2 flex items-center gap-2 text-[11px] text-text-muted border-t border-border-subtle">
+      <div className="px-3 pt-2 flex items-center gap-2 text-[0.7857rem] text-text-muted border-t border-border-subtle">
         复盘日期
         <input type="date" value={reviewDate} onChange={e => setReviewDate(e.target.value)}
-          className="bg-surface-2 border border-border rounded px-2 py-0.5 text-[11px] text-text" />
+          className="bg-surface-2 border border-border rounded px-2 py-0.5 text-[0.7857rem] text-text" />
       </div>
       {reviewDate && <Review date={reviewDate} />}
     </section>
@@ -201,7 +201,7 @@ export function PlanToast() {
   return (
     <div className="fixed right-4 bottom-4 z-[300] flex flex-col gap-2 max-w-[360px]">
       {items.map(x => (
-        <div key={x.id} className="rounded-lg border border-accent/50 bg-surface-2 shadow-lg px-3 py-2 text-[12px]">
+        <div key={x.id} className="rounded-lg border border-accent/50 bg-surface-2 shadow-lg px-3 py-2 text-[0.8571rem]">
           <div className="flex items-start justify-between gap-2">
             <span className={`font-semibold ${x.status === 'triggered' ? 'text-accent' : 'text-bull'}`}>
               {x.status === 'triggered' ? '计划触发' : '计划失效'} · {x.name}({x.code}) {x.price}
@@ -209,7 +209,7 @@ export function PlanToast() {
             <button onClick={() => setItems(xs => xs.filter(y => y.id !== x.id))} className="text-text-muted hover:text-text cursor-pointer">×</button>
           </div>
           <div className="mt-1 whitespace-pre-line text-text-dim">{x.text.split('\n').slice(1).join('\n')}</div>
-          <button onClick={() => openStock(x.code, x.name)} className="mt-1 text-[11px] text-accent hover:underline cursor-pointer">打开详情</button>
+          <button onClick={() => openStock(x.code, x.name)} className="mt-1 text-[0.7857rem] text-accent hover:underline cursor-pointer">打开详情</button>
         </div>
       ))}
     </div>

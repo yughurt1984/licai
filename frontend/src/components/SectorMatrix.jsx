@@ -46,49 +46,49 @@ export default function SectorMatrix() {
     <div className="bg-surface-2 border border-border rounded-xl p-4 md:p-5">
       <div className="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[14px] font-semibold text-text-bright m-0">板块趋势矩阵</h3>
-          <span className="text-[10.5px] text-text-muted">近 {m.days} 日 · 红涨绿跌 · 资金/动能</span>
+          <h3 className="text-[1rem] font-semibold text-text-bright m-0">板块趋势矩阵</h3>
+          <span className="text-[0.75rem] text-text-muted">近 {m.days} 日 · 红涨绿跌 · 资金/动能</span>
           {m.intraday && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-bear/15 text-bear-bright">含今日盘中 {m.today}</span>
+            <span className="text-[0.7143rem] px-1.5 py-0.5 rounded bg-bear/15 text-bear-bright">含今日盘中 {m.today}</span>
           )}
         </div>
         <div className="flex gap-1 items-center">
           {[10, 20].map(dy => (
             <button key={dy} onClick={() => setDays(dy)}
-              className={`text-[11px] px-2 py-0.5 rounded border ${days === dy ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
+              className={`text-[0.7857rem] px-2 py-0.5 rounded border ${days === dy ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
               {dy}日
             </button>
           ))}
           <button onClick={() => load(days, true)} disabled={loading || aiLoading}
-            className="text-[11px] px-2 py-0.5 rounded border border-border text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-wait">
+            className="text-[0.7857rem] px-2 py-0.5 rounded border border-border text-text-dim hover:text-text disabled:opacity-40 disabled:cursor-wait">
             {(loading || aiLoading) ? '刷新中…' : '刷新'}
           </button>
         </div>
       </div>
 
       {/* AI 趋势分析 */}
-      {aiLoading && !ai?.summary && <div className="text-[11.5px] text-text-dim mb-3">AI 分析板块趋势中…<span className="text-text-muted">(Opus 推理约 10–20 秒)</span></div>}
+      {aiLoading && !ai?.summary && <div className="text-[0.8214rem] text-text-dim mb-3">AI 分析板块趋势中…<span className="text-text-muted">(Opus 推理约 10–20 秒)</span></div>}
       {ai && ai.summary && (
         <div className={`mb-3 px-3 py-2.5 rounded-lg bg-accent/10 border border-accent/30 transition-opacity ${aiLoading ? 'opacity-50' : ''}`}>
           <div className="flex items-baseline justify-between gap-2 mb-1.5">
-            <span className="text-[11px] text-accent font-medium">AI 趋势分析{aiLoading && <span className="ml-1 text-text-muted">· 重新分析中…</span>}</span>
+            <span className="text-[0.7857rem] text-accent font-medium">AI 趋势分析{aiLoading && <span className="ml-1 text-text-muted">· 重新分析中…</span>}</span>
           </div>
-          <div className="text-[12.5px] text-text-bright leading-relaxed mb-1.5">{ai.summary}</div>
+          <div className="text-[0.8929rem] text-text-bright leading-relaxed mb-1.5">{ai.summary}</div>
           <div className="space-y-1">
             {(ai.trends || []).map((t, i) => (
-              <div key={i} className="text-[11.5px] leading-relaxed flex gap-1.5">
+              <div key={i} className="text-[0.8214rem] leading-relaxed flex gap-1.5">
                 <span className="text-accent shrink-0 font-medium">{t.type}</span>
                 <span className="text-text-dim">{t.detail}</span>
               </div>
             ))}
           </div>
-          {ai.holdings_note && <div className="text-[11px] text-info mt-1.5 leading-relaxed">持仓: {ai.holdings_note}</div>}
+          {ai.holdings_note && <div className="text-[0.7857rem] text-info mt-1.5 leading-relaxed">持仓: {ai.holdings_note}</div>}
         </div>
       )}
 
       {/* 热力矩阵 — 铺满整宽, 日格等分剩余空间 */}
       <div className="overflow-x-auto -mx-1 px-1">
-        <table className="w-full border-collapse text-[11.5px]" style={{ tableLayout: 'fixed' }}>
+        <table className="w-full border-collapse text-[0.8214rem]" style={{ tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: 104 }} />
             <col style={{ width: 56 }} />
@@ -97,7 +97,7 @@ export default function SectorMatrix() {
             {(m.dates || []).map((_, i) => <col key={i} />)}
           </colgroup>
           <thead>
-            <tr className="text-text-muted text-[10.5px]">
+            <tr className="text-text-muted text-[0.75rem]">
               <th className="text-left font-normal sticky left-0 bg-surface-2 pr-2 z-10 pb-1">板块</th>
               <th className="font-normal px-1 text-right pb-1">今日</th>
               <th className="font-normal px-1 text-right pb-1">累计</th>
@@ -111,7 +111,7 @@ export default function SectorMatrix() {
             {m.rows.map((r, ri) => (
               <tr key={ri} className="border-t border-border-subtle/30">
                 <td className="text-text-bright whitespace-nowrap truncate sticky left-0 bg-surface-2 pr-2 z-10 py-1.5">
-                  {r.name}{r.streak >= 2 && <span className="text-bear-bright ml-1 text-[10px]">↑{r.streak}</span>}
+                  {r.name}{r.streak >= 2 && <span className="text-bear-bright ml-1 text-[0.7143rem]">↑{r.streak}</span>}
                 </td>
                 <td className={`px-1 text-right font-mono ${pctColor(r.today_pct)}`}>{r.today_pct >= 0 ? '+' : ''}{r.today_pct}</td>
                 <td className={`px-1 text-right font-mono font-semibold ${pctColor(r.cum_pct)}`}>{r.cum_pct >= 0 ? '+' : ''}{r.cum_pct}</td>
@@ -128,7 +128,7 @@ export default function SectorMatrix() {
         </table>
       </div>
 
-      <div className="text-[10px] text-text-muted pt-2.5 mt-2 border-t border-border-subtle">
+      <div className="text-[0.7143rem] text-text-muted pt-2.5 mt-2 border-t border-border-subtle">
         同花顺行业 · 按近 {m.days} 日累计涨幅排序 · ↑N=连涨天数 · 纯客观, 不构成买卖建议
       </div>
     </div>

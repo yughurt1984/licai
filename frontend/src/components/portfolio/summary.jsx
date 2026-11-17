@@ -1,15 +1,14 @@
 import { useState } from 'react'
-import { fmtMoney, fmtPct, fundKindOf, isOnchainFundKind, priceColor } from '../../helpers'
+import { fmtMoney, fmtPct, priceColor } from '../../helpers'
 import Tooltip from '../Tooltip'
 import { FxHint } from './atoms'
-import { formatCurrencyMoney } from './helpers'
 
 // ============================================================
 // Summary strip
 // ============================================================
-export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'ALL' }) {
+export function SummaryStrip({ agg, realized, todayPnl, scope = 'ALL' }) {
   const fxExposure = agg.fxExposure || []
-  const realizedTotal = (realized?.stock || 0) + (realized?.asset || 0)
+  const realizedTotal = realized?.stock || 0
   const grandPnl = (agg.totalPnl || 0) + realizedTotal
   const items = [
     {
@@ -17,7 +16,6 @@ export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'A
       val: `¥${fmtMoney(agg.totalMv)}`,
       big: true,
       color: 'text-text-bright',
-      note: fxExposure.length ? '人民币口径 · 含外币折算' : '人民币口径',
     },
     {
       label: '总盈亏',
@@ -32,16 +30,10 @@ export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'A
       tooltip: realizedTotal !== 0 ? (
         <div className="leading-relaxed">
           <div className="text-text-bright font-semibold mb-1">已实现盈亏拆分</div>
-          <div className="font-mono text-[11px] space-y-0.5">
+          <div className="font-mono text-[0.7857rem] space-y-0.5">
             {realized?.stock !== 0 && (
               <div>· 股票(已平仓段+分红) <span className={priceColor(realized.stock)}>{realized.stock >= 0 ? '+' : ''}¥{fmtMoney(realized.stock)}</span></div>
             )}
-            {realized?.asset !== 0 && (
-              <div>· 基金/理财/加密(已平仓周期+归档) <span className={priceColor(realized.asset)}>{realized.asset >= 0 ? '+' : ''}¥{fmtMoney(realized.asset)}</span></div>
-            )}
-          </div>
-          <div className="text-text-dim mt-1 text-[11px]">
-            现金利息已计入浮动(现金行 pnl), 不在这里重复。
           </div>
         </div>
       ) : null,
@@ -62,7 +54,7 @@ export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'A
       const est = useSrv ? (todayPnl.estimated_part || 0) : 0
       const unk = useSrv ? (todayPnl.unknown || []) : []
       return {
-        label: (useSrv ? '今日盈亏' : '今日浮动') + (aShareClosed ? ' (A股闭市)' : ''),
+        label: useSrv ? '今日盈亏' : '今日浮动',
         val: `${v >= 0 ? '+' : ''}${fmtMoney(v)}`,
         color: priceColor(v),
         note: useSrv && (closedN || openedN)
@@ -77,7 +69,7 @@ export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'A
             </div>
             {(todayPnl.items || []).filter(i => i.today_pnl != null && Math.abs(i.today_pnl) >= 1)
               .slice(0, 8).map(i => (
-              <div key={i.code} className="flex gap-2 justify-between font-mono text-[11.5]px">
+              <div key={i.code} className="flex gap-2 justify-between font-mono text-[0.8214rem]">
                 <span className="text-text-dim">
                   {i.name?.slice(0, 14) || i.code}
                   {i.closed_today ? ' 清仓' : i.opened_today ? ' 新建' : ''}
@@ -89,12 +81,12 @@ export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'A
               </div>
             ))}
             {est !== 0 && (
-              <div className="text-text-muted text-[11]px">
+              <div className="text-text-muted text-[0.7857rem]">
                 其中 {fmtMoney(est)} 来自净值 T+1 的场外基金, 按底层代理估, 净值公布后修正
               </div>
             )}
             {unk.length > 0 && (
-              <div className="text-text-muted text-[11]px">
+              <div className="text-text-muted text-[0.7857rem]">
                 {unk.length} 只净值滞后且无代理标的, 未计入(不冒充)
               </div>
             )}
@@ -108,27 +100,30 @@ export function SummaryStrip({ agg, aShareClosed, realized, todayPnl, scope = 'A
       {items.map((it, i) => {
         const valueSpan = (
           <span className="inline-flex items-baseline gap-1 md:gap-1.5 flex-wrap">
-            <span className={`font-mono font-bold tabular-nums ${it.color} ${it.big ? 'text-[19]px md:text-[23]px' : 'text-[15]px md:text-[16]px'} ${it.tooltip ? 'cursor-help underline decoration-dotted decoration-text-muted/60 underline-offset-4' : ''}`}
+            <span className={`font-mono font-bold tabular-nums ${it.color} ${it.big ? 'text-[1.3571rem] md:text-[1.6429rem]' : 'text-[1.0714rem] md:text-[1.1429rem]'} ${it.tooltip ? 'cursor-help underline decoration-dotted decoration-text-muted/60 underline-offset-4' : ''}`}
               style={{ letterSpacing: '-.01em' }}>{it.val}</span>
-            {it.sub && <span className={`font-mono text-[11.5]px md:text-[12]px opacity-80 ${it.color}`}>{it.sub}</span>}
+            {it.sub && <span className={`font-mono text-[0.8214rem] md:text-[0.8571rem] opacity-80 ${it.color}`}>{it.sub}</span>}
           </span>
         )
         return (
         <div key={i} className="flex flex-col gap-0.5">
-          <span className="text-[11.5]px text-text-dim tracking-wide">{it.label}</span>
+          <span className="text-[0.8214rem] text-text-dim tracking-wide">{it.label}</span>
           {it.tooltip ? <Tooltip content={it.tooltip}>{valueSpan}</Tooltip> : valueSpan}
-          {it.note && <span className="text-[10.5]px text-text-muted">{it.note}</span>}
-          {i === 0 && fxExposure.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+          {/* 总资产下方: 口径说明 + 折算所用币种汇率收进同一行(原币金额→折算额的 pill 太长,
+              且折算额和上面大数字重复)。悬停看汇率来源/时点, 同 FxHint。 */}
+          {i === 0 && (
+            <span className="flex items-center flex-wrap gap-x-1.5 text-[0.75rem] text-text-muted">
+              <span>人民币口径</span>
               {fxExposure.map(e => (
                 <FxHint key={e.currency} extra={{ currency: e.currency, fxRate: e.fxRate, fxTime: e.fxTime, fxSource: e.fxSource }}>
-                  <span className="font-mono text-[10.5]px px-1.5 py-[1px] rounded border border-border-med text-text-dim cursor-help bg-surface/50">
-                    {formatCurrencyMoney(e.currency, e.originalMarketValue)} → ¥{fmtMoney(e.marketValue)}
+                  <span className="font-mono cursor-help underline decoration-dotted decoration-text-muted/50 underline-offset-2">
+                    {e.currency} {Number(e.fxRate || 1).toFixed(4)}
                   </span>
                 </FxHint>
               ))}
-            </div>
+            </span>
           )}
+          {i !== 0 && it.note && <span className="text-[0.75rem] text-text-muted">{it.note}</span>}
         </div>
         )
       })}
@@ -144,48 +139,42 @@ export function ClosedPositionsBlock({ items, onHistory, onKline }) {
   return (
     <div className="px-3 md:px-6 py-2 border-t border-border-subtle bg-surface/40">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between text-[12.5]px text-text-dim hover:text-text cursor-pointer transition-colors">
+        className="w-full flex items-center justify-between text-[0.8929rem] text-text-dim hover:text-text cursor-pointer transition-colors">
         <span className="flex items-baseline gap-2">
           <span>已清仓 {items.length} 笔</span>
-          <span className="text-text-muted text-[11.5]px">流水保留, 不在主列表显示</span>
+          <span className="text-text-muted text-[0.8214rem]">流水保留, 不在主列表显示</span>
         </span>
         <span className="flex items-baseline gap-2">
           <span className={priceColor(total)}>
             累计 {total >= 0 ? '+' : ''}¥{fmtMoney(total)}
           </span>
-          <span className="text-text-muted text-[11]px">{open ? '▾' : '▸'}</span>
+          <span className="text-text-muted text-[0.7857rem]">{open ? '▾' : '▸'}</span>
         </span>
       </button>
       {open && (
         <div className="mt-2 pt-2 border-t border-border-subtle space-y-1">
           {items.map(it => (
             <div key={it.stock_code}
-              className="flex items-baseline justify-between text-[12.5]px py-1 px-1 rounded hover:bg-surface-2 transition-colors">
+              className="flex items-baseline justify-between text-[0.8929rem] py-1 px-1 rounded hover:bg-surface-2 transition-colors">
               <span className="flex items-baseline gap-2 min-w-0">
                 <span className="text-text-bright truncate">{it.stock_name || '--'}</span>
-                {!it._asset && <span className="font-mono text-[11]px text-text-muted">{it.stock_code}</span>}
-                {it._asset && <span className="text-[10.5]px px-1 rounded bg-surface-3 text-text-muted">理财/基金</span>}
+                <span className="font-mono text-[0.7857rem] text-text-muted">{it.stock_code}</span>
               </span>
               <span className="flex items-baseline gap-3 shrink-0">
                 <span className={`font-mono ${priceColor(it.realized_pnl)}`}>
                   {it.realized_pnl >= 0 ? '+' : ''}¥{fmtMoney(it.realized_pnl)}
                 </span>
                 {/* A股清仓 / 场内ETF清仓: 有K线; BS标记按保留的流水照常标出买卖点 */}
-                {((!it._asset) || (it._asset && isOnchainFundKind(fundKindOf(it)))) && (
-                  <button onClick={() => onKline?.({
-                    stock_code: it.code || it.stock_code, stock_name: it.stock_name,
-                    asset_id: it._asset ? it.asset_id : undefined,
-                  })}
-                    className="text-[11.5]px text-text-dim hover:text-accent cursor-pointer">
-                    K线
-                  </button>
-                )}
-                {!it._asset && (
-                  <button onClick={() => onHistory?.({ stock_code: it.stock_code, stock_name: it.stock_name })}
-                    className="text-[11.5]px text-text-dim hover:text-accent cursor-pointer">
-                    流水
-                  </button>
-                )}
+                <button onClick={() => onKline?.({
+                  stock_code: it.code || it.stock_code, stock_name: it.stock_name,
+                })}
+                  className="text-[0.8214rem] text-text-dim hover:text-accent cursor-pointer">
+                  K线
+                </button>
+                <button onClick={() => onHistory?.({ stock_code: it.stock_code, stock_name: it.stock_name })}
+                  className="text-[0.8214rem] text-text-dim hover:text-accent cursor-pointer">
+                  流水
+                </button>
               </span>
             </div>
           ))}

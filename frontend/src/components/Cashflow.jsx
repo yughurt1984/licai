@@ -85,8 +85,8 @@ function BudgetTracker({ summary, onSaveRate }) {
   return (
     <div className="bg-surface-3 rounded-md px-3 py-2.5 mb-3">
       <div className="flex items-baseline justify-between flex-wrap gap-2 mb-1.5">
-        <div className="text-[11px] text-text-dim flex items-baseline gap-1.5 flex-wrap">
-          <span className="text-[11.5px] text-text-bright font-semibold">可支配预算</span>
+        <div className="text-[0.7857rem] text-text-dim flex items-baseline gap-1.5 flex-wrap">
+          <span className="text-[0.8214rem] text-text-bright font-semibold">可支配预算</span>
           {cap != null && (
             <>
               <span>· 上限 <span className="font-mono text-text">¥{fmtMoney(cap)}</span></span>
@@ -103,16 +103,16 @@ function BudgetTracker({ summary, onSaveRate }) {
               onChange={e => setRateInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveRate() }}
               autoFocus
-              className="w-12 bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] font-mono text-text outline-none focus:border-accent" />
-            <span className="text-[10.5px] text-text-dim">%</span>
+              className="w-12 bg-bg border border-border rounded px-1.5 py-0.5 text-[0.7857rem] font-mono text-text outline-none focus:border-accent" />
+            <span className="text-[0.75rem] text-text-dim">%</span>
             <button onClick={saveRate}
-              className="text-[10.5px] text-accent hover:underline cursor-pointer ml-1">保存</button>
+              className="text-[0.75rem] text-accent hover:underline cursor-pointer ml-1">保存</button>
             <button onClick={() => setEditingRate(false)}
-              className="text-[10.5px] text-text-dim hover:text-text cursor-pointer ml-1">取消</button>
+              className="text-[0.75rem] text-text-dim hover:text-text cursor-pointer ml-1">取消</button>
           </div>
         ) : (
           <button onClick={startEdit}
-            className="text-[10.5px] text-text-dim hover:text-accent cursor-pointer underline decoration-dotted underline-offset-2">
+            className="text-[0.75rem] text-text-dim hover:text-accent cursor-pointer underline decoration-dotted underline-offset-2">
             目标储蓄率 {(rate * 100).toFixed(0)}% 改
           </button>
         )}
@@ -129,7 +129,7 @@ function BudgetTracker({ summary, onSaveRate }) {
                 style={{ left: `calc(${softPct}% - 0.5px)` }} />
             )}
           </div>
-          <div className="flex items-baseline justify-between text-[11px]">
+          <div className="flex items-baseline justify-between text-[0.7857rem]">
             <span className="text-text-dim">
               本月已花 <span className={`font-mono font-semibold ${toneClass}`}>¥{fmtMoney(actual)}</span>
               <span className="text-text-muted"> / ¥{fmtMoney(cap)}</span>
@@ -139,7 +139,7 @@ function BudgetTracker({ summary, onSaveRate }) {
         </>
       )}
 
-      <div className="text-[11px] mt-1.5 leading-relaxed">{msg}</div>
+      <div className="text-[0.7857rem] mt-1.5 leading-relaxed">{msg}</div>
     </div>
   )
 }
@@ -158,7 +158,7 @@ function NetTrend({ entries }) {
 
   return (
     <div className="bg-surface-3 rounded-md px-2 py-2">
-      <div className="text-[10.5px] text-text-dim mb-1">最近 12 月净储蓄趋势</div>
+      <div className="text-[0.75rem] text-text-dim mb-1">最近 12 月净储蓄趋势</div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[60px]">
         {/* 0 轴 */}
         <line x1={P} y1={H/2} x2={W-P} y2={H/2} stroke="var(--color-border-subtle)" strokeWidth="1" />
@@ -220,8 +220,8 @@ function CashflowEditor({ entry, month, onSave, onClose }) {
       <div className="bg-surface-2 border border-border rounded-xl p-5 w-[420px] max-w-[95vw] space-y-3"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-baseline justify-between">
-          <h3 className="text-[14px] font-semibold text-text-bright m-0">月度现金流 · {month}</h3>
-          <button onClick={onClose} className="text-text-dim hover:text-text text-[18px] leading-none px-2 cursor-pointer">×</button>
+          <h3 className="text-[1rem] font-semibold text-text-bright m-0">月度现金流 · {month}</h3>
+          <button onClick={onClose} className="text-text-dim hover:text-text text-[1.2857rem] leading-none px-2 cursor-pointer">×</button>
         </div>
 
         {[
@@ -230,33 +230,33 @@ function CashflowEditor({ entry, month, onSave, onClose }) {
           ['disc',  '可自由支配 (购物 / 娱乐 / 旅行)', disc, setDisc, 'text-warn'],
         ].map(([k, label, v, setter, cls]) => (
           <div key={k}>
-            <label className="text-[11.5px] text-text-dim block mb-1">{label}</label>
+            <label className="text-[0.8214rem] text-text-dim block mb-1">{label}</label>
             <input type="number" inputMode="decimal" placeholder="0"
               value={v} onChange={e => setter(e.target.value)}
-              className={`w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] font-mono outline-none focus:border-accent transition-colors ${cls}`} />
+              className={`w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] font-mono outline-none focus:border-accent transition-colors ${cls}`} />
           </div>
         ))}
 
         <div>
-          <label className="text-[11.5px] text-text-dim block mb-1">备注 (可选)</label>
+          <label className="text-[0.8214rem] text-text-dim block mb-1">备注 (可选)</label>
           <input type="text" placeholder="" value={notes} onChange={e => setNotes(e.target.value)}
-            className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[12px] outline-none focus:border-accent transition-colors" />
+            className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.8571rem] outline-none focus:border-accent transition-colors" />
         </div>
 
         <div className="bg-surface-3 rounded-md px-3 py-2 flex items-center justify-between">
-          <span className="text-[11.5px] text-text-dim">净储蓄 (= 收入 − 固定 − 可支配)</span>
-          <span className={`font-mono font-semibold text-[14px] ${colorPos(net)}`}>
+          <span className="text-[0.8214rem] text-text-dim">净储蓄 (= 收入 − 固定 − 可支配)</span>
+          <span className={`font-mono font-semibold text-[1rem] ${colorPos(net)}`}>
             {net >= 0 ? '+' : ''}¥{fmtMoney(Math.abs(net))}
           </span>
         </div>
 
         <div className="flex gap-2 pt-1">
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 px-4 py-2 rounded-lg bg-accent text-bg font-medium text-[13px] hover:opacity-90 disabled:opacity-50 cursor-pointer">
+            className="flex-1 px-4 py-2 rounded-lg bg-accent text-bg font-medium text-[0.9286rem] hover:opacity-90 disabled:opacity-50 cursor-pointer">
             {saving ? '保存中...' : '保存'}
           </button>
           <button onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-border text-text-dim hover:text-text hover:border-border-med text-[13px] cursor-pointer">
+            className="px-4 py-2 rounded-lg border border-border text-text-dim hover:text-text hover:border-border-med text-[0.9286rem] cursor-pointer">
             取消
           </button>
         </div>
@@ -316,16 +316,16 @@ export default function Cashflow() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">月度现金流</h3>
-          <span className="text-[11px] text-text-dim">收入 · 开销 · 储蓄</span>
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">月度现金流</h3>
+          <span className="text-[0.7857rem] text-text-dim">收入 · 开销 · 储蓄</span>
         </div>
         <div className="flex gap-1.5">
           <button onClick={() => setEditingMonth(curMonth)}
-            className="px-2.5 py-[3px] rounded-md text-[11px] border border-accent bg-accent/15 text-accent hover:bg-accent/25 cursor-pointer">
+            className="px-2.5 py-[3px] rounded-md text-[0.7857rem] border border-accent bg-accent/15 text-accent hover:bg-accent/25 cursor-pointer">
             {cur ? '编辑当月' : '录入当月'}
           </button>
           <button onClick={() => setShowHistory(s => !s)}
-            className="px-2.5 py-[3px] rounded-md text-[11px] border border-border-med text-text-dim hover:text-text hover:border-text-muted cursor-pointer">
+            className="px-2.5 py-[3px] rounded-md text-[0.7857rem] border border-border-med text-text-dim hover:text-text hover:border-text-muted cursor-pointer">
             {showHistory ? '隐藏历史' : `历史 ${entries.length}`}
           </button>
         </div>
@@ -333,32 +333,32 @@ export default function Cashflow() {
 
       <div className="px-3 md:px-5 py-3">
         {loading ? (
-          <div className="text-text-dim text-[12px] text-center py-2">加载中...</div>
+          <div className="text-text-dim text-[0.8571rem] text-center py-2">加载中...</div>
         ) : (
           <>
             {/* 当月 + 平均 卡片组 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
               <div className="bg-surface-3 rounded-md px-3 py-2">
-                <div className="text-text-dim text-[10.5px] mb-0.5">当月收入</div>
-                <div className="font-mono font-semibold text-[14px] text-bull-bright">
+                <div className="text-text-dim text-[0.75rem] mb-0.5">当月收入</div>
+                <div className="font-mono font-semibold text-[1rem] text-bull-bright">
                   ¥{fmtMoney(cur?.income || 0)}
                 </div>
               </div>
               <div className="bg-surface-3 rounded-md px-3 py-2">
-                <div className="text-text-dim text-[10.5px] mb-0.5">固定开销</div>
-                <div className="font-mono font-semibold text-[14px] text-text">
+                <div className="text-text-dim text-[0.75rem] mb-0.5">固定开销</div>
+                <div className="font-mono font-semibold text-[1rem] text-text">
                   ¥{fmtMoney(cur?.fixed_cost || 0)}
                 </div>
               </div>
               <div className="bg-surface-3 rounded-md px-3 py-2">
-                <div className="text-text-dim text-[10.5px] mb-0.5">可自由支配</div>
-                <div className="font-mono font-semibold text-[14px] text-warn">
+                <div className="text-text-dim text-[0.75rem] mb-0.5">可自由支配</div>
+                <div className="font-mono font-semibold text-[1rem] text-warn">
                   ¥{fmtMoney(cur?.discretionary || 0)}
                 </div>
               </div>
               <div className="bg-surface-3 rounded-md px-3 py-2">
-                <div className="text-text-dim text-[10.5px] mb-0.5">当月净储蓄</div>
-                <div className={`font-mono font-semibold text-[14px] ${colorPos(cur?.net_savings || 0)}`}>
+                <div className="text-text-dim text-[0.75rem] mb-0.5">当月净储蓄</div>
+                <div className={`font-mono font-semibold text-[1rem] ${colorPos(cur?.net_savings || 0)}`}>
                   {(cur?.net_savings || 0) >= 0 ? '+' : ''}¥{fmtMoney(Math.abs(cur?.net_savings || 0))}
                 </div>
               </div>
@@ -366,7 +366,7 @@ export default function Cashflow() {
 
             {/* 平均行 */}
             {summary && summary.window > 0 && (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-dim mb-3">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.8214rem] text-text-dim mb-3">
                 <span>近 {summary.window} 月平均</span>
                 <span>· 收入 <span className="text-text font-mono">¥{fmtMoney(summary.avg_income)}</span></span>
                 <span>· 净储蓄 <span className={`font-mono ${colorPos(summary.avg_net)}`}>
@@ -387,7 +387,7 @@ export default function Cashflow() {
             {/* 历史表格 */}
             {showHistory && (
               <div className="mt-3 border border-border-subtle rounded-md overflow-hidden">
-                <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-2 px-2 py-1.5 text-[10.5px] text-text-dim bg-surface-2 border-b border-border-subtle font-medium">
+                <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-2 px-2 py-1.5 text-[0.75rem] text-text-dim bg-surface-2 border-b border-border-subtle font-medium">
                   <div>月份</div>
                   <div className="text-right">收入</div>
                   <div className="text-right">固定</div>
@@ -396,9 +396,9 @@ export default function Cashflow() {
                   <div className="w-[28px]"></div>
                 </div>
                 {entries.length === 0 ? (
-                  <div className="px-2 py-3 text-center text-[11px] text-text-dim">暂无记录</div>
+                  <div className="px-2 py-3 text-center text-[0.7857rem] text-text-dim">暂无记录</div>
                 ) : entries.map(e => (
-                  <div key={e.month} className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-2 px-2 py-1.5 text-[11.5px] items-center border-b border-border-subtle last:border-b-0 hover:bg-surface-2/40">
+                  <div key={e.month} className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-2 px-2 py-1.5 text-[0.8214rem] items-center border-b border-border-subtle last:border-b-0 hover:bg-surface-2/40">
                     <div className="font-mono text-text">{e.month}</div>
                     <div className="text-right font-mono text-bull">¥{fmtMoney(e.income || 0)}</div>
                     <div className="text-right font-mono text-text">¥{fmtMoney(e.fixed_cost || 0)}</div>
@@ -407,7 +407,7 @@ export default function Cashflow() {
                       {e.net_savings >= 0 ? '+' : ''}¥{fmtMoney(Math.abs(e.net_savings || 0))}
                     </div>
                     <button onClick={() => setEditingMonth(e.month)}
-                      className="text-text-dim hover:text-accent text-[10.5px] px-1 cursor-pointer">编辑</button>
+                      className="text-text-dim hover:text-accent text-[0.75rem] px-1 cursor-pointer">编辑</button>
                   </div>
                 ))}
               </div>

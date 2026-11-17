@@ -6,7 +6,7 @@ export default function SkeletonCard({ rows = 4, title = true, label = '', bare 
       {title && (
         <div className="flex items-center gap-2 mb-3">
           <div className="skel h-3.5 w-24" />
-          {label && <span className="text-[10.5px] text-text-muted ml-auto">{label}</span>}
+          {label && <span className="text-[0.75rem] text-text-muted ml-auto">{label}</span>}
         </div>
       )}
       <div className="space-y-2.5">

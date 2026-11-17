@@ -5,9 +5,9 @@ import SectorKlineModal from './SectorKlineModal'
 import SkeletonCard from './Skeleton'
 
 function Sparkline({ data, width = 60, height = 20 }) {
-  if (!data || data.length < 2) return <span className="text-text-dim text-[10px]">--</span>
+  if (!data || data.length < 2) return <span className="text-text-dim text-[0.7143rem]">--</span>
   const closes = data.map(d => d.close).filter(c => c > 0)
-  if (closes.length < 2) return <span className="text-text-dim text-[10px]">--</span>
+  if (closes.length < 2) return <span className="text-text-dim text-[0.7143rem]">--</span>
   const min = Math.min(...closes)
   const max = Math.max(...closes)
   const range = max - min || 1
@@ -134,7 +134,7 @@ export default function SectorOpportunities() {
   }
   if (!data || !data.sectors || data.sectors.length === 0) {
     return (
-      <section className="rounded-xl border border-border bg-surface/60 px-4 py-3 text-[12px] text-text-dim">
+      <section className="rounded-xl border border-border bg-surface/60 px-4 py-3 text-[0.8571rem] text-text-dim">
         {cfg.label}板块暂无数据
       </section>
     )
@@ -149,15 +149,15 @@ export default function SectorOpportunities() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">板块动量</h3>
-          <span className="text-[11px] text-text-dim">
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">板块动量</h3>
+          <span className="text-[0.7857rem] text-text-dim">
             {visibleRows.length}/{totalCount} 板块{cfg.hasHeld ? ` · 持仓 ${heldCount}` : ''}
           </span>
         </div>
         <div className="flex gap-1.5 items-center flex-wrap">
           {Object.entries(MARKETS).map(([k, { label }]) => (
             <button key={k} onClick={() => setMkt(k)}
-              className="px-2.5 py-[3px] rounded-md text-[11px] border transition-colors cursor-pointer"
+              className="px-2.5 py-[3px] rounded-md text-[0.7857rem] border transition-colors cursor-pointer"
               style={{
                 borderColor: market === k ? 'var(--color-accent)' : 'var(--color-border-med)',
                 background: market === k ? 'var(--color-accent)1a' : 'transparent',
@@ -175,7 +175,7 @@ export default function SectorOpportunities() {
                 ['held', '已持仓'],
               ].map(([k, l]) => (
                 <button key={k} onClick={() => setFilt(k)}
-                  className="px-2.5 py-[3px] rounded-md text-[11px] border transition-colors cursor-pointer"
+                  className="px-2.5 py-[3px] rounded-md text-[0.7857rem] border transition-colors cursor-pointer"
                   style={{
                     borderColor: filter === k ? 'var(--color-accent)' : 'var(--color-border-med)',
                     background: filter === k ? 'var(--color-accent)1a' : 'transparent',
@@ -187,10 +187,10 @@ export default function SectorOpportunities() {
               <span className="w-px h-3.5 bg-border mx-0.5" />
             </>
           )}
-          <span className="text-[10px] text-text-muted shrink-0">排序</span>
+          <span className="text-[0.7143rem] text-text-muted shrink-0">排序</span>
           {Object.entries(SORT_KEYS).map(([k, { label }]) => (
             <button key={k} onClick={() => setSort(k)}
-              className="px-2.5 py-[3px] rounded-md text-[11px] border transition-colors cursor-pointer"
+              className="px-2.5 py-[3px] rounded-md text-[0.7857rem] border transition-colors cursor-pointer"
               style={{
                 borderColor: sortKey === k ? 'var(--color-info)' : 'var(--color-border-med)',
                 background: sortKey === k ? 'var(--color-info)20' : 'transparent',
@@ -200,13 +200,13 @@ export default function SectorOpportunities() {
             </button>
           ))}
           <button onClick={() => load(true, market)} disabled={loading}
-            className="ml-1 px-2.5 py-[3px] rounded-md text-[11px] border border-border-med text-text-dim hover:text-text hover:border-accent transition-colors cursor-pointer disabled:opacity-50">
+            className="ml-1 px-2.5 py-[3px] rounded-md text-[0.7857rem] border border-border-med text-text-dim hover:text-text hover:border-accent transition-colors cursor-pointer disabled:opacity-50">
             {loading ? '...' : '刷新'}
           </button>
         </div>
       </div>
 
-      <div className="licai-opp-row px-3 md:px-5 py-1.5 text-[10.5px] text-text-dim tracking-wider font-medium border-b border-border-subtle">
+      <div className="licai-opp-row px-3 md:px-5 py-1.5 text-[0.75rem] text-text-dim tracking-wider font-medium border-b border-border-subtle">
         <div>板块</div>
         <div className="text-right licai-md-only">1 日</div>
         <div className="text-right">5 日</div>
@@ -216,7 +216,7 @@ export default function SectorOpportunities() {
             <Tooltip content={
               <div className="leading-relaxed">
                 <div className="text-text-bright font-semibold mb-0.5">板块净流入</div>
-                <div className="text-text-dim text-[10.5px]">主力资金当日净流入金额（亿元）。+ = 加仓 / - = 撤资</div>
+                <div className="text-text-dim text-[0.75rem]">主力资金当日净流入金额（亿元）。+ = 加仓 / - = 撤资</div>
               </div>
             }>
               <span className="cursor-help underline decoration-dotted decoration-text-muted underline-offset-2">主力净流入</span>
@@ -225,7 +225,7 @@ export default function SectorOpportunities() {
             <Tooltip content={
               <div className="leading-relaxed">
                 <div className="text-text-bright font-semibold mb-0.5">板块资金流</div>
-                <div className="text-text-dim text-[10.5px]">{market === 'US' ? '美股' : '港股'}暂无板块级资金流免费数据源（同花顺指标仅 A 股可用）</div>
+                <div className="text-text-dim text-[0.75rem]">{market === 'US' ? '美股' : '港股'}暂无板块级资金流免费数据源（同花顺指标仅 A 股可用）</div>
               </div>
             }>
               <span className="cursor-help underline decoration-dotted decoration-text-muted underline-offset-2 text-text-muted">资金流</span>
@@ -239,7 +239,7 @@ export default function SectorOpportunities() {
 
       <div className="divide-y divide-border-subtle max-h-[480px] overflow-y-auto">
         {visibleRows.length === 0 ? (
-          <div className="px-3 md:px-5 py-6 text-center text-text-dim text-[11.5px]">
+          <div className="px-3 md:px-5 py-6 text-center text-text-dim text-[0.8214rem]">
             {cfg.hasHeld ? (
               filter === 'unheld' ? '当前筛选下没有数据，试试切到"全部"' :
                 filter === 'held' ? '没有匹配到任何持仓板块（可能是新股或映射没覆盖）' :
@@ -248,16 +248,16 @@ export default function SectorOpportunities() {
           </div>
         ) : visibleRows.map(r => (
           <div key={r.name}>
-            <div className="licai-opp-row px-3 md:px-5 py-2 items-center text-[11.5px]">
+            <div className="licai-opp-row px-3 md:px-5 py-2 items-center text-[0.8214rem]">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="text-text-bright font-semibold truncate">{r.name}</span>
                 {cfg.hasHeld && r.held && (
-                  <span className="shrink-0 px-1 py-0 rounded text-[9px] bg-accent/20 text-accent border border-accent/40">
+                  <span className="shrink-0 px-1 py-0 rounded text-[0.6429rem] bg-accent/20 text-accent border border-accent/40">
                     持仓
                   </span>
                 )}
                 <button onClick={() => toggleWhy(r)}
-                  className="ml-1.5 text-[10px] px-1 py-[1px] rounded border border-border-med text-text-dim hover:text-accent hover:border-accent cursor-pointer shrink-0">
+                  className="ml-1.5 text-[0.7143rem] px-1 py-[1px] rounded border border-border-med text-text-dim hover:text-accent hover:border-accent cursor-pointer shrink-0">
                   为什么动
                 </button>
               </div>
@@ -279,20 +279,20 @@ export default function SectorOpportunities() {
                     <span className="text-text truncate">
                       {r.leader}
                       {r.leader_change != null && (
-                        <span className={`ml-1 text-[10px] ${colorOf(r.leader_change)}`}>
+                        <span className={`ml-1 text-[0.7143rem] ${colorOf(r.leader_change)}`}>
                           {fmtPct(r.leader_change)}
                         </span>
                       )}
                     </span>
                   ) : <span className="text-text-dim">--</span>
                 ) : (
-                  r.symbol ? <span className="font-mono text-[10.5px] text-text-dim">{r.symbol}</span>
+                  r.symbol ? <span className="font-mono text-[0.75rem] text-text-dim">{r.symbol}</span>
                     : <span className="text-text-dim">--</span>
                 )}
               </div>
               <div className="text-right truncate licai-md-only">
                 {r.etf_code ? (
-                  <span className="font-mono text-[10.5px] text-text">{r.etf_code}</span>
+                  <span className="font-mono text-[0.75rem] text-text">{r.etf_code}</span>
                 ) : <span className="text-text-dim">--</span>}
               </div>
               <div className="flex justify-end">
@@ -309,13 +309,13 @@ export default function SectorOpportunities() {
                 <div className="px-3 md:px-5 pb-2.5 -mt-1">
                   <div className="rounded-lg border border-accent/20 bg-accent/5 p-2.5 space-y-1">
                     {!w || w.loading ? (
-                      <div className="text-[11px] text-text-dim animate-pulse">解读生成中…</div>
+                      <div className="text-[0.7857rem] text-text-dim animate-pulse">解读生成中…</div>
                     ) : w.error ? (
-                      <div className="text-[11px] text-text-dim">解读暂不可用</div>
+                      <div className="text-[0.7857rem] text-text-dim">解读暂不可用</div>
                     ) : (
                       <>
-                        {w.why && <div className="text-[11.5px] text-text"><span className="text-accent">为什么动 · </span>{w.why}</div>}
-                        {w.relation && <div className="text-[11.5px] text-text"><span className="text-accent">跟你的关系 · </span>{w.relation}</div>}
+                        {w.why && <div className="text-[0.8214rem] text-text"><span className="text-accent">为什么动 · </span>{w.why}</div>}
+                        {w.relation && <div className="text-[0.8214rem] text-text"><span className="text-accent">跟你的关系 · </span>{w.relation}</div>}
                       </>
                     )}
                   </div>
@@ -326,7 +326,7 @@ export default function SectorOpportunities() {
         ))}
       </div>
 
-      <div className="px-3 md:px-5 py-2 text-[10.5px] text-text-muted bg-surface-2/40 border-t border-border-subtle">
+      <div className="px-3 md:px-5 py-2 text-[0.75rem] text-text-muted bg-surface-2/40 border-t border-border-subtle">
         仅展示数据，不构成投资建议。K 线缓存 10 分钟刷新一次，点击走势图可查看大图。
         {market === 'US' && <span className="ml-1">美股以 SPDR Sector ETF 作为 GICS 板块代理（新浪美股日 K）。</span>}
         {market === 'HK' && <span className="ml-1">港股优先用真·恒生综合行业指数（东财源时通时断，已加重试）；偶发不可达时回退对应 A 股跨境 ETF 或代表股等权篮子作代理（行内标注）。</span>}

@@ -61,14 +61,14 @@ export default function BrokerSection() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div>
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">券商费率配置</h3>
-          <p className="text-[11px] text-text-dim m-0 mt-0.5">
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">券商费率配置</h3>
+          <p className="text-[0.7857rem] text-text-dim m-0 mt-0.5">
             货币: A股/期货 ¥, 港股 HK$, 美股 $, Crypto U。
           </p>
         </div>
         {editing === null && (
           <button onClick={() => setEditing('new')}
-            className="px-3 py-1 rounded-md border border-accent/40 bg-accent/10 text-accent text-[12px] hover:bg-accent/20 transition-colors cursor-pointer">
+            className="px-3 py-1 rounded-md border border-accent/40 bg-accent/10 text-accent text-[0.8571rem] hover:bg-accent/20 transition-colors cursor-pointer">
             + 新增券商
           </button>
         )}
@@ -76,16 +76,16 @@ export default function BrokerSection() {
 
       <div className="p-3 md:p-4 space-y-3">
         {status.text && (
-          <p className={`text-[12px] ${status.ok ? 'text-bull' : 'text-bear'}`}>{status.text}</p>
+          <p className={`text-[0.8571rem] ${status.ok ? 'text-bull' : 'text-bear'}`}>{status.text}</p>
         )}
 
         {brokers === null ? (
-          <div className="text-[12px] text-text-dim py-2">加载中…</div>
+          <div className="text-[0.8571rem] text-text-dim py-2">加载中…</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-[12px] border-collapse">
+            <table className="w-full text-[0.8571rem] border-collapse">
               <thead>
-                <tr className="text-text-dim text-[11px] border-b border-border">
+                <tr className="text-text-dim text-[0.7857rem] border-b border-border">
                   <th className="text-left py-1.5 pr-3 font-medium">券商</th>
                   <th className="text-left py-1.5 pr-3 font-medium">类型</th>
                   <th className="text-right py-1.5 px-3 font-medium">交易费率</th>
@@ -208,18 +208,18 @@ function BrokerEditForm({ broker, onDone, onCancel }) {
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
-  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[12px] text-text font-mono outline-none focus:border-accent w-24'
+  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[0.8571rem] text-text font-mono outline-none focus:border-accent w-24'
   const ccy = CCY_OF[btype] || '¥'
   const field = (label, value, set, placeholder, step = '0.0001', onInput) => (
     <div className="flex flex-col gap-1">
-      <label className="text-[10.5px] text-text-muted">{label}</label>
+      <label className="text-[0.75rem] text-text-muted">{label}</label>
       <input type="number" step={step} min="0" className={inp} placeholder={placeholder}
         value={value} onChange={e => { set(e.target.value); onInput?.() }} />
     </div>
   )
   const unitField = (label, value, set, onInput) => (
     <div className="flex flex-col gap-1">
-      <label className="text-[10.5px] text-text-muted">{label}</label>
+      <label className="text-[0.75rem] text-text-muted">{label}</label>
       <select className={`${inp} font-sans`} value={value}
         onChange={e => { set(e.target.value); onInput?.() }}>
         {BROKER_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
@@ -231,12 +231,12 @@ function BrokerEditForm({ broker, onDone, onCancel }) {
     <div className="rounded-lg border border-border-med bg-surface-2/60 p-3 space-y-3 fade-up">
       <div className="flex flex-wrap items-end gap-2">
         <div className="flex flex-col gap-1">
-          <label className="text-[10.5px] text-text-muted">券商名称</label>
+          <label className="text-[0.75rem] text-text-muted">券商名称</label>
           <input className={`${inp} w-32 font-sans`} placeholder="招商证券" value={name}
             onChange={e => setName(e.target.value)} />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-[10.5px] text-text-muted">类型</label>
+          <label className="text-[0.75rem] text-text-muted">类型</label>
           <select className={`${inp} w-24 font-sans`} value={btype} onChange={e => setBtype(e.target.value)}>
             {BROKER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -256,15 +256,15 @@ function BrokerEditForm({ broker, onDone, onCancel }) {
         {field(`期货最低 ${ccy}`, futMin, setFutMin, '0', '0.01')}
         <div className="flex gap-2 pb-0.5">
           <button onClick={submit} disabled={busy}
-            className="px-4 py-1.5 rounded-md bg-accent text-bg text-[12px] font-medium hover:opacity-90 disabled:opacity-50 cursor-pointer">
+            className="px-4 py-1.5 rounded-md bg-accent text-bg text-[0.8571rem] font-medium hover:opacity-90 disabled:opacity-50 cursor-pointer">
             {busy ? '保存中…' : (isNew ? '新增' : '保存')}
           </button>
           <button onClick={onCancel}
-            className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[12px] hover:text-text cursor-pointer">取消</button>
+            className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[0.8571rem] hover:text-text cursor-pointer">取消</button>
         </div>
       </div>
-      {err && <p className="text-[12px] text-bear m-0">{err}</p>}
-      <p className="text-[10.5px] text-text-muted m-0">
+      {err && <p className="text-[0.8571rem] text-bear m-0">{err}</p>}
+      <p className="text-[0.75rem] text-text-muted m-0">
         股票费率/期权费必填; 费率值原样保存并拼接单位显示, 如 0.002 + % 显示 0.002%、0.1 + 张 显示 0.1/张;
         单位可选 笔/股/张/%; 基金费率/单位/最低佣金留空时自动跟随股票对应值, 手改后独立;
         各最低值与平台费可留空按 0 计, 金额按类型显示货币单位(A股/期货 ¥, 港股 HK$, 美股 $, Crypto U)。

@@ -81,8 +81,8 @@ function CardShell({ title, sub, children }) {
       style={{ animation: 'fade-up 0.4s ease-out' }}>
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-baseline gap-2 flex-wrap"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
-        <h3 className="text-[13px] font-semibold text-text-bright m-0">{title}</h3>
-        <span className="text-[11px] text-text-dim">{sub}</span>
+        <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">{title}</h3>
+        <span className="text-[0.7857rem] text-text-dim">{sub}</span>
       </div>
       <div className="px-3 md:px-5 py-3 [&>div]:mb-0">
         {children}
@@ -95,7 +95,7 @@ function CardShell({ title, sub, children }) {
 // 加一条提示。市场组件本身一行不动 —— 哪天整组下线, 摘掉这层包装即可。
 function SoonBanner() {
   return (
-    <div className="shrink-0 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[12px] text-warn flex items-center gap-2">
+    <div className="shrink-0 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[0.8571rem] text-warn flex items-center gap-2">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
         <circle cx="12" cy="12" r="9" /><path d="M12 8v4.5M12 16h.01" />
       </svg>
@@ -459,7 +459,7 @@ export default function App() {
                  这个坑真踩过一次(关设置时 setView('dashboard'), 而 dashboard 不是任何一页),
                  所以留一句会说话的兜底, 顺带在开发期抛(见文件末尾的自检)。 */
               : (
-                <div className={`${PAD} text-[13px] text-text-dim`}>
+                <div className={`${PAD} text-[0.9286rem] text-text-dim`}>
                   这一页还没接上内容(view=<code className="text-text">{view}</code>)。
                 </div>
               )}

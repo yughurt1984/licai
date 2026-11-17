@@ -46,11 +46,11 @@ function fmtPct(pct) {
 
 function Sparkline({ data, width = 80, height = 28 }) {
   if (!data || data.length < 2) {
-    return <div style={{ width, height }} className="flex items-center justify-center text-[9.5px] text-text-muted">无 K 线</div>
+    return <div style={{ width, height }} className="flex items-center justify-center text-[0.6786rem] text-text-muted">无 K 线</div>
   }
   const closes = data.map(d => d.close).filter(c => c > 0)
   if (closes.length < 2) {
-    return <div style={{ width, height }} className="flex items-center justify-center text-[9.5px] text-text-muted">--</div>
+    return <div style={{ width, height }} className="flex items-center justify-center text-[0.6786rem] text-text-muted">--</div>
   }
   const min = Math.min(...closes)
   const max = Math.max(...closes)
@@ -93,15 +93,15 @@ function MacroChip({ item, onClick }) {
       className="flex flex-col gap-1 px-2.5 py-1.5 rounded-md bg-surface-3 border border-border-subtle min-w-[178px] cursor-pointer text-left
                  hover:bg-surface-2 hover:border-accent/40 transition-colors">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] text-text whitespace-nowrap">{item.name}</span>
-        <span className="text-[11.5px] font-mono text-text-bright">{fmtPrice(item.symbol, item.price)}</span>
+        <span className="text-[0.7857rem] text-text whitespace-nowrap">{item.name}</span>
+        <span className="text-[0.8214rem] font-mono text-text-bright">{fmtPrice(item.symbol, item.price)}</span>
       </div>
       <div className="flex items-center justify-between gap-2">
         <Sparkline data={k} />
         <div className="flex flex-col items-end gap-0">
-          <span className={`text-[11px] font-mono ${colorOfPct(pct)}`}>{fmtPct(pct)}</span>
+          <span className={`text-[0.7857rem] font-mono ${colorOfPct(pct)}`}>{fmtPct(pct)}</span>
           {periodPct != null && (
-            <span className={`text-[9.5px] font-mono ${colorOfPct(periodPct)}`} title="30 日涨跌幅">
+            <span className={`text-[0.6786rem] font-mono ${colorOfPct(periodPct)}`} title="30 日涨跌幅">
               30d {fmtPct(periodPct)}
             </span>
           )}
@@ -142,12 +142,12 @@ export default function MacroDashboard() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-baseline justify-between flex-wrap gap-2"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">宏观仪表盘</h3>
-          <span className="text-[11px] text-text-dim">
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">宏观仪表盘</h3>
+          <span className="text-[0.7857rem] text-text-dim">
             {loading ? '加载中...' : `${totalCount} 个指标`}
           </span>
         </div>
-        <span className="text-[10.5px] text-text-muted font-mono">
+        <span className="text-[0.75rem] text-text-muted font-mono">
           {updated ? `更新 ${updated.toLocaleTimeString('zh-CN', { hour12: false })}` : '--'}
         </span>
       </div>
@@ -159,8 +159,8 @@ export default function MacroDashboard() {
         return (
           <div key={g} className="px-3 md:px-5 py-2.5 border-b border-border-subtle last:border-b-0">
             <div className="flex items-baseline justify-between mb-1.5 flex-wrap gap-1">
-              <span className="text-[11.5px] text-text-bright font-semibold tracking-wider">{meta.label}</span>
-              <span className="text-[10.5px] text-text-muted">{meta.desc}</span>
+              <span className="text-[0.8214rem] text-text-bright font-semibold tracking-wider">{meta.label}</span>
+              <span className="text-[0.75rem] text-text-muted">{meta.desc}</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {items.map(it => <MacroChip key={it.symbol} item={it} onClick={setOpenItem} />)}
@@ -169,7 +169,7 @@ export default function MacroDashboard() {
         )
       })}
 
-      <div className="px-3 md:px-5 py-2 bg-surface-2/40 text-[10.5px] text-text-muted leading-relaxed">
+      <div className="px-3 md:px-5 py-2 bg-surface-2/40 text-[0.75rem] text-text-muted leading-relaxed">
         红 = 涨, 绿 = 跌 (A 股口径). 点 chip 看 60 日大图. Sparkline 是过去 30 个交易日收盘.
         美股是前一交易日收盘 (隔夜外盘). 汇率 K 线源不稳, 失败会显示"数据源限频".
       </div>

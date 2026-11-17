@@ -1,22 +1,28 @@
 @import "tailwindcss";
 
 @theme {
-  /* === Terracotta (warm paper) — light/white === */
-  --color-bg: #f7f6f3;
-  --color-bg-deeper: #efede9;
-  --color-surface: #ffffff;
-  --color-surface-2: #f6f5f1;
-  --color-surface-3: #edebe6;
-  --color-surface-raise: #e4e2dc;
-  --color-border: #e5e3dd;
-  --color-border-med: #d5d3cb;
-  --color-border-strong: #b9b6ac;
-  --color-border-subtle: #edebe5;
+  /* spacing 钉成 px: Tailwind 默认 --spacing: 0.25rem 会随 html 根字号缩放, 而全站
+     p-3/gap-2/w-10 等间距不该跟「字体大小」偏好一起变。3.5px = 0.25rem × 14px
+     设计基准, 默认档渲染不变; 换档(12/16px 根字号)只有字号缩放、间距不动。
+     详见 prefs.js 的 fontScale。 */
+  --spacing: 3.5px;
 
-  --color-text: #35322b;
-  --color-text-bright: #1d1b16;
-  --color-text-dim: #7d776a;
-  --color-text-muted: #a19b8e;
+  /* === 浅色(纯白) — 默认主题; 旧暖纸色整体挪到 html[data-theme="eyecare"] === */
+  --color-bg: #ffffff;
+  --color-bg-deeper: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-surface-2: #f7f8fa;
+  --color-surface-3: #f0f2f5;
+  --color-surface-raise: #e8eaee;
+  --color-border: #e6e8ec;
+  --color-border-med: #d5d8de;
+  --color-border-strong: #b9bec8;
+  --color-border-subtle: #eef0f3;
+
+  --color-text: #2f3237;
+  --color-text-bright: #16181c;
+  --color-text-dim: #6f7580;
+  --color-text-muted: #a0a6b0;
 
   --color-accent: #9a7736;
   --color-accent-2: #86682c;
@@ -55,7 +61,10 @@
   --color-buy: #3fae6a;
   --color-sell: #d04a4a;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Microsoft YaHei", "微软雅黑", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  /* 中文/正文字体: 对齐 rich.luyaolab.cn —— 不显式指定中文字体, 交给系统默认
+     (Windows=微软雅黑, macOS=苹方); 本地装了 Inter 则拉丁/数字走 Inter。
+     之前显式列 "Noto Sans" 会把装了 Noto Sans CJK 的机器上的中文截走, 观感不同。 */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Microsoft YaHei", "微软雅黑", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
@@ -225,31 +234,53 @@ button:focus, button:focus-visible { outline: none; }
 
 /* ========================================================
  * 显示设置·主题层(账户页 → 显示设置)
- * - 主题: html[data-theme="dark"] 整套暗色变量覆盖(@theme 的浅色是默认)。
- *   Tailwind 工具类(bg-surface/text-text-dim…)引用的是 var(--color-*), 变量换了,
- *   全站组件无需改动即换肤。图表 canvas 不吃 CSS 层叠, 由 colors.js 的 cssVar() 读
- *   计算值并在主题切换时重绘(prefs.js 的 useThemeTick)。
+ * - 主题三选: light(纯白, @theme 默认) / eyecare(暖纸护眼) / dark(深蓝)。
+ *   html[data-theme] 整套中性色覆盖(@theme 的浅色是默认)。Tailwind 工具类
+ *   (bg-surface/text-text-dim…)引用的是 var(--color-*), 变量换了, 全站组件无需
+ *   改动即换肤。图表 canvas 不吃 CSS 层叠, 由 colors.js 的 cssVar() 读计算值并
+ *   在主题切换时重绘(prefs.js 的 useThemeTick)。accent/bull/bear 等语义色三主题
+ *   共用一套(light 两主题共用), 只有 dark 在自身块里覆盖。
  * - 涨跌语义: --color-up/--color-down 独立于 bull/bear(bull/bear 仍是"牛/熊"底色,
  *   涨跌显示一律用 up/down)。红涨绿跌=默认; html[data-updown="green-up"] 交换。
- * - 四象限(浅/深 × 红/绿涨)全部写显式色值, 不用 var 链, 避免层叠顺序陷阱。
+ * - 象限(浅+护眼 × 红/绿 + 深 × 红/绿)全部写显式色值, 不用 var 链, 避免层叠陷阱。
  * ======================================================== */
 
-html[data-theme="dark"] {
-  --color-bg: #171613;
-  --color-bg-deeper: #121110;
-  --color-surface: #201f1b;
-  --color-surface-2: #26241f;
-  --color-surface-3: #2e2b26;
-  --color-surface-raise: #38342e;
-  --color-border: #34312a;
-  --color-border-med: #413d35;
-  --color-border-strong: #57524a;
-  --color-border-subtle: #2a2822;
+/* 护眼模式 = 旧暖纸(Terracotta)配色原样保留 */
+html[data-theme="eyecare"] {
+  --color-bg: #f7f6f3;
+  --color-bg-deeper: #efede9;
+  --color-surface: #ffffff;
+  --color-surface-2: #f6f5f1;
+  --color-surface-3: #edebe6;
+  --color-surface-raise: #e4e2dc;
+  --color-border: #e5e3dd;
+  --color-border-med: #d5d3cb;
+  --color-border-strong: #b9b6ac;
+  --color-border-subtle: #edebe5;
 
-  --color-text: #d6d2c8;
-  --color-text-bright: #f0ede4;
-  --color-text-dim: #9a948a;
-  --color-text-muted: #6e6a60;
+  --color-text: #35322b;
+  --color-text-bright: #1d1b16;
+  --color-text-dim: #7d776a;
+  --color-text-muted: #a19b8e;
+}
+
+/* 深色 = 深蓝夜航: 藏青底 + 品牌金 accent */
+html[data-theme="dark"] {
+  --color-bg: #0e1622;
+  --color-bg-deeper: #0a111b;
+  --color-surface: #152031;
+  --color-surface-2: #1a2739;
+  --color-surface-3: #223046;
+  --color-surface-raise: #2b3b55;
+  --color-border: #26354d;
+  --color-border-med: #32435f;
+  --color-border-strong: #47597a;
+  --color-border-subtle: #1d2a3d;
+
+  --color-text: #d3d9e3;
+  --color-text-bright: #eef2f8;
+  --color-text-dim: #8f9ab0;
+  --color-text-muted: #64708a;
 
   --color-accent: #c99a4e;
   --color-accent-2: #d4a95c;
@@ -268,8 +299,8 @@ html[data-theme="dark"] {
 
   --color-signal-strong: #d46060;
   --color-signal-moderate: #c9994e;
-  --color-signal-weak: #9a948a;
-  --color-signal-closed: #3a372f;
+  --color-signal-weak: #8f9ab0;
+  --color-signal-closed: #2a3750;
 
   --color-info: #6f9ec6;
   --color-warn: #c9994e;
@@ -310,11 +341,11 @@ html[data-updown="green-up"][data-theme="dark"] {
   --color-down-border: #d4606055;
 }
 
-/* 暗色下的氛围层: 网格线换浅色微光, 顶部暖光提亮一档; 骨架屏微光同理 */
+/* 暗色下的氛围层: 网格线换冷色微光, 顶部暖金提亮一档(金 on 藏青 = 品牌); 骨架屏微光同理 */
 html[data-theme="dark"] body::before {
   background-image:
-    linear-gradient(rgba(240, 237, 228, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(240, 237, 228, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(230, 238, 250, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(230, 238, 250, 0.04) 1px, transparent 1px);
 }
 html[data-theme="dark"] body::after {
   background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(201, 154, 78, 0.08), transparent);

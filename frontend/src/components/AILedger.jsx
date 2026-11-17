@@ -67,10 +67,8 @@ export default function AILedger({ onMutated }) {
 
   // 草稿入账要知道"账上已有什么": 决定买入走建仓还是加仓、卖出能不能平
   const [holdings, setHoldings] = useState([])
-  const [assets, setAssets] = useState([])
   const refresh = useCallback(async () => {
     try { setHoldings(await api.getPortfolio()) } catch {}
-    try { setAssets((await fetchJSON('/api/assets')).assets || []) } catch {}
   }, [])
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => { loadBrokers().then(setBrokers).catch(() => {}) }, [])
@@ -155,7 +153,7 @@ export default function AILedger({ onMutated }) {
     let ok = 0, fail = 0
     for (const d of drafts.filter(x => x.state === 'draft')) {
       try {
-        const msg = await saveDraft(d, { holdings, assets })
+        const msg = await saveDraft(d, { holdings })
         patchDraft(d.id, { state: 'saved', msg })
         ok++
       } catch (e) {
@@ -187,10 +185,10 @@ export default function AILedger({ onMutated }) {
       <div className="px-3 md:px-6 py-3 md:py-4 border-b border-border flex flex-col gap-1"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-3">
-          <h2 className="text-[15px] font-semibold text-text-bright tracking-wide m-0">AI 记账</h2>
-          <span className="text-[12px] text-text-dim">成交截图 · 交易短信 · 手打记录 → 大模型解析入账</span>
+          <h2 className="text-[1.0714rem] font-semibold text-text-bright tracking-wide m-0">AI 记账</h2>
+          <span className="text-[0.8571rem] text-text-dim">成交截图 · 交易短信 · 手打记录 → 大模型解析入账</span>
         </div>
-        <span className="text-[11px] text-text-muted">
+        <span className="text-[0.7857rem] text-text-muted">
           AI 只做识别不入账 —— 解析结果先列成草稿, 你核对/改错后点「入账」, 写入的还是持仓页那套账本
         </span>
       </div>
@@ -201,14 +199,14 @@ export default function AILedger({ onMutated }) {
         onDragLeave={() => setDragOver(false)}
         onDrop={e => { e.preventDefault(); setDragOver(false); addImages(e.dataTransfer.files) }}>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[12px] text-text-dim shrink-0">目标资产</span>
+          <span className="text-[0.8571rem] text-text-dim shrink-0">目标资产</span>
           <select value={hint} onChange={e => setHint(e.target.value)}
-            className="bg-bg border border-border rounded px-2 py-1 text-[12.5px] text-text outline-none focus:border-accent"
+            className="bg-bg border border-border rounded px-2 py-1 text-[0.8929rem] text-text outline-none focus:border-accent"
             title="给 AI 的提示; 内容本身更可信, 判断不了就选自动">
             <option value="">自动判断</option>
             {TYPE_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
-          <span className="text-[10.5px] text-text-muted">
+          <span className="text-[0.75rem] text-text-muted">
             支持文本 + 最多 5 张截图; 截图可 Ctrl+V 直接粘贴或拖进本区域
           </span>
         </div>
@@ -217,7 +215,7 @@ export default function AILedger({ onMutated }) {
           value={text} onChange={e => setText(e.target.value)}
           rows={3}
           placeholder={'粘贴交易记录 / 交易短信原文, 例如:\n【XX证券】您于10月28日14:32成交买入 600519 贵州茅台 100股, 成交价1412.50元, 发生金额141250.00元。'}
-          className="w-full bg-bg border border-border rounded px-2.5 py-2 text-[13px] text-text outline-none focus:border-accent resize-y leading-relaxed" />
+          className="w-full bg-bg border border-border rounded px-2.5 py-2 text-[0.9286rem] text-text outline-none focus:border-accent resize-y leading-relaxed" />
 
         {images.length > 0 && (
           <div className="flex gap-2 flex-wrap">
@@ -227,7 +225,7 @@ export default function AILedger({ onMutated }) {
                   className="h-16 w-24 object-cover rounded border border-border" />
                 <button onClick={() => setImages(prev => prev.filter(x => x.id !== img.id))}
                   title="移除"
-                  className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-bear text-bg text-[11px] leading-none
+                  className="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-bear text-bg text-[0.7857rem] leading-none
                     opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">×</button>
               </div>
             ))}
@@ -235,24 +233,24 @@ export default function AILedger({ onMutated }) {
         )}
 
         <div className="flex items-center gap-2 flex-wrap">
-          <label className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[12.5px] hover:text-text hover:border-border-med transition-colors cursor-pointer">
+          <label className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[0.8929rem] hover:text-text hover:border-border-med transition-colors cursor-pointer">
             + 上传截图
             <input type="file" accept="image/*" multiple className="hidden"
               onChange={e => { addImages(e.target.files); e.target.value = '' }} />
           </label>
           <button onClick={handleParse} disabled={parsing}
-            className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[13px] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
+            className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[0.9286rem] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
             {parsing ? 'AI 识别中…' : `AI 识别记账${images.length ? ` (${text.trim() ? '文本+' : ''}${images.length}图)` : ''}`}
           </button>
           {(text || images.length > 0) && (
             <button onClick={() => { setText(''); setImages([]); setParseErr(''); setNotes('') }}
-              className="px-3 py-1.5 text-[12.5px] text-text-dim hover:text-text cursor-pointer">清空输入</button>
+              className="px-3 py-1.5 text-[0.8929rem] text-text-dim hover:text-text cursor-pointer">清空输入</button>
           )}
-          {parsing && <span className="text-[11.5px] text-text-muted">大模型在读你的截图和文字, 一般几秒到十几秒</span>}
+          {parsing && <span className="text-[0.8214rem] text-text-muted">大模型在读你的截图和文字, 一般几秒到十几秒</span>}
         </div>
 
         {parseErr && (
-          <div className="text-[12px] text-bear">✗ {parseErr}</div>
+          <div className="text-[0.8571rem] text-bear">✗ {parseErr}</div>
         )}
       </div>
 
@@ -261,22 +259,22 @@ export default function AILedger({ onMutated }) {
         <div className="border-b border-border">
           <div className="px-3 md:px-6 py-2 flex items-center gap-2 border-b border-border-subtle"
             style={{ background: 'var(--color-surface-2)' }}>
-            <span className="text-[12px] font-semibold text-text">识别结果</span>
-            <span className="text-[11.5px] text-text-dim">{drafts.length} 笔, 待入账 {pendingDrafts.length}</span>
-            {notes && <span className="text-[11px] text-text-muted truncate" title={notes}>{notes}</span>}
+            <span className="text-[0.8571rem] font-semibold text-text">识别结果</span>
+            <span className="text-[0.8214rem] text-text-dim">{drafts.length} 笔, 待入账 {pendingDrafts.length}</span>
+            {notes && <span className="text-[0.7857rem] text-text-muted truncate" title={notes}>{notes}</span>}
             <div className="ml-auto flex items-center gap-2">
               {pendingDrafts.length > 0 && (
                 <button onClick={saveAll} disabled={savingAll}
-                  className="px-3 py-1 rounded border border-accent/50 bg-accent/10 text-accent text-[12px] hover:bg-accent/20 disabled:opacity-50 cursor-pointer">
+                  className="px-3 py-1 rounded border border-accent/50 bg-accent/10 text-accent text-[0.8571rem] hover:bg-accent/20 disabled:opacity-50 cursor-pointer">
                   {savingAll ? '入账中…' : `全部入账 (${pendingDrafts.length})`}
                 </button>
               )}
               <button onClick={() => setDrafts([])}
-                className="text-[11px] text-text-muted hover:text-text cursor-pointer">清空草稿</button>
+                className="text-[0.7857rem] text-text-muted hover:text-text cursor-pointer">清空草稿</button>
             </div>
           </div>
           {drafts.map(d => (
-            <DraftCard key={d.id} draft={d} ctx={{ holdings, assets }}
+            <DraftCard key={d.id} draft={d} ctx={{ holdings }}
               onChange={patchDraft} onRemove={removeDraft} />
           ))}
         </div>
@@ -285,15 +283,15 @@ export default function AILedger({ onMutated }) {
       {/* ---- 手动录入: 下拉选资产 → 复用持仓页现成表单 ---- */}
       <div className="px-3 md:px-6 py-2 border-b border-border flex items-center gap-2.5 flex-wrap"
         style={{ background: 'var(--color-surface-2)' }}>
-        <span className="text-[12px] font-semibold text-text">手动记账</span>
+        <span className="text-[0.8571rem] font-semibold text-text">手动记账</span>
         <select value={entryType} onChange={e => setEntryType(e.target.value)}
-          className="bg-bg border border-border rounded px-2 py-1 text-[12.5px] text-text outline-none focus:border-accent">
+          className="bg-bg border border-border rounded px-2 py-1 text-[0.8929rem] text-text outline-none focus:border-accent">
           {/* 数据驱动: 大类来自 assets_classify (期货/期权同属 derivatives → 归为一个「衍生品」入口);
               选衍生品后, 期货/期权作为「资产类型」二级在表单内下拉选择 */}
           {classOptions.length === 0 && <option value="">加载中…</option>}
           {classOptions.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
-        <span className="text-[10.5px] text-text-muted">
+        <span className="text-[0.75rem] text-text-muted">
           {classOptions.find(([k]) => k === entryType)?.[1] || ''} · 字段与持仓页「添加」表单一致, 走同一套入账接口
         </span>
       </div>
@@ -311,7 +309,7 @@ export default function AILedger({ onMutated }) {
         )}
         {/* 其余大类(加密/机器人/理财/现金/商品/外汇/保险…): 表单待单独开发 */}
         {entryType && !['stock', 'fund', 'derivatives'].includes(entryType) && (
-          <div className="text-[12.5px] text-text-muted py-1">
+          <div className="text-[0.8929rem] text-text-muted py-1">
             「{classOptions.find(([k]) => k === entryType)?.[1] || entryType}」添加表单待单独开发。
           </div>
         )}
@@ -319,7 +317,7 @@ export default function AILedger({ onMutated }) {
 
       {toast && (
         <div className="fixed bottom-5 right-5 z-[300] px-4 py-2.5 rounded-lg border border-border-med bg-surface-2
-          shadow-lg text-[12.5px] text-text" style={{ animation: 'fade-up 0.3s ease-out' }}>
+          shadow-lg text-[0.8929rem] text-text" style={{ animation: 'fade-up 0.3s ease-out' }}>
           {toast}
         </div>
       )}

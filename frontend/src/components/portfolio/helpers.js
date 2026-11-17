@@ -1,5 +1,5 @@
 import { fmtMoney, isOnchainEtf } from '../../helpers'
-import { A_SECTORS, fundKindLabel } from './constants'
+import { A_SECTORS, FUND_MAINS, fundKindLabel, fundMainFromSub } from './constants'
 
 export function stockMarketOfCode(code = '') {
   const c = String(code).toUpperCase()
@@ -25,7 +25,7 @@ const FUT_EXCHANGES = {
 export function exchangeOf(code = '') {
   const c = String(code).toUpperCase()
   if (c.endsWith('.HK') || c.endsWith('.US') || c.startsWith('HK.') || c.startsWith('US.')) return null
-  const m = c.match(/^[A-Z0-9]{1,16}\.([A-Z]{2,5})$/)
+  const m = c.match(/^[A-Z0-9-]{1,20}\.([A-Z]{2,5})$/)
   if (!m) return null
   const suf = m[1]
   if (suf === 'SH' || suf === 'SZ' || suf === 'BJ') return null
@@ -70,11 +70,14 @@ export function fxSourceLabel(source) {
   return source || '汇率'
 }
 
-// 基金类别: assets_classify 小类(市场×形态) → { id, label }。id 用小类原文,
-// 持仓表内同类归簇时天然同组。不再按基金名关键词猜行业/主题(那套已随行业分类下线)。
-export function fundCategoryOf(sub = '') {
-  const s = String(sub || '').trim()
-  return { id: s || 'fund', label: fundKindLabel(s) }
+// 基金子分组: 按中类归簇(中国/香港/美国 ETF 同组), id 用规范中类键。
+// main_assets_type 是引擎钉住列, 可能缺失/钉错(实测 REITs 行被钉成 common_share),
+// 非法时从 sub_assets_type 推导中类 —— 避免基金组里冒出 common_share。
+// label 用数据库 assets_type_name, 缺失由 fundKindLabel 按中类兜底。
+export function fundCategoryOf(sub = '', main = '', typeName = '') {
+  let mt = String(main || '').trim().toLowerCase()
+  if (!FUND_MAINS.includes(mt)) mt = fundMainFromSub(sub)
+  return { id: mt || 'fund', label: fundKindLabel(mt, typeName) }
 }
 
 function aShareCategoryOf(name = '', sector = '') {

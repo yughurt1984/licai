@@ -77,10 +77,10 @@ export default function MacroKlineModal({ item, items, onPick, onClose }) {
       [`${series.length} 日`, periodPct],
     ]
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-[11px]">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-[0.7857rem]">
         {boxes.map(([label, v], i) => (
           <div key={i} className="bg-surface-3 rounded-md px-2 py-1.5">
-            <div className="text-text-dim text-[10px] mb-0.5">{label}</div>
+            <div className="text-text-dim text-[0.7143rem] mb-0.5">{label}</div>
             <div className={`font-mono font-semibold ${colorPct(v)}`}>{fmtPct(v)}</div>
           </div>
         ))}
@@ -114,18 +114,18 @@ export default function MacroKlineModal({ item, items, onPick, onClose }) {
         onClick={e => e.stopPropagation()}>
         <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <h3 className="text-[15px] font-semibold text-text-bright m-0">{item.name}</h3>
-            <span className="text-[11px] font-mono text-text-dim">{item.symbol}</span>
-            <span className="text-[14px] font-mono text-text-bright">{fmtVal(item.price)}</span>
+            <h3 className="text-[1.0714rem] font-semibold text-text-bright m-0">{item.name}</h3>
+            <span className="text-[0.7857rem] font-mono text-text-dim">{item.symbol}</span>
+            <span className="text-[1rem] font-mono text-text-bright">{fmtVal(item.price)}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-[13px] font-mono ${colorPct(item.change_pct)}`}>{fmtPct(item.change_pct)}</span>
+            <span className={`text-[0.9286rem] font-mono ${colorPct(item.change_pct)}`}>{fmtPct(item.change_pct)}</span>
             {/* 分时页只对有分时源的指数出(日经/KOSPI/FTSE 没有) */}
             {session && (
               <div className="flex gap-1">
                 {[['minute', '分时'], ['kline', 'K线']].map(([k, lbl]) => (
                   <button key={k} onClick={() => setTab(k)}
-                    className={`px-2 py-0.5 rounded-md border text-[11px] cursor-pointer transition-colors ${
+                    className={`px-2 py-0.5 rounded-md border text-[0.7857rem] cursor-pointer transition-colors ${
                       tab === k ? 'border-accent text-accent bg-accent/10' : 'border-border text-text-dim hover:border-text-muted'}`}>
                     {lbl}
                   </button>
@@ -133,7 +133,7 @@ export default function MacroKlineModal({ item, items, onPick, onClose }) {
               </div>
             )}
             <button onClick={onClose}
-              className="text-text-dim hover:text-text text-[18px] leading-none px-2 cursor-pointer">×</button>
+              className="text-text-dim hover:text-text text-[1.2857rem] leading-none px-2 cursor-pointer">×</button>
           </div>
         </div>
 
@@ -146,8 +146,8 @@ export default function MacroKlineModal({ item, items, onPick, onClose }) {
                 <button onClick={() => onPick?.(it.symbol)}
                   className={`shrink-0 text-left rounded-md border px-2 py-1 cursor-pointer transition-colors ${
                     it.symbol === sym ? 'border-accent bg-accent/10' : 'border-border hover:border-text-muted'}`}>
-                  <div className="text-[10.5px] text-text-dim whitespace-nowrap">{it.name}</div>
-                  <div className={`text-[11px] font-mono ${colorPct(it.change_pct)}`}>{fmtPct(it.change_pct)}</div>
+                  <div className="text-[0.75rem] text-text-dim whitespace-nowrap">{it.name}</div>
+                  <div className={`text-[0.7857rem] font-mono ${colorPct(it.change_pct)}`}>{fmtPct(it.change_pct)}</div>
                 </button>
               </div>
             ))}
@@ -157,11 +157,11 @@ export default function MacroKlineModal({ item, items, onPick, onClose }) {
         {onMinute ? (
           <>
             {!mData
-              ? <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">加载分时…</div>
+              ? <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">加载分时…</div>
               : <MinuteChart points={mData.points || []} prevClose={item.prev_close}
                   day={mData.date} session={mData.session || session}
                   volUnit={mData.vol_unit || '手'} height={380} />}
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-dim">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.7857rem] text-text-dim">
               {statLine}
               <span className="text-text-muted ml-auto">
                 {session === 'us' ? '美东时间' : session === 'hk' ? '香港时间' : '北京时间'}

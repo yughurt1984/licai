@@ -78,9 +78,9 @@ export default function StockPanel({ stock, watched, onToggleWatch, groups, myGr
   if (!stock) {
     return (
       <div className="h-full flex items-center justify-center text-center px-6">
-        <div className="text-text-muted text-[13px] leading-relaxed">
+        <div className="text-text-muted text-[0.9286rem] leading-relaxed">
           点左侧任意一只股票看 K 线<br />
-          <span className="text-[11px] text-text-dim">想问什么(为什么涨/量价/消息)点「问 AI」</span>
+          <span className="text-[0.7857rem] text-text-dim">想问什么(为什么涨/量价/消息)点「问 AI」</span>
         </div>
       </div>
     )
@@ -103,35 +103,35 @@ export default function StockPanel({ stock, watched, onToggleWatch, groups, myGr
             尺寸分摊, 所以有简介时先收简介, 轮不到名字。 */}
         {/* 基线对齐的行里 logo 用 self-center 挂正, 不跟着文字基线沉底 */}
         <span className="self-center shrink-0"><StockLogo type="A" code={stock.code} name={stock.name} size={28} /></span>
-        <span className="text-[14px] font-semibold text-text-bright whitespace-nowrap truncate min-w-0">
+        <span className="text-[1rem] font-semibold text-text-bright whitespace-nowrap truncate min-w-0">
           {stock.name}
         </span>
-        <span className="text-[11px] font-mono text-text-muted whitespace-nowrap shrink-0">{stock.code}</span>
+        <span className="text-[0.7857rem] font-mono text-text-muted whitespace-nowrap shrink-0">{stock.code}</span>
         {stock.pct != null && (
-          <span className={`text-[13px] font-mono font-semibold whitespace-nowrap shrink-0 ${pctColor(stock.pct)}`}>
+          <span className={`text-[0.9286rem] font-mono font-semibold whitespace-nowrap shrink-0 ${pctColor(stock.pct)}`}>
             {stock.pct >= 0 ? '+' : ''}{stock.pct}%
           </span>
         )}
         {/* 板块 + 细分行业: 异动/龙虎榜等榜单行不带「行业」字段, 板块按代码前缀现算总是有;
             细分行业(三级)拉到就替掉粗行业, 拉不到退回榜单给的粗行业 */}
-        <span className="hidden @md:inline text-[10.5px] text-text-dim ml-1 whitespace-nowrap shrink-0">
+        <span className="hidden @md:inline text-[0.75rem] text-text-dim ml-1 whitespace-nowrap shrink-0">
           {boardOf(stock.code)}
         </span>
         {(co?.industry || stock['行业']) && (
-          <span className="hidden @lg:inline text-[10.5px] text-text-dim whitespace-nowrap shrink-0">
+          <span className="hidden @lg:inline text-[0.75rem] text-text-dim whitespace-nowrap shrink-0">
             · {co?.industry || stock['行业']}
           </span>
         )}
         {co?.brief && (
           <button onClick={() => setCoOpen(v => !v)} title="点开看完整简介与主营构成"
-            className="hidden @2xl:block text-[10.5px] text-text-muted hover:text-text truncate
+            className="hidden @2xl:block text-[0.75rem] text-text-muted hover:text-text truncate
                        min-w-0 max-w-[22rem] cursor-pointer text-left">
             {co.brief} <span className="text-text-dim">{coOpen ? '⌄' : '›'}</span>
           </button>
         )}
         <button onClick={() => onToggleWatch(stock)}
           title={watched ? '移出观察池' : '加进观察池的默认组「自选」(想直接归到别的组用右边那个)'}
-          className={`ml-auto text-[15px] leading-none px-1.5 py-0.5 rounded cursor-pointer shrink-0 ${watched ? 'text-accent' : 'text-text-dim hover:text-accent'}`}>
+          className={`ml-auto text-[1.0714rem] leading-none px-1.5 py-0.5 rounded cursor-pointer shrink-0 ${watched ? 'text-accent' : 'text-text-dim hover:text-accent'}`}>
           {watched ? '★' : '☆'}
         </button>
         {onSetGroups && (
@@ -141,7 +141,7 @@ export default function StockPanel({ stock, watched, onToggleWatch, groups, myGr
               title={(myGroups || []).length
                 ? `所属分组: ${(myGroups || []).join(' · ')} —— 点开可多选`
                 : '选分组直接观察(可多选) —— 勾了别的组不会把「自选」顶掉, 可以同时在'}
-              className={`text-[10.5px] px-1.5 py-0.5 rounded border cursor-pointer whitespace-nowrap ${
+              className={`text-[0.75rem] px-1.5 py-0.5 rounded border cursor-pointer whitespace-nowrap ${
                 watched ? 'border-border-subtle text-text-dim hover:text-accent hover:border-accent/40'
                         : 'border-accent/40 text-accent hover:bg-accent/10'}`}>
               {(myGroups || []).length
@@ -157,7 +157,7 @@ export default function StockPanel({ stock, watched, onToggleWatch, groups, myGr
           </div>
         )}
         <button onClick={() => openAsk('')}
-          className="text-[11px] px-2.5 py-1 rounded-lg bg-accent/20 text-accent border
+          className="text-[0.7857rem] px-2.5 py-1 rounded-lg bg-accent/20 text-accent border
                      border-accent/40 hover:bg-accent/30 whitespace-nowrap shrink-0">
           问 AI<span className="hidden @xl:inline"> 分析</span>
         </button>
@@ -177,7 +177,7 @@ export default function StockPanel({ stock, watched, onToggleWatch, groups, myGr
           <div className="flex gap-1 mb-1.5 shrink-0">
             {['K线', '分价', '盘口'].map(v => (
               <button key={v} onClick={() => setView(v)}
-                className="px-2.5 py-[3px] rounded text-[11px] cursor-pointer transition-colors"
+                className="px-2.5 py-[3px] rounded text-[0.7857rem] cursor-pointer transition-colors"
                 style={{ border: '1px solid',
                   borderColor: view === v ? 'var(--color-accent)' : 'var(--color-border-med)',
                   color: view === v ? 'var(--color-accent)' : 'var(--color-text-dim)',
@@ -206,9 +206,9 @@ export default function StockPanel({ stock, watched, onToggleWatch, groups, myGr
         <input value={draft} onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) submitDraft() }}
           placeholder={`想问点 ${stock.name} 什么?例: 今天为什么这么走 / 量价怎么看`}
-          className="flex-1 text-[12px] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none" />
+          className="flex-1 text-[0.8571rem] px-3 py-2 rounded-lg bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none" />
         <button onClick={submitDraft} disabled={!draft.trim()}
-          className="text-[12px] px-3.5 py-2 rounded-lg bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed">
+          className="text-[0.8571rem] px-3.5 py-2 rounded-lg bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed">
           问
         </button>
       </div>

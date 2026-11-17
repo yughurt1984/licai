@@ -23,7 +23,7 @@ export default function EntryMirror({ code }) {
   if (!d?.available) return null
   const base = d.total?.mean20_pct
   return (
-    <div className="mb-2 px-2.5 py-1.5 rounded-md bg-surface-3/70 border border-border-subtle flex items-baseline gap-x-3 gap-y-0.5 flex-wrap text-[11px]"
+    <div className="mb-2 px-2.5 py-1.5 rounded-md bg-surface-3/70 border border-border-subtle flex items-baseline gap-x-3 gap-y-0.5 flex-wrap text-[0.7857rem]"
       title={`${d.note} 你全部买入之后 20 日平均 ${pct(base)}, 赚钱的占 ${Math.round((d.total?.win20 || 0) * 100)}%。`}>
       <span className="text-text-muted shrink-0">按现在的状态, 你以前同类买入之后 20 日</span>
       {d.matches.map(m => {

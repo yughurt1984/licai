@@ -1,21 +1,25 @@
 """Compute current position state from chronological buy/sell actions.
 
-FIFO cost basis:
-- BUY / ADD / BONUS → append a lot (BONUS = 送股, price=0 amount=0 只加 shares)
-- SELL / REDUCE → consume from oldest lots first
-- DIVIDEND → 现金分红, 直接进 realized_pnl (不动 lot 不动 cost_price)
+加权平均成本法(2026-11 定稿, 替代 FIFO+综合成本摊薄):
+- BUY / ADD / OPEN → 加权进成本: 累计买入(含买入费)金额 ÷ 累计买入股数
+- SELL / REDUCE / CLOSE → 立即结算已实现 = (卖价−当时均价)×股数−卖出费, 生成事件;
+  **成本价不动**(总成本与份额同减, 均价不变)
+- BONUS → 送股(价 0): 份额增加、金额不变, 均价被动摊低
 - SPLIT → 拆股/合股(港美股): 比例记在 price(新股数/旧股数, >1 拆股、<1 合股), shares 记 0;
-  每个 lot 股数×比例、单价÷比例, 成本与现金都不动
+  份额×比例、总成本不动 → 均价自动 ÷比例
+- DIVIDEND → 现金分红, 全额进已实现(不动成本, 用户定稿口径)
+- 份额归零 → 成本基准清零, 重新建仓从新买价起算
 
 港美股账本是原币, 另并行一套人民币口径: 每笔按自己的 fx_rate(成交日汇率, 没有就用当前汇率)折算,
-lot 记住买入时的汇率, 于是已实现/持仓成本里含本金的汇兑损益(*_cny 字段)。A 股汇率恒为 1。
+已实现的汇兑损益单列(*_cny / realized_fx_pnl 字段)。A 股汇率恒为 1。
 
 Derived quantities:
 - shares        : current total shares
-- cost_price    : 综合成本法 (net invested + fees) / current shares — matches broker display
-- fifo_cost_price: average price of remaining FIFO lots (no fees)
+- cost_price    : 加权平均成本价(含买入费, 原币每单位; 卖出不改它)
+- realized_pnl  : Σ 切换日后平仓事件 + 分红(原币口径; *_cny 为人民币)
+- realized_events / realized_events_all : 每笔平仓的事件明细(前者按切换日过滤)
 - weighted_days : capital-weighted holding days (for TVM calculations)
-- lots          : surviving lots with (shares, price, trade_date)
+- lots          : 剩余买入批次 with (shares, price, trade_date)
 """
 from __future__ import annotations
 from datetime import date, datetime
@@ -196,26 +200,29 @@ def compute_position_state(
     commission_rate: float | None = None,
     commission_min: float | None = None,
     fx_now: float | None = None,
+    switch_date: str | None = None,
 ) -> dict:
-    """Process actions in chronological order using FIFO.
+    """加权平均成本法: 一次按时间顺序遍历流水, 成本=累计买入(含费)÷累计买入股数。
+
+    每笔卖出/平仓立即结算为已实现事件((卖价−当时均价)×股数−卖出费), 全部事件在
+    realized_events(切换日后)/realized_events_all(诊断) 里; 已实现 = Σ切换日后事件+分红。
+    份额归零 → 成本基准清零重起。卖出不改成本价。
 
     Each action must have: action_type, price (float), shares (int), trade_date (str).
     Actions with missing trade_date are ordered by created_at fallback (today).
 
     If stock_code is provided, applies A-share trading fees (佣金/印花税/过户费) to the
-    broker-style cost_price so it matches what the brokerage app displays.
+    weighted-average cost so it matches what the brokerage app displays.
 
     fx_now: 港美股当前汇率(没记 fx_rate 的流水按它折人民币); 不传且用得到时现取 code_fx。
+    switch_date: 核算切换日(YYYY-MM-DD), 该日(含)之后的平仓事件才计入已实现; None=不限。
     """
     if today is None:
         today = date.today()
 
     # ── 期货/期权方向语义(负价技巧) ──────────────────────────────
-    # OPEN/CLOSE + direction → 现有 LONG FIFO 直接复用:
-    #   LONG : OPEN→BUY, CLOSE→SELL(价格不变), realized=(平价−开价)×手数 ✓
-    #   SHORT: 全部价格取负后再走同一套 → FIFO 算出 (−C−(−P))×S = (P−C)×S
-    #          = 空头真实盈亏, realized/carry 无需翻转; 仅成本价需取负还原展示值。
-    # 乘数不进账本: 流水/持仓的价格都按"每单位"计, 名义价值 = 价×乘数×手数, 由展示层乘。
+    # 加权平均成本法下同样成立: SHORT 全部价格取负 → 均价为负, 展示时取负还原;
+    # realized = (−卖价 − (−均价))×手数 = (均价−卖价)×手数 = 空头真实盈亏, 无需翻转。
     direction = next((str(a.get("direction") or "").upper() for a in actions if a.get("direction")), "")
     if direction in ("LONG", "SHORT"):
         sign = -1.0 if direction == "SHORT" else 1.0
@@ -252,7 +259,7 @@ def compute_position_state(
 
     def _fee_of(a, t, price, shares, idx=None):
         # action.fee 非 NULL = 用户手填覆盖; 否则用调用方按每笔 broker 预算的 _auto_fee;
-        # 都没有再用分摊后的估算。无 stock_code 不计费。
+        # 都没有再用分摊后的估算。费用一律 CNY。
         if not stock_code:
             return 0.0
         override = a.get("fee")
@@ -262,32 +269,24 @@ def compute_position_state(
             return float(a["_auto_fee"])
         return _alloc[idx] if (idx is not None and idx < len(_alloc)) else 0.0
 
-    # 单次按时间顺序遍历: 同时跑 FIFO + 按"持仓段"算综合成本。
-    # 一段持仓 = 从份数 0→正 到再次归 0。完全清仓后再买入会开启全新一段,
-    # 旧段的已实现盈亏沉淀进 realized_carry, 不再摊进新段成本 (对齐券商 App)。
-    # 每个金额累计都有一份 _c 孪生(人民币口径, 每笔按自己的汇率折); A 股汇率 1, 两份相等。
-    lots: list[dict] = []          # 当前段的 FIFO lots (清仓时自然清空); fx = 买入时汇率
-    income_realized = income_realized_c = 0.0   # 现金分红累计 (DIVIDEND, 税后), 不进 FIFO 配对
+    # ── 加权平均成本法(2026-11 定稿, 替代 FIFO+综合成本摊薄) ──────────────
+    #   · 成本价 = 累计买入(含买入费)金额 ÷ 累计买入股数 —— 只由买入决定, 卖出不改
+    #   · 卖出/平仓: 已实现 = (卖价 − 当时均价)×股数 − 卖出费, 立即结算并生成事件
+    #   · 加仓按加权更新; BONUS(送股, 价 0)摊低均价; SPLIT 份额×r → 均价自动 ÷r
+    #   · 份额归零 → 成本基准清零(重新建仓从新买价起算, 无"持仓段"概念)
+    #   · 分红(INCOME): 全额进已实现, 不碰成本(用户定稿口径, 与成本法无关)
+    #   · 汇率: 账本按原币记, 每笔的 CNY 口径 = 原币 × 该笔汇率; 已实现的汇兑部分单列
+    #     (basis 的隐含平均汇率 = basis_c/basis_n, 卖出汇率偏离它即是汇兑损益)
+    #   · 切换日: trade_date >= realized_switch_date 的平仓事件才进 realized_pnl/
+    #     落 realized_events(用户定稿: 历史不回溯); 分红全额计入, 不受切换日约束
+    basis_n = basis_c = 0.0        # 累计买入金额(原币 / CNY), 含买入费
+    basis_sh = 0.0                 # 累计买入股数(剩余持仓口径)
+    buy_lots = []                  # 剩余买入批次 {shares, price, fx, date}: 天数加权与展示用
+    all_events: list[dict] = []    # 每笔卖出/平仓的已实现事件(切换日过滤在汇总层做)
+    income_realized = income_realized_c = 0.0   # 现金分红累计(税后, 原币/CNY)
     dividend_tax = 0.0             # 港美股分红预扣税累计(原币)
-    realized_carry = realized_carry_c = 0.0     # 已平仓段的已实现 (不在当前浮动里)
-    fx_realized = 0.0              # 已实现里的汇兑部分: 卖出份额的买入本金 × (卖出汇率 − 买入汇率)
-    total_fees = 0.0               # 全周期手续费 (展示用)
-    # 当前段累计 (清仓时重置)
-    ep_buy_amt = ep_sell_amt = ep_fees = 0.0
-    ep_buy_amt_c = ep_sell_amt_c = ep_fees_c = 0.0
-    ep_buy_shares = ep_matched = 0
-    ep_buy_fees = ep_sell_fees = ep_buy_fees_c = ep_sell_fees_c = 0.0
-    ep_realized_excl_fees = ep_realized_excl_fees_c = 0.0
-    running_shares = 0
-    flat_date = None               # 最近一次卖到 0 的日期; 同日买回则本段延续
-
-    def _episode_realized():
-        rf = ep_sell_fees + (ep_buy_fees * (ep_matched / ep_buy_shares) if ep_buy_shares > 0 else 0.0)
-        return ep_realized_excl_fees - rf
-
-    def _episode_realized_c():
-        rf = ep_sell_fees_c + (ep_buy_fees_c * (ep_matched / ep_buy_shares) if ep_buy_shares > 0 else 0.0)
-        return ep_realized_excl_fees_c - rf
+    fx_realized = 0.0              # 已实现里的汇兑部分(CNY)
+    total_fees = 0.0               # 全周期手续费(CNY, 展示用)
 
     for _i, a in enumerate(sorted_actions):
         t = a.get("action_type", "")
@@ -297,92 +296,82 @@ def compute_position_state(
 
         if t in ACQUIRE and shares > 0:
             fx = _fx_of(a)
-            # 卖光后再买入: 隔夜才算新一段, 日内买回视为同一段延续 —— 券商就是这么算的
-            # (与 external_ledger 的口径统一; 那边注释写明是招商实测行为)。
-            # 之前 A股 这边是"卖到 0 立刻结算", 于是日内清仓再买会把本段盈亏踢出浮动
-            # 变成落袋, 新仓成本从买回价重新起算, 跟券商 App 对不上。
-            if flat_date is not None:
-                if ad > flat_date:
-                    realized_carry += _episode_realized()
-                    realized_carry_c += _episode_realized_c()
-                    ep_buy_amt = ep_sell_amt = ep_fees = 0.0
-                    ep_buy_amt_c = ep_sell_amt_c = ep_fees_c = 0.0
-                    ep_buy_shares = ep_matched = 0
-                    ep_buy_fees = ep_sell_fees = ep_buy_fees_c = ep_sell_fees_c = 0.0
-                    ep_realized_excl_fees = ep_realized_excl_fees_c = 0.0
-                flat_date = None
-            # BONUS 是送股: price=0 → lot 的 shares 累加但 fifo_total 不变, cost_price 被动摊薄。
-            lots.append({"shares": shares, "price": price, "fx": fx, "trade_date": ad})
             f = _fee_of(a, t, price, shares, _i)
-            ep_buy_amt += price * shares
-            ep_buy_amt_c += price * shares * fx
-            ep_buy_shares += shares
-            ep_buy_fees += f
-            ep_buy_fees_c += f * fx
-            ep_fees += f
-            ep_fees_c += f * fx
+            basis_n += price * shares + (f / fx if fx else 0.0)
+            basis_c += price * shares * fx + f
+            basis_sh += shares
+            buy_lots.append({"shares": shares, "price": price, "fx": fx, "date": ad})
             total_fees += f
-            running_shares += shares
         elif t in RELEASE and shares > 0:
             fx = _fx_of(a)
-            remaining = shares
-            while remaining > 1e-9 and lots:
-                lot = lots[0]
-                consumed = min(lot["shares"], remaining)
-                ep_realized_excl_fees += (price - lot["price"]) * consumed
-                ep_realized_excl_fees_c += (price * fx - lot["price"] * lot["fx"]) * consumed
-                fx_realized += lot["price"] * consumed * (fx - lot["fx"])
-                ep_matched += consumed
-                lot["shares"] -= consumed
-                remaining -= consumed
-                if lot["shares"] <= 1e-9:
-                    lots.pop(0)
+            if basis_sh <= 1e-9:
+                continue                    # 无持仓的卖出(漏录买入): 不硬算, 不生成事件
+            avg_n = basis_n / basis_sh
+            avg_c = basis_c / basis_sh
+            matched = min(shares, basis_sh)   # 超卖钳位(漏录买入的防御), 事件按实际配平的股数
             f = _fee_of(a, t, price, shares, _i)
-            ep_sell_amt += price * shares
-            ep_sell_amt_c += price * shares * fx
-            ep_sell_fees += f
-            ep_sell_fees_c += f * fx
-            ep_fees += f
-            ep_fees_c += f * fx
+            # 衍生品乘数: 账本按"每单位"记, 真实盈亏 ×乘数(流水每笔带历史乘数); 费用是整单绝对值, 不乘
+            mult = float(a.get("contract_multiplier") or 0) or 1.0
+            pnl_n = ((price - avg_n) * matched - (f / fx if fx else 0.0)) * mult
+            pnl_c = ((price * fx - avg_c) * matched - f) * mult
+            fx_realized += avg_n * matched * (fx - (avg_c / avg_n if avg_n else 1.0)) * mult
+            basis_n -= avg_n * matched
+            basis_c -= avg_c * matched
+            basis_sh -= matched
+            scale = basis_sh / (basis_sh + matched) if (basis_sh + matched) > 1e-9 else 0.0
+            for lot in buy_lots:            # 天数加权批次按比例缩减(非配对, 只做权重)
+                lot["shares"] *= scale
+            buy_lots = [l for l in buy_lots if l["shares"] > 1e-9]
             total_fees += f
-            running_shares -= shares
-            if running_shares <= 1e-9:   # 碎股卖光时浮点会剩极小的尾数
-                # 卖光了: 先只记下平仓日, 本段累计留着 —— 当天买回就接着算同一段,
-                # 隔夜没买回才在下次买入(或收尾)时结算进 carry。
-                running_shares = 0
-                lots = []
-                flat_date = ad
+            all_events.append({
+                "action_id": a.get("id"),
+                "side": t,
+                "direction": direction or None,
+                "close_shares": matched,
+                # 空头走负价技巧(price 已取负) → 还原真实成交价; 事件表存正数
+                "close_price": (-price if direction == "SHORT" else price),
+                "avg_cost": abs(avg_n),
+                "realized_pnl": round(pnl_c, 2),
+                "realized_pnl_native": round(pnl_n, 2),
+                "fee": round(f, 2),
+                "fx_rate": fx,
+                "contract_multiplier": float(a.get("contract_multiplier") or 0) or None,
+                "trade_date": ad.isoformat(),
+            })
+            if basis_sh <= 1e-9:            # 清仓: 成本基准清零(浮点尾数一并归零)
+                basis_n = basis_c = 0.0
+                basis_sh = 0.0
+                buy_lots = []
         elif t == SPLIT:
             r = split_ratio(a)
-            if r > 0 and lots:
-                # 拆股/合股: 股数×r、单价÷r, 钱一分不动。份额口径的累计(买入股数/已配对股数)一起换标度,
-                # 买入费用按配对比例摊的比值不变。合股零碎股券商折现金(cash in lieu): 零头从最后的 lot
-                # 扣掉, 它的成本并进剩下的最后一个 lot(FIFO 与综合成本口径一致); 收到的现金可记一笔 DIVIDEND。
-                for lot in lots:
+            if r > 0 and basis_sh > 1e-9:
+                # 拆股/合股: 股数×r, 总成本一分不动 → 均价自动 ÷r。合股零碎股券商折现金
+                # (cash in lieu): 零头从最后一批买入扣掉, 它的成本并进剩余买入。
+                basis_sh *= r
+                for lot in buy_lots:
                     lot["shares"] *= r
                     lot["price"] /= r
-                ep_buy_shares *= r
-                ep_matched *= r
-                total = sum(l["shares"] for l in lots)
-                # 美股券商支持碎股, 合股后的零头留在账上; 其余市场零头折现金
+                total = sum(l["shares"] for l in buy_lots)
                 whole = total if _foreign_market(a.get("stock_code") or stock_code) == "US" else int(total + 1e-6)
                 frac, moved = total - whole, 0.0
-                for lot in reversed(lots):
+                for lot in reversed(buy_lots):
                     if frac <= 1e-9:
                         break
                     take = min(frac, lot["shares"])
                     lot["shares"] -= take
                     moved += take * lot["price"]
                     frac -= take
-                lots = [l for l in lots if l["shares"] > 1e-9]
-                if lots and moved:
-                    lots[-1]["price"] += moved / lots[-1]["shares"]
-                running_shares = whole
-                if whole <= 1e-9:
-                    lots = []
-                    flat_date = ad
+                buy_lots = [l for l in buy_lots if l["shares"] > 1e-9]
+                if buy_lots and moved:
+                    buy_lots[-1]["price"] += moved / buy_lots[-1]["shares"]
+                basis_sh = whole
+                if basis_sh <= 1e-9:
+                    basis_n = basis_c = 0.0
+                    basis_sh = 0.0
+                    buy_lots = []
         elif t in INCOME:
-            # 现金分红: 显式 amount, 或 price(每股股息) × shares(持股数) —— 都是税前
+            # 现金分红: 显式 amount, 或 price(每股股息) × shares(持股数) —— 都是税前。
+            # 全额进已实现, 不碰成本(用户定稿口径), 不受切换日约束(与成本法无关的收益流)。
             amt = float(a.get("amount") or 0)
             if amt <= 0:
                 amt = float(a.get("price") or 0) * float(a.get("shares") or 0)
@@ -399,86 +388,52 @@ def compute_position_state(
             income_realized += amt - tax
             income_realized_c += (amt - tax) * _fx_of(a)
 
-    # 收尾: 还停在空仓状态说明这一段确实平掉了(没有当日买回), 结算进 carry。
-    # 不结算的话 realized_carry 会漏掉最后一段, 顶栏「已实现」少一块。
-    if flat_date is not None and running_shares == 0:
-        realized_carry += _episode_realized()
-        realized_carry_c += _episode_realized_c()
-        ep_buy_amt = ep_sell_amt = ep_fees = 0.0
-        ep_buy_amt_c = ep_sell_amt_c = ep_fees_c = 0.0
-        ep_buy_shares = ep_matched = 0
-        ep_buy_fees = ep_sell_fees = ep_buy_fees_c = ep_sell_fees_c = 0.0
-        ep_realized_excl_fees = ep_realized_excl_fees_c = 0.0
+    # ── 汇总: 已实现 = Σ 切换日后的平仓事件 + 分红(全历史) ──────────────
+    def _in_switch(e):
+        return switch_date is None or (e.get("trade_date") or "") >= switch_date
+    switched = [e for e in all_events if _in_switch(e)]
+    realized_pnl = round(sum(e["realized_pnl_native"] for e in switched) + income_realized, 2)
+    realized_pnl_cny = round(sum(e["realized_pnl"] for e in switched) + income_realized_c, 2)
+    # carry 概念已死: 浮动 = 市值 − 成本×份额, 从不含已实现 → 顶栏总盈亏直接相加。
+    # 兼容旧消费方: realized_carry = 已实现本身(切换日后事件 + 分红)。
+    realized_carry = realized_pnl
+    realized_carry_cny = realized_pnl_cny
 
-    # 总已实现 = 已平仓段 + 当前段已实现 + 现金分红
-    realized_pnl = round(realized_carry + _episode_realized() + income_realized, 2)
-    # carry = 不在当前浮动里的已实现 (已平仓段 + 分红) → 顶部总盈亏用它补, 避免和浮动重复
-    realized_carry_out = round(realized_carry + income_realized, 2)
-    cny = {
-        "realized_pnl_cny": round(realized_carry_c + _episode_realized_c() + income_realized_c, 2),
-        "realized_carry_cny": round(realized_carry_c + income_realized_c, 2),
-        "realized_fx_pnl": round(fx_realized, 2),     # 人民币: 已实现里本金的汇兑部分(A 股恒 0)
-    }
+    total_shares = basis_sh
+    avg_n = basis_n / total_shares if total_shares > 1e-9 else 0.0
+    avg_c = basis_c / total_shares if total_shares > 1e-9 else 0.0
 
-    total_shares = sum(l["shares"] for l in lots)
-    if total_shares <= 1e-9:
-        return {
-            "shares": 0,
-            "cost_price": 0.0,
-            "fifo_cost_price": 0.0,
-            "weighted_days": 0,
-            "lots": [],
-            "realized_pnl": realized_pnl,
-            "realized_carry": realized_carry_out,
-            "income_realized": round(income_realized, 2),
-            "cost_value_cny": 0.0,
-            **cny,
-        }
-
-    # FIFO cost — avg of remaining lots only (当前段)
-    fifo_total = sum(l["shares"] * l["price"] for l in lots)
-    fifo_cost = fifo_total / total_shares
-
-    # 综合成本法只算当前段 (清仓后重置), 不把旧段已实现摊进新成本
-    net_invested = ep_buy_amt - ep_sell_amt + ep_fees
-    net_cost = net_invested / total_shares if total_shares > 0 else 0.0
-    # 人民币持仓成本: 同一口径(当前段净投入, 每笔按自己的汇率); 回退 fifo 时也用 lot 自己的汇率
-    cost_value_cny = ep_buy_amt_c - ep_sell_amt_c + ep_fees_c
-    # 当前段内卖在极高位导致 net_invested 变负时回退到 fifo
-    if net_cost <= 0:
-        net_cost = fifo_cost
-        cost_value_cny = sum(l["shares"] * l["price"] * l["fx"] for l in lots)
-
-    # 成本口径(三市场统一, 用户定稿): 分红全部进已实现, **不摊薄成本** —— cost = 买入口径
-    # (综合成本法, 卖在极高位 net_cost 变负时回退 fifo)。SHORT(负价技巧)的成本价是负的
-    # 每单位均价, 输出时取负还原为正的展示值; 不做任何非负钳位(会把它打成 0)。
-    # Capital-weighted days on FIFO lots (each lot has a concrete date)
+    # Capital-weighted days on remaining buy lots (each lot has a concrete date)
     capital_days_sum = sum(
-        l["shares"] * l["price"] * max(0, (today - l["trade_date"]).days)
-        for l in lots
+        l["shares"] * l["price"] * max(0, (today - l["date"]).days)
+        for l in buy_lots
     )
-    weighted_days = capital_days_sum / fifo_total if fifo_total > 0 else 0
+    lot_amount = sum(l["shares"] * l["price"] for l in buy_lots)
+    weighted_days = capital_days_sum / lot_amount if lot_amount > 0 else 0
     whole = int(round(total_shares))
 
     return {
         "shares": whole if abs(total_shares - whole) < 1e-6 else round(total_shares, 4),
-        # SHORT(负价技巧): 成本价是负的每单位均价 → 取负还原为正的展示值;
-        # realized_pnl/carry 已经是真实空头盈亏, 不翻。
-        "cost_price": round(-net_cost, 4) if direction == "SHORT" else round(net_cost, 4),
-        "cost_price_raw": round(-net_cost, 4) if direction == "SHORT" else round(net_cost, 4),
-        "fifo_cost_price": round(-fifo_cost, 4) if direction == "SHORT" else round(fifo_cost, 4),
+        # SHORT(负价技巧): 成本价是负的每单位均价 → 取负还原为正的展示值
+        "cost_price": round(-avg_n, 4) if direction == "SHORT" else round(avg_n, 4),
+        "cost_price_raw": round(-avg_n, 4) if direction == "SHORT" else round(avg_n, 4),
+        "fifo_cost_price": round(-avg_n, 4) if direction == "SHORT" else round(avg_n, 4),
         "total_fees": round(total_fees, 2),
         "weighted_days": int(round(weighted_days)),
-        "realized_pnl": realized_pnl,
-        "realized_carry": realized_carry_out,            # 已平仓段+分红 (不在浮动里, 供顶部总盈亏补)
+        "realized_pnl": realized_pnl,                    # 原币口径(切换日后事件 + 分红)
+        "realized_carry": realized_carry,                # 兼容键 = realized_pnl(浮动已不含已实现)
+        "realized_events": switched,                     # 切换日后的平仓事件(落 realized_events 用)
+        "realized_events_all": all_events,               # 全部事件(诊断/重放校验用, 不落表)
         "income_realized": round(income_realized, 2),   # 累计现金分红 (DIVIDEND, 全额进已实现)
         "dividend_tax": round(dividend_tax, 2),         # 港美股分红预扣税累计(原币; 手填 fee 才有)
-        "cost_value_cny": round(abs(cost_value_cny), 2) if direction == "SHORT" else round(cost_value_cny, 2),
-        **cny,
+        "cost_value_cny": round(abs(avg_c * total_shares), 2) if direction == "SHORT" else round(avg_c * total_shares, 2),
+        "realized_pnl_cny": realized_pnl_cny,
+        "realized_carry_cny": realized_carry_cny,
+        "realized_fx_pnl": round(fx_realized, 2),       # 人民币: 已实现里本金的汇兑部分(A 股恒 0)
         "lots": [
             {"shares": round(l["shares"], 4) if l["shares"] % 1 else int(l["shares"]), "price": l["price"],
-             "trade_date": l["trade_date"].isoformat()}
-            for l in lots
+             "trade_date": l["date"].isoformat()}
+            for l in buy_lots
         ],
     }
 
@@ -608,7 +563,8 @@ async def ledger_state(code: str, actions: list | None = None, holding_broker=_U
     """一只票的账(compute_position_state 的结果), 费用与汇率都按统一口径解析好。
 
     actions 不传则读库; holding_broker 不传则读持仓行的 broker。会原地给 actions 挂 _auto_fee。
-    分红口径(三市场统一): 全额进已实现, 不摊薄成本 —— 这里不再做任何摊薄。
+    核算口径(加权平均): 成本只由买入决定, 每笔卖出立即结算为已实现事件; 已实现 = Σ
+    切换日后平仓事件 + 分红。切换日从 app_config 读(60s 缓存)。
     港美股没传 fx_now 时取一次当前汇率(放线程里, 不卡事件循环)。
     """
     import asyncio
@@ -624,5 +580,97 @@ async def ledger_state(code: str, actions: list | None = None, holding_broker=_U
         fx_now = await asyncio.to_thread(code_fx, code)
     c_rate, c_min = resolve(holding_broker, _foreign_market(code))
     st = compute_position_state(actions, stock_code=code, commission_rate=c_rate, commission_min=c_min,
-                                fx_now=fx_now)
+                                fx_now=fx_now, switch_date=await get_realized_switch_date())
     return st
+
+
+# ── 核算切换日(realized_switch_date, 60s 缓存): 该日(含)之后的平仓事件才计入已实现 ──
+_switch_cache: list = [None, 0.0]
+
+
+async def get_realized_switch_date() -> str:
+    import time
+    if _switch_cache[0] and time.time() - _switch_cache[1] < 60:
+        return _switch_cache[0]
+    from database import get_realized_switch_date as _db_get
+    v = await _db_get()
+    _switch_cache[0] = v
+    _switch_cache[1] = time.time()
+    return v
+
+
+async def rebuild_realized_events(code: str):
+    """重放一只标的的全部流水, 重建 realized_events(幂等, 多空各一本账)。
+
+    direction 分组重放(与 /realized、_recompute_holding 同口径); 切换日之后的平仓
+    事件才落表(用户定稿: 历史不回溯)。事件带 action_id 可追溯到原流水。返回落表数。
+    """
+    from database import (get_position_actions, replace_realized_events,
+                          get_holding, get_all_holdings)
+    acts_all = await get_position_actions(code, limit=1000)
+    if not acts_all:
+        return await replace_realized_events(code, [])
+    h0 = (await get_holding(code)) or {}
+    # holdings 行可能已删(清仓后) → sub_assets_type 兜底, 没有就空着
+    holdings_map = {h.get("stock_code"): h for h in await get_all_holdings()}
+    h0 = h0 or holdings_map.get(code) or {}
+    sub = h0.get("sub_assets_type")
+    ticker = h0.get("ticker") or code.split(".")[0]
+    resolve = await broker_fee_resolver()
+    from database import get_config
+    fee_overrides = await get_config("fee_schedules")
+    switch_date = await get_realized_switch_date()
+
+    dir_groups: dict = {}
+    for a in acts_all:
+        dir_groups.setdefault(a.get("direction") or "LONG", []).append(a)
+    rows: list[dict] = []
+    for d, acts in dir_groups.items():
+        st = await ledger_state(code, acts, h0.get("broker"), resolve=resolve,
+                                fee_overrides=fee_overrides)
+        for e in st.get("realized_events") or []:
+            rows.append({
+                "code": code,
+                "ticker": ticker,
+                "direction": d if d != "LONG" else (h0.get("direction") or None),
+                "sub_assets_type": sub,
+                "action_id": e.get("action_id"),
+                "side": e.get("side"),
+                "close_shares": e.get("close_shares"),
+                "close_price": e.get("close_price"),
+                "avg_cost": e.get("avg_cost"),
+                "realized_pnl": e.get("realized_pnl"),
+                "realized_pnl_native": e.get("realized_pnl_native"),
+                "fee": e.get("fee"),
+                "fx_rate": e.get("fx_rate"),
+                "contract_multiplier": e.get("contract_multiplier") or h0.get("contract_multiplier"),
+                "trade_date": e.get("trade_date"),
+            })
+    return await replace_realized_events(code, rows)
+
+
+async def rebuild_all_realized_events() -> int:
+    """全量重建(启动迁移/手工触发): 逐用户 × 逐 code 重放。返回处理的 code 数。
+
+    启动时无用户上下文(_uid()=0), 这里按 position_actions 里出现过的 user_id 逐个
+    set_current_user 切上下文, 保证每个用户的 realized_events 按自己的流水重建。
+    """
+    from database import get_db
+    from services.context import set_current_user
+    db = await get_db()
+    try:
+        cur = await db.execute("SELECT DISTINCT user_id, code FROM position_actions")
+        pairs = [(r[0], r[1]) for r in await cur.fetchall()]
+    finally:
+        await db.close()
+    n = 0
+    for uid in sorted({(u or 0) for u, _ in pairs}):
+        set_current_user(uid)
+        for code in sorted({c for u, c in pairs if (u or 0) == uid}):
+            try:
+                await rebuild_realized_events(code)
+                n += 1
+            except Exception as e:
+                print(f"[realized-rebuild] {code}(user={uid}) 重建失败: {e}")
+    set_current_user(0)
+    return n

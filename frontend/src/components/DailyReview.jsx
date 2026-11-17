@@ -32,20 +32,20 @@ function HolidayContext() {
   return (
     <div className="bg-surface-3 rounded-lg px-3 py-2.5 mb-2" title={h.note}>
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <div className="text-[11px] text-text-muted tracking-wider">{when} · 历年{h.name}前后</div>
-        <button onClick={() => setOpen(v => !v)} className="text-[10.5px] text-text-dim hover:text-text">{open ? '收起逐年' : '看逐年'}</button>
+        <div className="text-[0.7857rem] text-text-muted tracking-wider">{when} · 历年{h.name}前后</div>
+        <button onClick={() => setOpen(v => !v)} className="text-[0.75rem] text-text-dim hover:text-text">{open ? '收起逐年' : '看逐年'}</button>
       </div>
       {h.indexes.map(ix => (
         <div key={ix.symbol} className="mt-1">
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px]">
-            <span className="text-text min-w-[64px]">{ix.label}<span className="text-text-muted text-[10px]"> {ix.since}起</span></span>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[0.8214rem]">
+            <span className="text-text min-w-[64px]">{ix.label}<span className="text-text-muted text-[0.7143rem]"> {ix.since}起</span></span>
             <S s={ix.summary} k="pre5_pct" label="节前5日" />
             <S s={ix.summary} k="last_day_pct" label="节前最后一天" />
             <S s={ix.summary} k="post5_pct" label="节后5日" />
             <S s={ix.summary} k="post2_4_pct" label="节后第2~4日" />
           </div>
           {open && (
-            <table className="mt-1 text-[10.5px] font-mono">
+            <table className="mt-1 text-[0.75rem] font-mono">
               <thead><tr className="text-text-muted text-right"><th className="text-left font-normal pr-3">年份</th><th className="font-normal px-2">节前5日</th><th className="font-normal px-2">最后一天</th><th className="font-normal px-2">节后5日</th><th className="font-normal px-2">节后2~4日</th></tr></thead>
               <tbody>{[...ix.rows].reverse().map(r => (
                 <tr key={r.last_day} className="text-right">
@@ -56,7 +56,7 @@ function HolidayContext() {
           )}
         </div>
       ))}
-      <div className="text-[9.5px] text-text-muted mt-1">每年一次, 样本只有十来个; 只是历史分布, 不代表这一次, 不构成买卖建议</div>
+      <div className="text-[0.6786rem] text-text-muted mt-1">每年一次, 样本只有十来个; 只是历史分布, 不代表这一次, 不构成买卖建议</div>
     </div>
   )
 }
@@ -75,9 +75,9 @@ function MarketPanorama() {
   const st = mx['风格'] || {}
   return (
     <div className="bg-surface-3 rounded-lg px-3 py-2.5 space-y-2">
-      <div className="text-[11px] text-text-muted tracking-wider">大盘全景 · {m.date} 周{m.weekday}</div>
+      <div className="text-[0.7857rem] text-text-muted tracking-wider">大盘全景 · {m.date} 周{m.weekday}</div>
       {/* 情绪与广度 */}
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px] font-mono">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[0.8571rem] font-mono">
         <span>涨停 <span className="text-bear-bright font-semibold">{s['涨停'] ?? '--'}</span></span>
         <span>跌停 <span className="text-bull-bright font-semibold">{s['跌停'] ?? '--'}</span></span>
         <span className="text-text-dim">炸板率 {s['炸板率%'] ?? '--'}%</span>
@@ -89,7 +89,7 @@ function MarketPanorama() {
       {(mx['板块扎堆'] || mx['概念扎堆']) && (
         <div className="space-y-1">
           {mx['板块扎堆']?.length > 0 && (
-            <div className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+            <div className="flex flex-wrap items-baseline gap-1.5 text-[0.7857rem]">
               <span className="text-text-muted shrink-0">主线板块</span>
               {mx['板块扎堆'].slice(0, 6).map((b, i) => (
                 <span key={i} className="bg-surface-2 rounded px-1.5 py-0.5 text-text">{b['行业']}<span className="text-text-muted ml-1">{b['上榜数']}</span></span>
@@ -97,7 +97,7 @@ function MarketPanorama() {
             </div>
           )}
           {mx['概念扎堆']?.length > 0 && (
-            <div className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+            <div className="flex flex-wrap items-baseline gap-1.5 text-[0.7857rem]">
               <span className="text-text-muted shrink-0">概念扎堆</span>
               {mx['概念扎堆'].slice(0, 8).map((c, i) => (
                 <span key={i} className="bg-surface-2 rounded px-1.5 py-0.5 text-accent/90">{c['概念']}<span className="text-text-muted ml-1">{c['上榜数']}</span></span>
@@ -108,13 +108,13 @@ function MarketPanorama() {
       )}
       {/* 风格 */}
       {st['强势股均换手%'] != null && (
-        <div className="text-[11px] text-text-dim">
+        <div className="text-[0.7857rem] text-text-dim">
           风格 · 强势股均换手 {st['强势股均换手%']}% · 小盘占 {st['小盘(<50亿)占比%']}% · 大盘占 {st['大盘(>500亿)占比%']}%
         </div>
       )}
       {/* 机构龙虎榜今日净买 */}
       {(inst['净买top'] || []).length > 0 && (
-        <div className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+        <div className="flex flex-wrap items-baseline gap-1.5 text-[0.7857rem]">
           <span className="text-text-muted shrink-0">机构净买(龙虎榜)</span>
           {inst['净买top'].slice(0, 6).map((x, i) => (
             <span key={i} className="bg-surface-2 rounded px-1.5 py-0.5">
@@ -124,7 +124,7 @@ function MarketPanorama() {
           ))}
         </div>
       )}
-      <div className="text-[10px] text-text-muted">客观定格,不预测明天、不构成买卖建议;机构龙虎榜为上榜日抽样滞后</div>
+      <div className="text-[0.7143rem] text-text-muted">客观定格,不预测明天、不构成买卖建议;机构龙虎榜为上榜日抽样滞后</div>
     </div>
   )
 }
@@ -153,12 +153,12 @@ export default function DailyReview({ bare = false }) {
     <div className={bare ? '' : 'bg-surface-2 border border-border rounded-xl p-4 md:p-5'}>
       <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
         <div className="flex items-baseline gap-2">
-          <h3 className={bare ? 'text-[11px] text-text-muted tracking-wider m-0' : 'text-[14px] font-semibold text-text-bright m-0'}>{bare ? '今日组合归因' : '今日复盘'}</h3>
-          {data?.date && <span className="text-[11px] font-mono text-text-dim">{data.date}</span>}
-          {data?.generated_at && <span className="text-[10px] text-text-muted">{data.generated_at} 生成</span>}
+          <h3 className={bare ? 'text-[0.7857rem] text-text-muted tracking-wider m-0' : 'text-[1rem] font-semibold text-text-bright m-0'}>{bare ? '今日组合归因' : '今日复盘'}</h3>
+          {data?.date && <span className="text-[0.7857rem] font-mono text-text-dim">{data.date}</span>}
+          {data?.generated_at && <span className="text-[0.7143rem] text-text-muted">{data.generated_at} 生成</span>}
         </div>
         <button onClick={() => load(true)} disabled={loading}
-          className="text-[11px] px-2.5 py-1 rounded-lg border border-border text-text-dim hover:text-text hover:border-border-med cursor-pointer disabled:opacity-40">
+          className="text-[0.7857rem] px-2.5 py-1 rounded-lg border border-border text-text-dim hover:text-text hover:border-border-med cursor-pointer disabled:opacity-40">
           {loading ? '生成中…' : '↻ 重新复盘'}
         </button>
       </div>
@@ -167,22 +167,22 @@ export default function DailyReview({ bare = false }) {
       <div className="mb-3.5"><HolidayContext /><MarketPanorama /></div>
 
       {loading && !data && <SkeletonCard bare rows={5} label="AI 复盘生成中" />}
-      {err && <div className="text-center py-4 text-bear text-[12px]">{err}</div>}
+      {err && <div className="text-center py-4 text-bear text-[0.8571rem]">{err}</div>}
 
       {has && (
         <div className="space-y-3.5">
           {data.summary && (
-            <div className="text-[12.5px] text-text-bright bg-surface-3 rounded-lg px-3 py-2">{data.summary}</div>
+            <div className="text-[0.8929rem] text-text-bright bg-surface-3 rounded-lg px-3 py-2">{data.summary}</div>
           )}
 
           {(data.holdings || []).length > 0 && (
             <div>
-              <div className="text-[11px] text-text-muted mb-1.5 tracking-wider">持仓归因</div>
+              <div className="text-[0.7857rem] text-text-muted mb-1.5 tracking-wider">持仓归因</div>
               <div className="space-y-1.5">
                 {data.holdings.map((h, i) => (
-                  <div key={i} className="flex items-baseline gap-2 text-[12px]">
+                  <div key={i} className="flex items-baseline gap-2 text-[0.8571rem]">
                     <span className="text-text-bright font-medium min-w-[64px] shrink-0">{h.name}</span>
-                    <span className={`font-mono text-[11.5px] min-w-[52px] shrink-0 ${pctColor(h.change)}`}>{h.change}</span>
+                    <span className={`font-mono text-[0.8214rem] min-w-[52px] shrink-0 ${pctColor(h.change)}`}>{h.change}</span>
                     <span className="text-text-dim">{h.why}</span>
                   </div>
                 ))}
@@ -192,10 +192,10 @@ export default function DailyReview({ bare = false }) {
 
           {(data.sectors || []).length > 0 && (
             <div>
-              <div className="text-[11px] text-text-muted mb-1.5 tracking-wider">所属板块</div>
+              <div className="text-[0.7857rem] text-text-muted mb-1.5 tracking-wider">所属板块</div>
               <div className="flex flex-wrap gap-1.5">
                 {data.sectors.map((s, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 bg-surface-3 rounded-md px-2 py-1 text-[11px]">
+                  <span key={i} className="inline-flex items-center gap-1 bg-surface-3 rounded-md px-2 py-1 text-[0.7857rem]">
                     <span className="text-text">{s.name}</span>
                     <span className={`font-mono ${pctColor(s.change)}`}>{s.change}</span>
                     {s.note && <span className="text-text-muted">· {s.note}</span>}
@@ -207,10 +207,10 @@ export default function DailyReview({ bare = false }) {
 
           {(data.global || []).length > 0 && (
             <div>
-              <div className="text-[11px] text-text-muted mb-1.5 tracking-wider">全球大事</div>
+              <div className="text-[0.7857rem] text-text-muted mb-1.5 tracking-wider">全球大事</div>
               <ul className="space-y-1">
                 {data.global.map((g, i) => (
-                  <li key={i} className="text-[12px] text-text-dim flex gap-1.5">
+                  <li key={i} className="text-[0.8571rem] text-text-dim flex gap-1.5">
                     <span className="text-text-muted shrink-0">·</span><span>{g}</span>
                   </li>
                 ))}
@@ -220,10 +220,10 @@ export default function DailyReview({ bare = false }) {
 
           {(data.tomorrow || []).length > 0 && (
             <div>
-              <div className="text-[11px] text-text-muted mb-1.5 tracking-wider">明日关注</div>
+              <div className="text-[0.7857rem] text-text-muted mb-1.5 tracking-wider">明日关注</div>
               <ul className="space-y-1">
                 {data.tomorrow.map((t, i) => (
-                  <li key={i} className="text-[12px] text-accent/90 flex gap-1.5">
+                  <li key={i} className="text-[0.8571rem] text-accent/90 flex gap-1.5">
                     <span className="shrink-0">→</span><span>{t}</span>
                   </li>
                 ))}
@@ -231,7 +231,7 @@ export default function DailyReview({ bare = false }) {
             </div>
           )}
 
-          <div className="text-[10px] text-text-muted pt-1 border-t border-border-subtle">
+          <div className="text-[0.7143rem] text-text-muted pt-1 border-t border-border-subtle">
             AI 复盘仅作资讯归因，不构成投资建议
           </div>
         </div>

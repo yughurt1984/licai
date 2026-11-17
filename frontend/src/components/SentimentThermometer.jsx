@@ -39,8 +39,8 @@ function CycleStrip() {
   return (
     <div className="mb-3">
       <div className="flex items-baseline gap-2 mb-1">
-        <span className="text-[10.5px] text-text-muted">情绪周期 · 近{n}个交易日</span>
-        <span className="text-[9.5px] text-text-dim">
+        <span className="text-[0.75rem] text-text-muted">情绪周期 · 近{n}个交易日</span>
+        <span className="text-[0.6786rem] text-text-dim">
           <span className="text-bear">■</span>涨停(上) <span className="text-bull">■</span>跌停(下) <span style={{ color: 'var(--color-accent)' }}>—</span>赚钱效应
         </span>
       </div>
@@ -103,11 +103,11 @@ export default function SentimentThermometer() {
     <div className="bg-surface-2 border border-border rounded-xl p-4 md:p-5">
       <div className="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[14px] font-semibold text-text-bright m-0">市场情绪温度计</h3>
-          <span className="text-[10.5px] text-text-muted">涨停/连板/量能</span>
+          <h3 className="text-[1rem] font-semibold text-text-bright m-0">市场情绪温度计</h3>
+          <span className="text-[0.75rem] text-text-muted">涨停/连板/量能</span>
         </div>
         <button onClick={() => setShowDetail(true)}
-          className="text-[11px] px-2.5 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10">
+          className="text-[0.7857rem] px-2.5 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10">
           看具体股票 →
         </button>
       </div>
@@ -115,17 +115,17 @@ export default function SentimentThermometer() {
       {/* 情绪定性 */}
       <div className="mb-3 px-3 py-2.5 rounded-lg" style={{ background: c + '1a', border: `1px solid ${c}55` }}>
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-[16px] font-bold" style={{ color: c }}>{d.mood}</span>
+          <span className="text-[1.1429rem] font-bold" style={{ color: c }}>{d.mood}</span>
           {d.money_effect != null && (
-            <span className="text-[11px] text-text-dim">赚钱效应 <span className={pctColor(d.money_effect)}>{d.money_effect > 0 ? '+' : ''}{d.money_effect}%</span></span>
+            <span className="text-[0.7857rem] text-text-dim">赚钱效应 <span className={pctColor(d.money_effect)}>{d.money_effect > 0 ? '+' : ''}{d.money_effect}%</span></span>
           )}
           {v.amount_wy != null && (
-            <span className="text-[11px] text-text-dim">· 两市 <span className="text-text-bright font-mono">{v.amount_wy}万亿</span>
+            <span className="text-[0.7857rem] text-text-dim">· 两市 <span className="text-text-bright font-mono">{v.amount_wy}万亿</span>
               {v.label && <span className={`ml-1 ${v.ratio > 0 ? 'text-bear-bright' : v.ratio < 0 ? 'text-bull-bright' : 'text-text-dim'}`} title="今日沪市成交量 较前5个交易日均值">{v.label}<span className="text-text-muted">较5日均</span>{v.ratio != null ? `${v.ratio > 0 ? '+' : ''}${v.ratio}%` : ''}</span>}
             </span>
           )}
         </div>
-        {d.mood_desc && <div className="text-[11.5px] text-text-dim mt-1 leading-relaxed">{d.mood_desc}</div>}
+        {d.mood_desc && <div className="text-[0.8214rem] text-text-dim mt-1 leading-relaxed">{d.mood_desc}</div>}
       </div>
 
       {/* 第二数据源(可选扩展源): 跳水榜 / 多空风向标 / 官方市场评价 —— 东财没有的维度。
@@ -139,10 +139,10 @@ export default function SentimentThermometer() {
         return (
           <div className="mb-3 px-3 py-2 rounded-lg bg-surface-3/60 border border-border-subtle">
             <div className="flex items-baseline gap-1.5 mb-1">
-              <span className="text-[10.5px] text-text-muted">{k['数据源'] || '扩展数据源'}</span>
-              {verdict && <span className="text-[11.5px] text-text-bright">{verdict}</span>}
+              <span className="text-[0.75rem] text-text-muted">{k['数据源'] || '扩展数据源'}</span>
+              {verdict && <span className="text-[0.8214rem] text-text-bright">{verdict}</span>}
             </div>
-            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px] text-text-dim">
+            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[0.7857rem] text-text-dim">
               {bl != null && (
                 <span title="全市场量能 vs 昨日同一时点">量能较昨
                   <span className={`ml-1 font-mono ${bl > 0 ? 'text-bear-bright' : bl < 0 ? 'text-bull-bright' : ''}`}>
@@ -166,39 +166,39 @@ export default function SentimentThermometer() {
       })()}
 
       {/* AI 情绪解读 */}
-      {aiLoading && !ai?.summary && <div className="text-[11.5px] text-text-dim mb-3">AI 分析市场情绪中…<span className="text-text-muted">(Opus 推理约 10–20 秒)</span></div>}
+      {aiLoading && !ai?.summary && <div className="text-[0.8214rem] text-text-dim mb-3">AI 分析市场情绪中…<span className="text-text-muted">(Opus 推理约 10–20 秒)</span></div>}
       {ai && ai.summary && (
         <div className={`mb-3 px-3 py-2.5 rounded-lg bg-accent/10 border border-accent/30 transition-opacity ${aiLoading ? 'opacity-50' : ''}`}>
           <div className="flex items-baseline justify-between gap-2 mb-1.5">
-            <span className="text-[11px] text-accent font-medium">AI 情绪解读{aiLoading && <span className="ml-1 text-text-muted">· 重新分析中…</span>}</span>
+            <span className="text-[0.7857rem] text-accent font-medium">AI 情绪解读{aiLoading && <span className="ml-1 text-text-muted">· 重新分析中…</span>}</span>
             <button onClick={() => loadAi(true)} disabled={aiLoading}
-              className="text-[10.5px] text-text-muted hover:text-text disabled:opacity-40 disabled:cursor-wait">
+              className="text-[0.75rem] text-text-muted hover:text-text disabled:opacity-40 disabled:cursor-wait">
               {aiLoading ? '分析中…' : '重新分析'}
             </button>
           </div>
-          <div className="text-[12.5px] text-text-bright leading-relaxed mb-1.5">{ai.summary}</div>
+          <div className="text-[0.8929rem] text-text-bright leading-relaxed mb-1.5">{ai.summary}</div>
           {ai.cycle && (
-            <div className="text-[11.5px] mb-1.5 flex gap-1.5">
+            <div className="text-[0.8214rem] mb-1.5 flex gap-1.5">
               <span className="text-accent shrink-0 font-medium">周期</span>
               <span className="text-text-dim">{ai.cycle}</span>
             </div>
           )}
           <div className="space-y-1">
             {(ai.points || []).map((p, i) => (
-              <div key={i} className="text-[11.5px] leading-relaxed flex gap-1.5">
+              <div key={i} className="text-[0.8214rem] leading-relaxed flex gap-1.5">
                 <span className="text-accent shrink-0 font-medium">{p.type}</span>
                 <span className="text-text-dim">{p.detail}</span>
               </div>
             ))}
           </div>
-          {ai.holdings_note && <div className="text-[11px] text-info mt-1.5 leading-relaxed">持仓: {ai.holdings_note}</div>}
+          {ai.holdings_note && <div className="text-[0.7857rem] text-info mt-1.5 leading-relaxed">持仓: {ai.holdings_note}</div>}
         </div>
       )}
 
       <CycleStrip />
 
       {/* 指标 grid */}
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-3 text-[11px]">
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-3 text-[0.7857rem]">
         {[
           ['涨停', d.n_zt, 'text-bear-bright'],
           ['跌停', d.n_dt, 'text-bull-bright'],
@@ -208,7 +208,7 @@ export default function SentimentThermometer() {
           ['昨涨停红盘', d.red_rate != null ? `${d.red_rate}%` : '--', d.red_rate >= 50 ? 'text-bear-bright' : 'text-bull-bright'],
         ].map(([label, val, cls], i) => (
           <div key={i} className="bg-surface-3 rounded-md px-2 py-1.5">
-            <div className="text-text-dim text-[10px] mb-0.5">{label}</div>
+            <div className="text-text-dim text-[0.7143rem] mb-0.5">{label}</div>
             <div className={`font-mono font-semibold ${cls}`}>{val}</div>
           </div>
         ))}
@@ -216,10 +216,10 @@ export default function SentimentThermometer() {
 
       {/* 连板梯队 + 板块热点 摘要 (点开看具体股票) */}
       <button onClick={() => setShowDetail(true)} className="w-full text-left">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] mb-1.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.8214rem] mb-1.5">
           {(d.ladder || []).length > 0 && (
             <div className="flex items-center gap-1.5">
-              <span className="text-text-muted text-[10.5px]">连板梯队</span>
+              <span className="text-text-muted text-[0.75rem]">连板梯队</span>
               {d.ladder.map((l, i) => (
                 <span key={i} className="font-mono text-text-dim">{l.lb}板<span className="text-accent">×{l.count}</span></span>
               ))}
@@ -227,25 +227,25 @@ export default function SentimentThermometer() {
           )}
           {(d.leaders || []).length > 0 && (
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-text-muted text-[10.5px]">龙头</span>
+              <span className="text-text-muted text-[0.75rem]">龙头</span>
               <span className="text-text-bright truncate">{d.leaders.join(' / ')}</span>
             </div>
           )}
         </div>
         {(d.hot_sectors || []).length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-text-muted text-[10.5px]">板块热点</span>
+            <span className="text-text-muted text-[0.75rem]">板块热点</span>
             {d.hot_sectors.slice(0, 5).map((h, i) => (
-              <span key={i} className="text-[11px] bg-surface-3 rounded px-2 py-0.5">
+              <span key={i} className="text-[0.7857rem] bg-surface-3 rounded px-2 py-0.5">
                 {h.name}<span className="text-accent font-mono ml-1">{h.count}</span>
               </span>
             ))}
-            <span className="text-[10.5px] text-accent">点开看具体股票 →</span>
+            <span className="text-[0.75rem] text-accent">点开看具体股票 →</span>
           </div>
         )}
       </button>
 
-      <div className="text-[10px] text-text-muted pt-2.5 mt-2 border-t border-border-subtle">
+      <div className="text-[0.7143rem] text-text-muted pt-2.5 mt-2 border-t border-border-subtle">
         纯客观情绪指标，看市场是高潮还是退潮 · 不构成任何买卖建议
       </div>
 

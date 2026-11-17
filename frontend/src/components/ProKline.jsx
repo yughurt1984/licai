@@ -696,7 +696,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
 
   return (
     <div className={fill ? 'relative flex flex-col h-full' : 'relative'}>
-      <div className="flex items-center gap-3 mb-1 text-[10.5px] h-4 shrink-0">
+      <div className="flex items-center gap-3 mb-1 text-[0.75rem] h-4 shrink-0">
         {legend
           ? <span className="font-mono text-text-dim flex gap-2.5 min-w-0 overflow-hidden whitespace-nowrap">
               <span className="text-text-muted">{legend.time}</span>
@@ -752,7 +752,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
         {hint && !intraday && (
           <button
             onClick={() => { setIntraday({ date: hint.date, prevClose: hint.prevClose, prevIsOpen: hint.prevIsOpen }); setHint(null) }}
-            className="absolute z-20 text-[10.5px] font-semibold px-2 py-1 rounded-lg cursor-pointer whitespace-nowrap"
+            className="absolute z-20 text-[0.75rem] font-semibold px-2 py-1 rounded-lg cursor-pointer whitespace-nowrap"
             style={{ left: Math.min(Math.max(hint.x + 8, 4), (wrapRef.current?.clientWidth || 400) - 120),
                      top: Math.max(hint.y - 34, 4),
                      background: cssVar('--color-accent', '#c8a876'), color: 'var(--color-bg-deeper)',
@@ -765,7 +765,7 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
 
       {/* 量/额 独立副图: 自己的纵轴刻度 + hover 出具体数字; 与主图时间轴双向同步 */}
       <div className="shrink-0 mt-0.5">
-        <div className="flex items-center gap-2 px-0.5 h-4 text-[10px]">
+        <div className="flex items-center gap-2 px-0.5 h-4 text-[0.7143rem]">
           {[['量', '成交量'], ...(hasAmt ? [['额', '成交额']] : []), ['MACD', 'MACD'], ['KDJ', 'KDJ']].map(([m, lbl]) => (
             <button key={m} onClick={() => setVolMode(m)}
               className={`px-1.5 rounded leading-4 ${volMode === m ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text'}`}>
@@ -807,8 +807,8 @@ export default function ProKline({ code, days = 250, height = 460, fill = false,
           onJumpDay={setIntraday} />
       )}
 
-      {err && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-text-dim">{err}</div>}
-      {loading && !err && <div className="absolute inset-x-0 top-1/2 text-center text-[12px] text-text-dim">加载 K 线…</div>}
+      {err && <div className="absolute inset-0 flex items-center justify-center text-[0.8571rem] text-text-dim">{err}</div>}
+      {loading && !err && <div className="absolute inset-x-0 top-1/2 text-center text-[0.8571rem] text-text-dim">加载 K 线…</div>}
     </div>
   )
 }

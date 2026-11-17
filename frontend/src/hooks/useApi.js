@@ -29,7 +29,7 @@ export async function fetchJSON(path, options) {
   const data = await res.json().catch(() => ({}))
   if (res.ok) {
     const method = (options?.method || 'GET').toUpperCase()
-    if (method !== 'GET' && /^\/api\/(assets|portfolio)/.test(path)) {
+    if (method !== 'GET' && /^\/api\/portfolio/.test(path)) {
       try { window.dispatchEvent(new CustomEvent(MUTATED_EVENT, { detail: path })) } catch {}
     }
   }

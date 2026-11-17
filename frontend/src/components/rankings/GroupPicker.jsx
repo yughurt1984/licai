@@ -37,7 +37,7 @@ export default function GroupPicker({ groups, current, onSet, onClose, className
   return (
     <div ref={rootRef} onClick={(e) => e.stopPropagation()}
       className={`z-30 w-44 bg-surface-2 border border-border rounded-lg shadow-xl py-1 ${className}`}>
-      <div className="px-2.5 py-1 text-[10px] text-text-muted">所属分组 · 可多选</div>
+      <div className="px-2.5 py-1 text-[0.7143rem] text-text-muted">所属分组 · 可多选</div>
       {/* 「自选」也是一个可勾的组, 排在最前(它是默认组)。勾了「金矿」不会把「自选」顶掉,
           两个可以同时勾上 —— 这就是"同时在自选和某个分组里"。 */}
       {[WL_DEFAULT, ...(groups || []).filter(g => g !== WL_DEFAULT)].map(g => {
@@ -48,10 +48,10 @@ export default function GroupPicker({ groups, current, onSet, onClose, className
           <button key={g} disabled={last}
             title={last ? '至少留一个分组; 想彻底不跟了就点标题栏的 ★ 移出观察池' : ''}
             onClick={(e) => { e.stopPropagation(); onSet(on ? mine.filter(x => x !== g) : [...mine, g]) }}
-            className={`w-full text-left px-2.5 py-1 text-[11px] hover:bg-surface-3/80
+            className={`w-full text-left px-2.5 py-1 text-[0.7857rem] hover:bg-surface-3/80
                         disabled:hover:bg-transparent ${on ? 'text-accent' : 'text-text-dim'}`}>
             <span className="inline-block w-3">{on ? '✓' : ''}</span>{g}
-            {g === WL_DEFAULT && <span className="text-text-muted ml-1 text-[9px]">默认</span>}
+            {g === WL_DEFAULT && <span className="text-text-muted ml-1 text-[0.6429rem]">默认</span>}
           </button>
         )
       })}
@@ -68,15 +68,15 @@ export default function GroupPicker({ groups, current, onSet, onClose, className
               if (e.key === 'Escape') { setCreating(false); setName('') }
             }}
             className="flex-1 min-w-0 bg-surface-3 border border-border-subtle rounded px-1.5 py-0.5
-                       text-[11px] text-text outline-none focus:border-accent/50" />
+                       text-[0.7857rem] text-text outline-none focus:border-accent/50" />
           <button onClick={submit} disabled={!name.trim()}
-            className="text-[11px] px-1.5 py-0.5 rounded text-accent hover:bg-accent/10 disabled:opacity-40">
+            className="text-[0.7857rem] px-1.5 py-0.5 rounded text-accent hover:bg-accent/10 disabled:opacity-40">
             建
           </button>
         </div>
       ) : (
         <button onClick={(e) => { e.stopPropagation(); setCreating(true) }}
-          className="w-full text-left px-2.5 py-1 text-[11px] text-accent hover:bg-surface-3/80
+          className="w-full text-left px-2.5 py-1 text-[0.7857rem] text-accent hover:bg-surface-3/80
                      border-t border-border-subtle mt-1">
           + 新建分组…
         </button>

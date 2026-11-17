@@ -8,7 +8,7 @@ import BrokerSection from './account/BrokerSection'
  * 账户中心(替代原「个人中心」): 左侧节导航(账户/显示设置/券商设置) + 右侧内容,
  * 形态对齐参考站 rich.luyaolab.cn/settings。
  * - 账户: 资料(头像/昵称/ID/注册信息) + 登录方式(绑定邮箱/微信预留/改密) + 退出/注销
- * - 显示设置: 外观(浅色/深色/跟随系统) + 显示偏好(金额万单位/红涨绿跌) + 语言(预留置灰)
+ * - 显示设置: 外观(浅色纯白/深色深蓝/护眼暖纸) + 字体大小(小中大) + 显示偏好(金额万单位/红涨绿跌) + 语言(预留置灰)
  * - 券商设置: 原 ProfilePage 的券商费率配置整节迁入
  *
  * user 由 App 传入(/api/auth/me 结果); onUserChange 上报资料变更; onAvatarChange
@@ -37,7 +37,7 @@ export default function AccountPage({ user, avatarUrl, onUserChange, onAvatarCha
           const on = section === s.key
           return (
             <button key={s.key} onClick={() => setSection(s.key)}
-              className={`w-full flex items-center gap-2.5 px-3 h-10 rounded-lg text-left text-[13px] transition-colors cursor-pointer
+              className={`w-full flex items-center gap-2.5 px-3 h-10 rounded-lg text-left text-[0.9286rem] transition-colors cursor-pointer
                 ${on ? 'bg-accent/12 text-accent font-medium' : 'text-text-dim hover:text-text hover:bg-surface-3/60'}`}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
@@ -134,18 +134,18 @@ function AccountTab({ user, avatarUrl, onUserChange, onAvatarChange, onLogout })
       {/* 标题带 + 注销账号(预留) */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-[18px] font-semibold text-text-bright m-0">个人资料</h2>
-          <p className="text-[12px] text-text-dim m-0 mt-1">管理头像、昵称、登录方式和账户安全</p>
+          <h2 className="text-[1.2857rem] font-semibold text-text-bright m-0">个人资料</h2>
+          <p className="text-[0.8571rem] text-text-dim m-0 mt-1">管理头像、昵称、登录方式和账户安全</p>
         </div>
         <button onClick={() => setStatus({
             text: '注销账号功能即将上线: 涉及全部持仓/流水等用户数据的级联清理, 暂时未开放。', ok: null })}
-          className="text-[12.5px] text-bear hover:text-bear-bright transition-colors cursor-pointer shrink-0 mt-1">
+          className="text-[0.8929rem] text-bear hover:text-bear-bright transition-colors cursor-pointer shrink-0 mt-1">
           注销账号
         </button>
       </div>
 
       {status.text && (
-        <p className={`text-[12px] m-0 ${status.ok === true ? 'text-bull' : status.ok === false ? 'text-bear' : 'text-text-dim'}`}>
+        <p className={`text-[0.8571rem] m-0 ${status.ok === true ? 'text-bull' : status.ok === false ? 'text-bear' : 'text-text-dim'}`}>
           {status.text}
         </p>
       )}
@@ -157,9 +157,9 @@ function AccountTab({ user, avatarUrl, onUserChange, onAvatarChange, onLogout })
                      bg-accent/15 border border-accent/30 flex items-center justify-center">
           {avatarUrl
             ? <img src={avatarUrl} alt="头像" className="w-full h-full object-cover" />
-            : <span className="text-[36px] font-semibold text-accent select-none">{initial}</span>}
+            : <span className="text-[2.5714rem] font-semibold text-accent select-none">{initial}</span>}
           <span className="absolute inset-0 hidden group-hover:flex items-center justify-center
-                           bg-black/35 text-white text-[11px]">更换</span>
+                           bg-black/35 text-white text-[0.7857rem]">更换</span>
           <span className="absolute bottom-1 right-1 w-7 h-7 rounded-full bg-surface border border-border
                            flex items-center justify-center text-text-dim group-hover:text-accent transition-colors">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -169,7 +169,7 @@ function AccountTab({ user, avatarUrl, onUserChange, onAvatarChange, onLogout })
         </button>
         {avatarUrl && (
           <button onClick={removeAvatar}
-            className="self-end ml-2 text-[11px] text-text-muted hover:text-bear transition-colors cursor-pointer">移除头像</button>
+            className="self-end ml-2 text-[0.7857rem] text-text-muted hover:text-bear transition-colors cursor-pointer">移除头像</button>
         )}
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp"
           className="hidden" onChange={onAvatarFile} />
@@ -179,28 +179,28 @@ function AccountTab({ user, avatarUrl, onUserChange, onAvatarChange, onLogout })
       {group(
         <>
           <div className={rowCls}>
-            <span className="text-[13px] text-text">昵称</span>
+            <span className="text-[0.9286rem] text-text">昵称</span>
             {editingName ? (
               <span className="flex items-center gap-2">
                 <input autoFocus value={nameDraft} maxLength={32}
                   onChange={e => setNameDraft(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false) }}
-                  className="bg-bg border border-border rounded-md px-2 py-1 text-[13px] text-text outline-none focus:border-accent w-44" />
-                <button onClick={saveName} className="text-[12px] text-accent hover:opacity-80 cursor-pointer">保存</button>
-                <button onClick={() => setEditingName(false)} className="text-[12px] text-text-dim hover:text-text cursor-pointer">取消</button>
+                  className="bg-bg border border-border rounded-md px-2 py-1 text-[0.9286rem] text-text outline-none focus:border-accent w-44" />
+                <button onClick={saveName} className="text-[0.8571rem] text-accent hover:opacity-80 cursor-pointer">保存</button>
+                <button onClick={() => setEditingName(false)} className="text-[0.8571rem] text-text-dim hover:text-text cursor-pointer">取消</button>
               </span>
             ) : (
               <button onClick={() => { setNameDraft(user.display_name === user.username ? '' : (user.display_name || '')); setEditingName(true) }}
-                className="flex items-center gap-1.5 text-[13px] text-text-dim hover:text-text transition-colors cursor-pointer">
+                className="flex items-center gap-1.5 text-[0.9286rem] text-text-dim hover:text-text transition-colors cursor-pointer">
                 {user.display_name || user.username}
                 {chevron}
               </button>
             )}
           </div>
           <div className={rowCls}>
-            <span className="text-[13px] text-text">用户 ID</span>
+            <span className="text-[0.9286rem] text-text">用户 ID</span>
             <button onClick={copyId} title="点击复制"
-              className="flex items-center gap-1.5 text-[13px] text-text-dim font-mono hover:text-text transition-colors cursor-pointer">
+              className="flex items-center gap-1.5 text-[0.9286rem] text-text-dim font-mono hover:text-text transition-colors cursor-pointer">
               {user.user_id}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 012-2h10" />
@@ -208,12 +208,12 @@ function AccountTab({ user, avatarUrl, onUserChange, onAvatarChange, onLogout })
             </button>
           </div>
           <div className={rowCls}>
-            <span className="text-[13px] text-text">注册日期</span>
-            <span className="text-[13px] text-text-dim font-mono">{fmtDateTime(user.created_at)}</span>
+            <span className="text-[0.9286rem] text-text">注册日期</span>
+            <span className="text-[0.9286rem] text-text-dim font-mono">{fmtDateTime(user.created_at)}</span>
           </div>
           <div className={rowCls}>
-            <span className="text-[13px] text-text">注册账号</span>
-            <span className="text-[13px] text-text-dim">{user.email ? '邮箱注册' : '用户名注册'}</span>
+            <span className="text-[0.9286rem] text-text">注册账号</span>
+            <span className="text-[0.9286rem] text-text-dim">{user.email ? '邮箱注册' : '用户名注册'}</span>
           </div>
         </>
       )}
@@ -223,24 +223,24 @@ function AccountTab({ user, avatarUrl, onUserChange, onAvatarChange, onLogout })
         <>
           <button onClick={() => setBindOpen(true)}
             className={`${rowCls} w-full text-left hover:bg-surface-3/40 transition-colors cursor-pointer`}>
-            <span className="text-[13px] text-text">绑定邮箱</span>
-            <span className="flex items-center gap-1.5 text-[13px] text-text-dim">
+            <span className="text-[0.9286rem] text-text">绑定邮箱</span>
+            <span className="flex items-center gap-1.5 text-[0.9286rem] text-text-dim">
               {user.email || '未绑定'}
-              {user.email && user.email_verified && <span className="text-[10.5px] text-bull">已验证</span>}
+              {user.email && user.email_verified && <span className="text-[0.75rem] text-bull">已验证</span>}
               {chevron}
             </span>
           </button>
           <button onClick={() => setStatus({ text: WECHAT_HINT, ok: null })}
             className={`${rowCls} w-full text-left hover:bg-surface-3/40 transition-colors cursor-pointer`}>
-            <span className="text-[13px] text-text">绑定微信</span>
-            <span className="flex items-center gap-1.5 text-[13px] text-text-dim">
-              未绑定<span className="text-[10.5px] text-text-muted">暂未开通</span>
+            <span className="text-[0.9286rem] text-text">绑定微信</span>
+            <span className="flex items-center gap-1.5 text-[0.9286rem] text-text-dim">
+              未绑定<span className="text-[0.75rem] text-text-muted">暂未开通</span>
               {chevron}
             </span>
           </button>
           <button onClick={() => setPwdOpen(true)}
             className={`${rowCls} w-full text-left hover:bg-surface-3/40 transition-colors cursor-pointer`}>
-            <span className="text-[13px] text-text">修改密码</span>
+            <span className="text-[0.9286rem] text-text">修改密码</span>
             {chevron}
           </button>
         </>
@@ -250,7 +250,7 @@ function AccountTab({ user, avatarUrl, onUserChange, onAvatarChange, onLogout })
       {group(
         <button onClick={onLogout}
           className={`${rowCls} w-full text-left hover:bg-surface-3/40 transition-colors cursor-pointer`}>
-          <span className="text-[13px] text-accent font-medium">退出登录</span>
+          <span className="text-[0.9286rem] text-accent font-medium">退出登录</span>
           {chevron}
         </button>
       )}
@@ -338,7 +338,7 @@ function BindEmailModal({ current, onClose, onDone }) {
     } catch (e) { setErr(e.message || '绑定失败') } finally { setBusy(false) }
   }
 
-  const inp = 'w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text outline-none focus:border-accent transition-colors'
+  const inp = 'w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text outline-none focus:border-accent transition-colors'
   return (
     <ModalShell title={current ? '换绑邮箱' : '绑定邮箱'} onClose={onClose}>
       <div className="space-y-3">
@@ -347,18 +347,18 @@ function BindEmailModal({ current, onClose, onDone }) {
             onChange={e => setEmail(e.target.value)} autoFocus />
           <button type="button" onClick={send}
             disabled={sending || countdown > 0 || !email.trim()}
-            className="shrink-0 px-3 rounded-lg border border-accent/40 bg-accent/10 text-accent text-[12px]
+            className="shrink-0 px-3 rounded-lg border border-accent/40 bg-accent/10 text-accent text-[0.8571rem]
                        whitespace-nowrap hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
             {sending ? '发送中…' : countdown > 0 ? `${countdown}s` : '发送验证码'}
           </button>
         </div>
         <input className={inp} placeholder="邮箱验证码 (10 分钟内有效)" value={code} inputMode="numeric"
           onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
-        {err && <p className="text-[12px] text-bear m-0">{err}</p>}
+        {err && <p className="text-[0.8571rem] text-bear m-0">{err}</p>}
         <div className="flex justify-end gap-2 pt-1">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[12px] hover:text-text cursor-pointer">取消</button>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[0.8571rem] hover:text-text cursor-pointer">取消</button>
           <button onClick={submit} disabled={busy || !email.trim() || !code.trim()}
-            className="px-4 py-1.5 rounded-md bg-accent text-bg-deeper text-[12px] font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer">
+            className="px-4 py-1.5 rounded-md bg-accent text-bg-deeper text-[0.8571rem] font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer">
             {busy ? '绑定中…' : '绑定'}
           </button>
         </div>
@@ -386,7 +386,7 @@ function PasswordModal({ onClose, onDone }) {
     } catch (e) { setErr(e.message || '修改失败') } finally { setBusy(false) }
   }
 
-  const inp = 'w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text outline-none focus:border-accent transition-colors'
+  const inp = 'w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text outline-none focus:border-accent transition-colors'
   return (
     <ModalShell title="修改密码" onClose={onClose}>
       <div className="space-y-3">
@@ -396,11 +396,11 @@ function PasswordModal({ onClose, onDone }) {
           autoComplete="new-password" onChange={e => setNewPwd(e.target.value)} />
         <input className={inp} type="password" placeholder="再输一遍新密码" value={newPwd2}
           autoComplete="new-password" onChange={e => setNewPwd2(e.target.value)} />
-        {err && <p className="text-[12px] text-bear m-0">{err}</p>}
+        {err && <p className="text-[0.8571rem] text-bear m-0">{err}</p>}
         <div className="flex justify-end gap-2 pt-1">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[12px] hover:text-text cursor-pointer">取消</button>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[0.8571rem] hover:text-text cursor-pointer">取消</button>
           <button onClick={submit} disabled={busy || !oldPwd || !newPwd}
-            className="px-4 py-1.5 rounded-md bg-accent text-bg-deeper text-[12px] font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer">
+            className="px-4 py-1.5 rounded-md bg-accent text-bg-deeper text-[0.8571rem] font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer">
             {busy ? '保存中…' : '保存'}
           </button>
         </div>
@@ -416,7 +416,7 @@ function ModalShell({ title, onClose, children }) {
       <div className="w-full max-w-[380px] rounded-xl border border-border bg-surface p-4 shadow-xl fade-up"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[14px] font-semibold text-text-bright m-0">{title}</h3>
+          <h3 className="text-[1rem] font-semibold text-text-bright m-0">{title}</h3>
           <button onClick={onClose} className="text-text-muted hover:text-text transition-colors cursor-pointer">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M6 6l12 12M18 6L6 18" />
@@ -432,13 +432,21 @@ function ModalShell({ title, onClose, children }) {
 /* ══════════════════ 显示设置 ══════════════════ */
 
 const THEME_OPTIONS = [
-  { key: 'light', label: '浅色', sub: '明亮清晰' },
-  { key: 'dark', label: '深色', sub: '减少眩光' },
-  { key: 'system', label: '跟随系统', sub: '自动切换' },
+  { key: 'light', label: '浅色', sub: '纯白 · 干净利落' },
+  { key: 'dark', label: '深色', sub: '深蓝 · 沉稳专注' },
+  { key: 'eyecare', label: '护眼模式', sub: '暖纸 · 长时间阅读' },
+]
+
+// 字体三档 → html 根字号(prefs.js FONT_SCALES 同源)。preview 是该档下正文字号
+// (14px 根 = 小档正文)的真实像素, 预览即所见。
+const FONT_OPTIONS = [
+  { key: 's', label: '小', sub: '原版 · 单屏信息更多', preview: 13 },
+  { key: 'm', label: '中', sub: '默认 · 推荐日常', preview: 15 },
+  { key: 'l', label: '大', sub: '更易读更护眼', preview: 17 },
 ]
 
 function AppearancePreview({ kind }) {
-  // 参考图式迷你窗口预览: 浅/深两态直出, system 用对角分割双态
+  // 参考图式迷你窗口预览: 各主题的 bg/内容条/分隔条真实取色
   const bar = (bg) => <div className="h-2 rounded-sm" style={{ background: bg }} />
   const frame = (bg, fg, sub) => (
     <div className="w-full h-full rounded-md border p-1.5 flex flex-col gap-1"
@@ -454,14 +462,20 @@ function AppearancePreview({ kind }) {
       </div>
     </div>
   )
-  if (kind === 'light') return frame('#ffffff', '#d8d2c4', '#e8e4da')
-  if (kind === 'dark') return frame('#1d1c18', '#3a362c', '#2c2a24')
+  if (kind === 'light') return frame('#ffffff', '#e2e5ea', '#eef0f3')     // 纯白
+  if (kind === 'dark') return frame('#0e1622', '#2b3b55', '#1d2a3d')      // 深蓝
+  return frame('#f7f6f3', '#d8d2c4', '#e8e4da')                           // 护眼暖纸
+}
+
+function FontPreview({ px }) {
+  // 迷你行情卡预览: 用该档真实正文字号渲染, 三卡并排大小差异一目了然
   return (
-    <div className="relative w-full h-full">
-      <div className="absolute inset-0">{frame('#ffffff', '#d8d2c4', '#e8e4da')}</div>
-      <div className="absolute inset-0" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }}>
-        {frame('#1d1c18', '#3a362c', '#2c2a24')}
+    <div className="w-full h-full rounded-md border border-border bg-surface-2 p-2 flex flex-col justify-center gap-1.5">
+      <div className="text-text-dim" style={{ fontSize: px - 2 }}>总资产 · 今日盈亏</div>
+      <div className="font-mono font-semibold text-accent leading-none" style={{ fontSize: px + 1 }}>
+        ¥1,286,540.00
       </div>
+      <div className="font-mono leading-none" style={{ fontSize: px, color: 'var(--color-up)' }}>+2.34%</div>
     </div>
   )
 }
@@ -473,7 +487,7 @@ function DisplayTab() {
     <div className="space-y-6 fade-up">
       {/* 外观 */}
       <section>
-        <h3 className="text-[14px] font-semibold text-text m-0 mb-2">外观</h3>
+        <h3 className="text-[1rem] font-semibold text-text m-0 mb-2">外观</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {THEME_OPTIONS.map(o => {
             const on = prefs.theme === o.key
@@ -488,9 +502,35 @@ function DisplayTab() {
                   <div className="flex items-center gap-2">
                     <ThemeMiniIcon kind={o.key} />
                     <div>
-                      <div className={`text-[13px] font-medium ${on ? 'text-accent' : 'text-text'}`}>{o.label}</div>
-                      <div className="text-[11px] text-text-dim">{o.sub}</div>
+                      <div className={`text-[0.9286rem] font-medium ${on ? 'text-accent' : 'text-text'}`}>{o.label}</div>
+                      <div className="text-[0.7857rem] text-text-dim">{o.sub}</div>
                     </div>
+                  </div>
+                  <RadioDot on={on} />
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* 字体大小 */}
+      <section>
+        <h3 className="text-[1rem] font-semibold text-text m-0 mb-2">字体大小</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {FONT_OPTIONS.map(o => {
+            const on = prefs.fontScale === o.key
+            return (
+              <button key={o.key} onClick={() => setPrefs({ fontScale: o.key })}
+                className={`text-left rounded-xl border p-2.5 transition-all cursor-pointer
+                  ${on ? 'border-accent bg-accent/8 shadow-[0_0_0_1px_var(--color-accent)]' : 'border-border bg-surface/70 hover:border-border-med'}`}>
+                <div className="h-[72px] mb-2.5">
+                  <FontPreview px={o.preview} />
+                </div>
+                <div className="flex items-center justify-between px-0.5">
+                  <div>
+                    <div className={`text-[0.9643rem] font-medium ${on ? 'text-accent' : 'text-text'}`}>{o.label}</div>
+                    <div className="text-[0.8214rem] text-text-dim">{o.sub}</div>
                   </div>
                   <RadioDot on={on} />
                 </div>
@@ -502,7 +542,7 @@ function DisplayTab() {
 
       {/* 显示偏好 */}
       <section>
-        <h3 className="text-[14px] font-semibold text-text m-0 mb-2">显示偏好</h3>
+        <h3 className="text-[1rem] font-semibold text-text m-0 mb-2">显示偏好</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* 金额万单位 */}
           <div className="rounded-xl border border-border bg-surface/70 p-4 flex items-start justify-between gap-3">
@@ -513,11 +553,11 @@ function DisplayTab() {
                 </svg>
               </span>
               <div>
-                <div className="text-[13.5px] font-medium text-text">金额以万为单位显示</div>
-                <div className="text-[11.5px] text-text-dim mt-0.5">10,000 以上按万显示</div>
+                <div className="text-[0.9643rem] font-medium text-text">金额以万为单位显示</div>
+                <div className="text-[0.8214rem] text-text-dim mt-0.5">10,000 以上按万显示</div>
                 <div className="flex gap-1.5 mt-2">
-                  <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[11px] font-mono">1.23万</span>
-                  <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[11px] font-mono">123.46万</span>
+                  <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[0.7857rem] font-mono">1.23万</span>
+                  <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[0.7857rem] font-mono">123.46万</span>
                 </div>
               </div>
             </div>
@@ -533,12 +573,12 @@ function DisplayTab() {
                 </svg>
               </span>
               <div>
-                <div className="text-[13.5px] font-medium text-text">红涨绿跌</div>
-                <div className="text-[11.5px] text-text-dim mt-0.5">上涨显示红色, 下跌显示绿色 · 即时生效</div>
+                <div className="text-[0.9643rem] font-medium text-text">红涨绿跌</div>
+                <div className="text-[0.8214rem] text-text-dim mt-0.5">上涨显示红色, 下跌显示绿色 · 即时生效</div>
                 <div className="flex gap-1.5 mt-2">
-                  <span className="px-1.5 py-0.5 rounded text-[11px] font-mono"
+                  <span className="px-1.5 py-0.5 rounded text-[0.7857rem] font-mono"
                     style={{ background: 'var(--color-up-bg)', color: 'var(--color-up)' }}>+8.26%</span>
-                  <span className="px-1.5 py-0.5 rounded text-[11px] font-mono"
+                  <span className="px-1.5 py-0.5 rounded text-[0.7857rem] font-mono"
                     style={{ background: 'var(--color-down-bg)', color: 'var(--color-down)' }}>-3.14%</span>
                 </div>
               </div>
@@ -550,7 +590,7 @@ function DisplayTab() {
 
       {/* 语言与内容(预留): 全站中文硬编码, i18n 后续版本接 */}
       <section>
-        <h3 className="text-[14px] font-semibold text-text m-0 mb-2">语言与内容</h3>
+        <h3 className="text-[1rem] font-semibold text-text m-0 mb-2">语言与内容</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <LangCard title="简体中文" sub="中国大陆" on />
           <LangCard title="跟随系统" sub="使用浏览器语言" disabled />
@@ -606,8 +646,8 @@ function LangCard({ title, sub, on = false, disabled = false }) {
         ${on ? 'border-accent bg-accent/8' : 'border-border bg-surface/70'}
         ${disabled ? 'opacity-45 cursor-not-allowed' : clickable ? 'cursor-pointer hover:border-border-med' : 'cursor-default'}`}>
       <div>
-        <div className={`text-[13.5px] font-medium ${on ? 'text-accent' : 'text-text'}`}>{title}</div>
-        <div className="text-[11.5px] text-text-dim mt-0.5">{sub}{disabled && ' · 即将支持'}</div>
+        <div className={`text-[0.9643rem] font-medium ${on ? 'text-accent' : 'text-text'}`}>{title}</div>
+        <div className="text-[0.8214rem] text-text-dim mt-0.5">{sub}{disabled && ' · 即将支持'}</div>
       </div>
       {disabled
         ? <span className="w-5 h-5 rounded-full border-2 border-border-strong shrink-0" />
@@ -622,8 +662,8 @@ function BrokerTab() {
   return (
     <div className="space-y-4 fade-up">
       <div>
-        <h2 className="text-[18px] font-semibold text-text-bright m-0">券商设置</h2>
-        <p className="text-[12px] text-text-dim m-0 mt-1">券商费率档案, 供持仓/流水的手续费估算取用</p>
+        <h2 className="text-[1.2857rem] font-semibold text-text-bright m-0">券商设置</h2>
+        <p className="text-[0.8571rem] text-text-dim m-0 mt-1">券商费率档案, 供持仓/流水的手续费估算取用</p>
       </div>
       <BrokerSection />
     </div>

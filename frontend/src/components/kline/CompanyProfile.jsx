@@ -22,10 +22,10 @@ export function CompanyDetail({ co }) {
   return (
     <>
       {co.profile && (
-        <p className="text-[11px] text-text-dim leading-relaxed m-0 mb-2 whitespace-pre-wrap">{co.profile}</p>
+        <p className="text-[0.7857rem] text-text-dim leading-relaxed m-0 mb-2 whitespace-pre-wrap">{co.profile}</p>
       )}
       {(co.main_business || []).length > 0 && (
-        <div className="text-[10.5px]">
+        <div className="text-[0.75rem]">
           <div className="text-text-muted mb-1">
             主营构成{co.report_date ? ` · ${co.report_date}` : ''}
             <span className="text-text-dim ml-2">营收占比 / 毛利率</span>
@@ -41,7 +41,7 @@ export function CompanyDetail({ co }) {
           ))}
         </div>
       )}
-      <div className="text-[10px] text-text-muted mt-2 pt-1.5 border-t border-border-subtle">
+      <div className="text-[0.7143rem] text-text-muted mt-2 pt-1.5 border-t border-border-subtle">
         {[co.employees ? `员工 ${co.employees}` : '', co.controller ? `实控 ${co.controller}` : '']
           .filter(Boolean).join(' · ') || '数据来自公开披露'}
       </div>
@@ -58,9 +58,9 @@ export function CompanyStrip({ code }) {
     <div className="mb-3 rounded-lg border border-border-subtle bg-surface/40">
       <button onClick={() => setOpen(v => !v)} title={open ? '收起' : '点开看完整简介与主营构成'}
         className="w-full flex items-baseline gap-2 px-3 py-1.5 text-left cursor-pointer min-w-0">
-        <span className="text-[11px] text-accent whitespace-nowrap shrink-0">{co.industry}</span>
-        {co.brief && <span className="text-[11px] text-text-dim truncate min-w-0">{co.brief}</span>}
-        <span className="ml-auto text-[11px] text-text-muted shrink-0">{open ? '收起 ⌄' : '公司简介 ›'}</span>
+        <span className="text-[0.7857rem] text-accent whitespace-nowrap shrink-0">{co.industry}</span>
+        {co.brief && <span className="text-[0.7857rem] text-text-dim truncate min-w-0">{co.brief}</span>}
+        <span className="ml-auto text-[0.7857rem] text-text-muted shrink-0">{open ? '收起 ⌄' : '公司简介 ›'}</span>
       </button>
       {open && (
         <div className="px-3 pb-2.5 pt-1 border-t border-border-subtle max-h-60 overflow-y-auto">

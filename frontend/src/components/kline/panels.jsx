@@ -11,7 +11,7 @@ export function OrderBook({ data, prevClose, decimals = 2 }) {
   const px = (p) => p == null ? '--' : <span className={colorPct(prevClose ? ((p / prevClose) - 1) * 100 : 0)}>{p.toFixed(decimals)}</span>
   const maxVol = Math.max(1, ...[...(data.bids || []), ...(data.asks || [])].map(l => Number(l['手']) || 0))
   const Row = ({ lvl, side, idx }) => (
-    <div className="relative flex justify-between items-center px-1.5 py-[3px] text-[11px] font-mono">
+    <div className="relative flex justify-between items-center px-1.5 py-[3px] text-[0.7857rem] font-mono">
       <div className="absolute inset-y-0 right-0 rounded-sm" style={{ width: `${(Number(lvl['手']) || 0) / maxVol * 100}%`, background: side === 'ask' ? 'rgba(95,168,108,.13)' : 'rgba(207,92,92,.13)' }} />
       <span className="relative text-text-muted">{side === 'ask' ? '卖' : '买'}{idx}</span>
       <span className="relative">{px(lvl.price)}</span>
@@ -20,11 +20,11 @@ export function OrderBook({ data, prevClose, decimals = 2 }) {
   )
   return (
     <div>
-      <div className="text-[10.5px] text-text-muted mb-1 flex justify-between"><span>五档盘口</span><span>手</span></div>
+      <div className="text-[0.75rem] text-text-muted mb-1 flex justify-between"><span>五档盘口</span><span>手</span></div>
       {[...(data.asks || [])].slice(0, 5).reverse().map((l, i, arr) => <Row key={'a' + i} lvl={l} side="ask" idx={arr.length - i} />)}
       <div className="border-t border-border-subtle my-0.5" />
       {(data.bids || []).slice(0, 5).map((l, i) => <Row key={'b' + i} lvl={l} side="bid" idx={i + 1} />)}
-      <div className="flex justify-between text-[10.5px] mt-1.5 px-1.5">
+      <div className="flex justify-between text-[0.75rem] mt-1.5 px-1.5">
         <span className="text-bull">内盘 {fmtHand(data['内盘手'])}</span>
         <span className="text-bear">外盘 {fmtHand(data['外盘手'])}</span>
       </div>
@@ -47,7 +47,7 @@ export function Ticks({ ticks, decimals = 2, fill = false }) {
     const big = v >= bigThresh
     const dc = t.dir === '买' ? UP : t.dir === '卖' ? DOWN : 'var(--color-text-muted)'
     return (
-      <div key={i} className="flex justify-between items-center text-[10.5px] font-mono py-[2px]"
+      <div key={i} className="flex justify-between items-center text-[0.75rem] font-mono py-[2px]"
         style={big ? { background: t.dir === '买' ? 'rgba(207,92,92,.12)' : t.dir === '卖' ? 'rgba(95,168,108,.12)' : 'transparent', borderRadius: 3 } : undefined}>
         <span className="text-text-muted px-1">{t.time}</span>
         <span className={big ? 'text-text-bright' : 'text-text'}>{t.price.toFixed(decimals)}</span>
@@ -55,7 +55,7 @@ export function Ticks({ ticks, decimals = 2, fill = false }) {
       </div>
     )
   })
-  const head = <div className="text-[10.5px] text-text-muted mb-1 flex justify-between"><span>逐笔成交</span><span className="text-text-muted/70">大单加亮</span></div>
+  const head = <div className="text-[0.75rem] text-text-muted mb-1 flex justify-between"><span>逐笔成交</span><span className="text-text-muted/70">大单加亮</span></div>
   if (fill) return (
     <div className="flex flex-col flex-1 min-h-0">
       {head}
@@ -105,28 +105,28 @@ export function LhbPanel({ code }) {
 
   return (
     <div className="mt-3 border-t border-border-subtle pt-2">
-      <button onClick={toggle} className="flex items-center gap-1.5 text-[12px] text-text-dim hover:text-text cursor-pointer">
+      <button onClick={toggle} className="flex items-center gap-1.5 text-[0.8571rem] text-text-dim hover:text-text cursor-pointer">
         <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
-        深度龙虎榜 <span className="text-[10px] text-text-muted">扩展数据源 · 席位带游资标签</span>
+        深度龙虎榜 <span className="text-[0.7143rem] text-text-muted">扩展数据源 · 席位带游资标签</span>
       </button>
       {open && (
         <div className="mt-2">
-          {loading && <div className="text-[11px] text-text-dim">拉取中…</div>}
+          {loading && <div className="text-[0.7857rem] text-text-dim">拉取中…</div>}
           {err === 'unavailable' && (
-            <div className="text-[11px] text-text-muted">
+            <div className="text-[0.7857rem] text-text-muted">
               这一层席位身份标签由可选的扩展数据源提供，当前未接入 — 上面的龙虎榜(东财口径)不受影响。
             </div>
           )}
           {err === 'need_login' && (
-            <div className="text-[11px] text-warn">
+            <div className="text-[0.7857rem] text-warn">
               扩展数据源凭证已失效 — 去 设置 → 扩展数据源 重新填一次。
             </div>
           )}
-          {err && err !== 'need_login' && err !== 'unavailable' && <div className="text-[11px] text-text-muted">{err}</div>}
-          {d && !d.上榜 && <div className="text-[11px] text-text-muted">{d.note}</div>}
+          {err && err !== 'need_login' && err !== 'unavailable' && <div className="text-[0.7857rem] text-text-muted">{err}</div>}
+          {d && !d.上榜 && <div className="text-[0.7857rem] text-text-muted">{d.note}</div>}
           {d && d.上榜 && (
             <div className="space-y-2">
-              <div className="text-[11px] text-text-dim flex flex-wrap gap-x-3">
+              <div className="text-[0.7857rem] text-text-dim flex flex-wrap gap-x-3">
                 <span>{d.date}</span>
                 <span>龙虎榜成交 <span className="font-mono text-text">{yi(d.龙虎榜成交额亿)}</span></span>
                 {d.净买入亿 != null && (
@@ -137,27 +137,27 @@ export function LhbPanel({ code }) {
                 {d.连板数 > 0 && <span className="text-accent">{d.连板数}连板</span>}
               </div>
               {(d.席位 || []).length > 1 && (
-                <div className="text-[10.5px] text-text-muted">
+                <div className="text-[0.75rem] text-text-muted">
                   同一天触发了 {d.席位.length} 个上榜条件, 交易所按条件各披露一张席位表; 「三个交易日…」那张是 3 日累计金额, 其余是当日。
                 </div>
               )}
               {(d.席位 || []).map((b, i) => (
                 <div key={i} className="bg-surface-3 rounded p-2">
-                  {b.上榜原因 && <div className="text-[10.5px] text-text-muted mb-1">{Array.isArray(b.上榜原因) ? b.上榜原因.join(' · ') : b.上榜原因}</div>}
+                  {b.上榜原因 && <div className="text-[0.75rem] text-text-muted mb-1">{Array.isArray(b.上榜原因) ? b.上榜原因.join(' · ') : b.上榜原因}</div>}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                     <div>
-                      <div className="text-[10px] text-bear-bright mb-0.5">买入 {yi(b.买入合计亿)}</div>
+                      <div className="text-[0.7143rem] text-bear-bright mb-0.5">买入 {yi(b.买入合计亿)}</div>
                       {(b.买入席位 || []).slice(0, 5).map((s, j) => (
-                        <div key={j} className="text-[10.5px] text-text-dim flex justify-between gap-2">
+                        <div key={j} className="text-[0.75rem] text-text-dim flex justify-between gap-2">
                           <span className="truncate">{s.营业部}{s.标签 && <span className="text-accent ml-1">{s.标签.join('/')}</span>}</span>
                           <span className="font-mono text-bear-bright shrink-0">{yi(s.买入亿)}</span>
                         </div>
                       ))}
                     </div>
                     <div>
-                      <div className="text-[10px] text-bull-bright mb-0.5">卖出 {yi(b.卖出合计亿)}</div>
+                      <div className="text-[0.7143rem] text-bull-bright mb-0.5">卖出 {yi(b.卖出合计亿)}</div>
                       {(b.卖出席位 || []).slice(0, 5).map((s, j) => (
-                        <div key={j} className="text-[10.5px] text-text-dim flex justify-between gap-2">
+                        <div key={j} className="text-[0.75rem] text-text-dim flex justify-between gap-2">
                           <span className="truncate">{s.营业部}{s.标签 && <span className="text-accent ml-1">{s.标签.join('/')}</span>}</span>
                           <span className="font-mono text-bull-bright shrink-0">{yi(s.卖出亿)}</span>
                         </div>
@@ -166,7 +166,7 @@ export function LhbPanel({ code }) {
                   </div>
                 </div>
               ))}
-              <div className="text-[10px] text-text-muted">深度龙虎榜(扩展数据源) · 标签为游资/机构身份识别 · 已披露数据不构成买卖建议</div>
+              <div className="text-[0.7143rem] text-text-muted">深度龙虎榜(扩展数据源) · 标签为游资/机构身份识别 · 已披露数据不构成买卖建议</div>
             </div>
           )}
         </div>

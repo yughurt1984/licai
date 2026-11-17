@@ -60,16 +60,16 @@ export default function SectorRadar() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-center justify-between"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">板块雷达</h3>
-          <span className="text-[11px] text-text-dim">你 vs 行业 ETF · 30/60 日</span>
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">板块雷达</h3>
+          <span className="text-[0.7857rem] text-text-dim">你 vs 行业 ETF · 30/60 日</span>
         </div>
         <button onClick={() => load(true)} disabled={loading}
-          className="px-2.5 py-[3px] rounded-md text-[11px] border border-border-med text-text-dim hover:text-text hover:border-accent transition-colors cursor-pointer disabled:opacity-50">
+          className="px-2.5 py-[3px] rounded-md text-[0.7857rem] border border-border-med text-text-dim hover:text-text hover:border-accent transition-colors cursor-pointer disabled:opacity-50">
           {loading ? '...' : '刷新'}
         </button>
       </div>
 
-      <div className="licai-sec-row px-3 md:px-5 py-1.5 text-[10.5px] text-text-dim tracking-wider font-medium border-b border-border-subtle">
+      <div className="licai-sec-row px-3 md:px-5 py-1.5 text-[0.75rem] text-text-dim tracking-wider font-medium border-b border-border-subtle">
         <div>持仓</div>
         <div className="text-right">板块</div>
         <div className="text-right licai-md-only">30 日 (你 / 板块)</div>
@@ -78,7 +78,7 @@ export default function SectorRadar() {
           <Tooltip content={
             <div className="leading-relaxed">
               <div><span className="text-text-bright font-semibold">α</span> = 你 60 日 − 板块 60 日</div>
-              <div className="text-text-dim mt-1 text-[10.5px]">
+              <div className="text-text-dim mt-1 text-[0.75rem]">
                 正值跑赢板块；负值跑输板块；±1% 以内视为同步
               </div>
             </div>
@@ -91,16 +91,16 @@ export default function SectorRadar() {
 
       <div className="divide-y divide-border-subtle">
         {data.holdings.map(r => (
-          <div key={r.stock_code} className="licai-sec-row px-3 md:px-5 py-2 items-center text-[11.5px]">
+          <div key={r.stock_code} className="licai-sec-row px-3 md:px-5 py-2 items-center text-[0.8214rem]">
             <div className="flex flex-col min-w-0">
               <span className="text-text-bright font-semibold truncate">{r.stock_name}</span>
-              <span className="font-mono text-[10px] text-text-muted">{r.stock_code}</span>
+              <span className="font-mono text-[0.7143rem] text-text-muted">{r.stock_code}</span>
             </div>
             <div className="text-right">
               {r.etf_code ? (
                 <div className="flex flex-col items-end">
                   <span className="text-text">{r.sector_label}</span>
-                  <span className="font-mono text-[10px] text-text-muted">{r.etf_code}</span>
+                  <span className="font-mono text-[0.7143rem] text-text-muted">{r.etf_code}</span>
                 </div>
               ) : (
                 <span className="text-text-dim">--</span>
@@ -143,7 +143,7 @@ export default function SectorRadar() {
         ))}
       </div>
 
-      <div className="px-3 md:px-5 py-2 text-[10.5px] text-text-muted bg-surface-2/40 border-t border-border-subtle">
+      <div className="px-3 md:px-5 py-2 text-[0.75rem] text-text-muted bg-surface-2/40 border-t border-border-subtle">
         α &lt; -1% 表示你跑输板块（跌得比 ETF 更狠）；α &gt; +1% 表示跑赢；接近 0 = 跟板块同步。
       </div>
 

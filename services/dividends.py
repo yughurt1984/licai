@@ -336,7 +336,7 @@ async def sync_dividends(only_code: str | None = None) -> dict:
                 continue
             pay = e.get("pay_date") or ex
             fx = None
-            if code.endswith((".HK", ".US")):
+            if code.endswith((".HK", ".US", ".JP")):   # 港/美/日股按派息日汇率折 CNY
                 fx = await asyncio.to_thread(code_fx_on, code, pay)
             await add_position_action(
                 code, "DIVIDEND", ps, sh,

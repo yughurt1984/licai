@@ -199,12 +199,12 @@ export function MinuteChart({ points, prevClose, actions = [], day, height = 410
     <div className="relative w-full" style={{ height: typeof height === 'number' ? height : '100%' }}>
       <div ref={wrapRef} className="absolute inset-0" />
       {empty && (
-        <div className="absolute inset-0 flex items-center justify-center text-text-dim text-[12px]">
+        <div className="absolute inset-0 flex items-center justify-center text-text-dim text-[0.8571rem]">
           暂无分时(非交易时段, 或该标的的源不提供分时)
         </div>
       )}
       {/* 图例 / 悬浮读数 */}
-      <div className="absolute top-1 left-1 text-[10.5px] font-mono pointer-events-none flex gap-2.5 items-baseline">
+      <div className="absolute top-1 left-1 text-[0.75rem] font-mono pointer-events-none flex gap-2.5 items-baseline">
         {legend ? (
           <>
             <span className="text-text-muted">{legend.time}</span>

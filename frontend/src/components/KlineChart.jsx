@@ -120,22 +120,22 @@ export default function KlineChart({ fetchByDays, initialSeries = [], defaultDay
       <div className="flex items-center gap-1 mb-2">
         {PERIODS.map(p => (
           <button key={p.days} onClick={() => setDays(p.days)}
-            className={`text-[11px] px-2 py-0.5 rounded font-mono transition-colors cursor-pointer border ${
+            className={`text-[0.7857rem] px-2 py-0.5 rounded font-mono transition-colors cursor-pointer border ${
               days === p.days
                 ? 'bg-accent/20 text-accent border-accent/40'
                 : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
             {p.label}
           </button>
         ))}
-        {loading && <span className="text-[10.5px] text-text-muted ml-1">加载中…</span>}
-        <span className="text-[10.5px] text-text-muted ml-auto font-mono">{series.length} 个交易日</span>
+        {loading && <span className="text-[0.75rem] text-text-muted ml-1">加载中…</span>}
+        <span className="text-[0.75rem] text-text-muted ml-auto font-mono">{series.length} 个交易日</span>
       </div>
 
       {renderStats && renderStats(series, periodPct, loading)}
 
       <div className="bg-surface-3 rounded-md p-2 relative">
         {points.length < 2 ? (
-          <div className="h-[320px] flex items-center justify-center text-text-dim text-[12px]">
+          <div className="h-[320px] flex items-center justify-center text-text-dim text-[0.8571rem]">
             {loading ? '加载中…' : '暂无 K 线数据 (数据源不可达, 稍后重试)'}
           </div>
         ) : (
@@ -188,7 +188,7 @@ export default function KlineChart({ fetchByDays, initialSeries = [], defaultDay
           </svg>
         )}
         {hover && (
-          <div className="absolute top-2 right-2 bg-surface-2 border border-border-med rounded-md px-2.5 py-1.5 text-[11px] font-mono pointer-events-none">
+          <div className="absolute top-2 right-2 bg-surface-2 border border-border-med rounded-md px-2.5 py-1.5 text-[0.7857rem] font-mono pointer-events-none">
             <div className="text-text-dim">{hover.date}</div>
             {hover.open != null && hover.high != null ? (
               <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 mt-0.5">
@@ -209,7 +209,7 @@ export default function KlineChart({ fetchByDays, initialSeries = [], defaultDay
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-dim">
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[0.7857rem] text-text-dim">
         <span>区间高 <span className="text-text font-mono">{fmtVal(max)}</span></span>
         <span>区间低 <span className="text-text font-mono">{fmtVal(min)}</span></span>
         {footerExtra}

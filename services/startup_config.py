@@ -63,15 +63,3 @@ async def apply_saved_config() -> None:
     elif load_error():
         print(f"扩展数据源未启用 —— {load_error()}")
 
-    # 知识星球(可选, 只读观点面): 选中的星球存在 app_config, token 由 CLI 放系统 Keychain
-    from services import zsxq_client
-    import json as _json
-    try:
-        _zg = _json.loads((await get_config("zsxq_groups")) or "[]")
-    except (ValueError, TypeError):
-        _zg = []
-    # URL 带 api_key: 只打印脱敏后的 host+path, 不打印整串
-    zsxq_client.configure(os.environ.get("ZSXQ_MCP_URL") or (await get_config("zsxq_mcp_url")) or "",
-                          _zg if isinstance(_zg, list) else [])
-    if zsxq_client.is_enabled():
-        print(f"知识星球已接入: {zsxq_client.endpoint_label()} · {len(zsxq_client.configured_groups())} 个星球(只读)")

@@ -43,11 +43,11 @@ export default function IndexTicker() {
     <>
       <button onClick={() => setOpen(true)} title="点开看 K线 / 成交额, 可切换其他指数"
         className="flex items-baseline gap-1.5 shrink-0 rounded-md border border-transparent hover:border-border-med hover:bg-surface-3 px-1.5 py-0.5 cursor-pointer transition-colors">
-        <span className="text-[11px] text-text-muted">{cur.name}</span>
-        <span className="text-[12px] font-mono text-text">
+        <span className="text-[0.7857rem] text-text-muted">{cur.name}</span>
+        <span className="text-[0.8571rem] font-mono text-text">
           {cur.price != null ? cur.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}
         </span>
-        <span className={`text-[11px] font-mono ${priceColor(pct)}`}>
+        <span className={`text-[0.7857rem] font-mono ${priceColor(pct)}`}>
           {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
         </span>
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"

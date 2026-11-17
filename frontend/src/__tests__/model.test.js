@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { aggregate, normalizeHolding } from '../components/portfolio/model'
+import { aggregate, normalizeHolding, todayPnlOf } from '../components/portfolio/model'
 
 const row = (o) => ({ type: 'A', mv: 0, cost: 0, pnl: 0, today: null, ...o })
 
@@ -57,23 +57,13 @@ describe('aggregate — 分组与合计', () => {
     expect(a.groups.A.todayPnl).toBeCloseTo(-20, 9)
   })
 
-  it('非交易日: T+1 品种(A/F/W/M)不计今日, 24 小时市场(C/R)照计', () => {
-    const rows = [
-      row({ type: 'A', mv: 110, today: 10 }),
-      row({ type: 'F', mv: 110, today: 10 }),
-      row({ type: 'W', mv: 110, today: 10 }),
-      row({ type: 'M', mv: 110, today: 10 }),
-      row({ type: 'C', mv: 110, today: 10 }),
-      row({ type: 'R', mv: 110, today: 10 }),
-    ]
-    const weekend = aggregate(rows, false)
-    for (const t of ['A', 'F', 'W', 'M']) expect(weekend.groups[t].todayPnl).toBe(0)
-    for (const t of ['C', 'R']) expect(weekend.groups[t].todayPnl).toBeCloseTo(10, 9)
-    expect(weekend.totalToday).toBeCloseTo(20, 9)
-
-    // 交易日则六个都计
-    const tradingDay = aggregate(rows, true)
-    expect(tradingDay.totalToday).toBeCloseTo(60, 9)
+  it('所有类型一律按行情涨跌计今日, 不再按交易日判断归零', () => {
+    // 行情源休市日给的就是最近交易日的涨跌, 直接显示即可 —— 不判断交易日、不归零。
+    const types = ['A', 'F', 'W', 'M', 'T', 'O', 'C', 'R']
+    const rows = types.map(t => row({ type: t, mv: 110, today: 10 }))
+    const a = aggregate(rows)
+    for (const t of types) expect(a.groups[t].todayPnl).toBeCloseTo(10, 9)
+    expect(a.totalToday).toBeCloseTo(80, 9)
   })
 
   it('today 缺失的行不参与今日合计', () => {
@@ -82,6 +72,19 @@ describe('aggregate — 分组与合计', () => {
       row({ type: 'A', mv: 500, today: null }),
     ])
     expect(a.groups.A.todayPnl).toBeCloseTo(10, 9)
+  })
+
+  // 次级分类行(股票市场/基金类别)复用 todayPnlOf 求和, 口径必须与大类aggregate完全一致
+  describe('todayPnlOf — 次级分类行复用口径', () => {
+    it('倒算口径与 aggregate 一致, 一律按行情涨跌算, today 缺失给 0', () => {
+      // 不管什么类型、是否 stale(上一交易日的涨跌), 都按现价涨跌幅倒算
+      for (const t of ['A', 'F', 'T', 'O', 'C']) {
+        expect(todayPnlOf(row({ type: t, mv: 110, today: 10 }))).toBeCloseTo(10, 9)
+      }
+      const hk = row({ type: 'A', mv: 110, today: 10, extra: { market: 'HK' }, _raw: { today_valid: false } })
+      expect(todayPnlOf(hk)).toBeCloseTo(10, 9)   // 港股 stale 照计, 行内另行置灰标注
+      expect(todayPnlOf(row({ type: 'A', mv: 110, today: null }))).toBe(0)
+    })
   })
 
   it('有成本但市值还没到位的行, 不计进总浮动', () => {
@@ -148,10 +151,23 @@ describe('normalizeHolding — 原始持仓 → 统一行', () => {
     expect(r.category).toEqual({ id: '食品饮料', label: '食品饮料' })
   })
 
-  it('展示分类唯一标准 = assets_classify.sub_assets_type(ETF 归基金, 期货归期货)', () => {
-    const etf = normalizeHolding({ ...base, stock_code: '513310.SH', stock_name: '中韩半导体ETF华泰柏瑞', sub_assets_type: 'cn_etf_fund' })
-    expect(etf.type).toBe('F')
-    expect(etf.category.id).toBeTruthy()
+  it('基金子分组按中类 main_assets_type 合并, 标签用数据库 assets_type_name', () => {
+    const cn = normalizeHolding({ ...base, stock_code: '513310.SH', stock_name: '中韩半导体ETF', sub_assets_type: 'cn_etf_fund', main_assets_type: 'etf_fund', assets_type_name: 'ETF基金' })
+    const hk = normalizeHolding({ ...base, stock_code: '02800.HK', stock_name: '盈富基金', sub_assets_type: 'hk_etf_fund', main_assets_type: 'etf_fund', assets_type_name: 'ETF基金' })
+    expect(cn.type).toBe('F')
+    // 中国 ETF 与香港 ETF 归到同一中类分组(不再出现"港股ETF"这种自造标签)
+    expect(cn.category).toEqual({ id: 'etf_fund', label: 'ETF基金' })
+    expect(hk.category).toEqual(cn.category)
+
+    // 数据库中类名缺失时按中类键兜底
+    const noName = normalizeHolding({ ...base, stock_code: '159915.SZ', stock_name: '创业板ETF', sub_assets_type: 'cn_etf_fund', main_assets_type: 'etf_fund' })
+    expect(noName.category).toEqual({ id: 'etf_fund', label: 'ETF' })
+
+    // 回归: REITs 行的 main_assets_type 被钉错成 common_share, 应从 sub 推导成 REITs,
+    // 绝不能让基金组里冒出 common_share(那是股票中类, 不是基金类别)
+    const reits = normalizeHolding({ ...base, stock_code: '508000.SH', stock_name: '华安张江产业园REIT', sub_assets_type: 'cn_reits_fund', main_assets_type: 'common_share', assets_class: 'fund' })
+    expect(reits.type).toBe('F')
+    expect(reits.category).toEqual({ id: 'reits_fund', label: 'REITs' })
 
     const fut = normalizeHolding({ ...base, stock_code: 'CU2601.SHF', stock_name: '沪铜2601', sub_assets_type: 'cn_futures', main_assets_type: 'futures' })
     expect(fut.type).toBe('T')

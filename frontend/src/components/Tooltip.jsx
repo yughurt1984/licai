@@ -102,7 +102,7 @@ export default function Tooltip({
       {shown && content != null && createPortal(
         <span
           ref={tipRef}
-          className="fixed z-[9999] px-3 py-2 rounded-md text-[11px] leading-relaxed pointer-events-none"
+          className="fixed z-[9999] px-3 py-2 rounded-md text-[0.7857rem] leading-relaxed pointer-events-none"
           style={{
             top: coords.top,
             left: coords.left,

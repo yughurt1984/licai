@@ -61,16 +61,16 @@ export default function PriceVolumeTable({ code, prevClose, decimals = 2 }) {
     return out
   }, [data, decimals])
 
-  if (loading) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">加载分价中…</div>
-  if (err) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">{err}</div>
-  if (!data?.enabled) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">TDX 未接入，分价表不可用（仅显示我的成交）</div>
-  if (!rows.length) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">暂无分价数据</div>
+  if (loading) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">加载分价中…</div>
+  if (err) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">{err}</div>
+  if (!data?.enabled) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">TDX 未接入，分价表不可用（仅显示我的成交）</div>
+  if (!rows.length) return <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">暂无分价数据</div>
 
   const priceColor = (p) => prevClose ? (p > prevClose ? BUY : p < prevClose ? SELL : 'var(--color-text)') : 'var(--color-text)'
 
   return (
     <div className="max-h-[420px] overflow-y-auto">
-      <table className="w-full text-[11px] font-mono border-collapse">
+      <table className="w-full text-[0.7857rem] font-mono border-collapse">
         <thead className="sticky top-0 bg-surface-3 text-text-dim">
           <tr className="text-left">
             <th className="py-1 px-1.5 font-normal">价格</th>
@@ -97,7 +97,7 @@ export default function PriceVolumeTable({ code, prevClose, decimals = 2 }) {
                 <td className="py-[3px] px-1.5 text-right" style={{ color: r.buy_ratio >= 0.5 ? BUY : SELL }}>
                   {tot ? Math.round(r.buy_ratio * 100) + '%' : '—'}
                 </td>
-                <td className="py-[3px] px-1.5 text-right text-[10px]">
+                <td className="py-[3px] px-1.5 text-right text-[0.7143rem]">
                   {r.mine ? (
                     <span>
                       {r.mine.buy ? <span style={{ color: BUY }}>买{Math.round(r.mine.buy)}</span> : null}
@@ -111,7 +111,7 @@ export default function PriceVolumeTable({ code, prevClose, decimals = 2 }) {
           })}
         </tbody>
       </table>
-      <div className="mt-2 flex gap-3 text-[10px] text-text-dim px-1">
+      <div className="mt-2 flex gap-3 text-[0.7143rem] text-text-dim px-1">
         <span><span className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: BUY }} />主动买(外盘)</span>
         <span><span className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: SELL }} />主动卖(内盘)</span>
         <span className="text-accent"><span className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: 'rgba(200,168,118,.5)' }} />我成交过</span>

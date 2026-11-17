@@ -277,34 +277,16 @@ async def _briefing_foreign(stock_code: str, stock_name: str, cost_price: float,
 
 
 async def generate_all_briefings() -> list[dict]:
-    """Generate briefings for every 个股持仓(A股/港股/美股) + 场内 ETF 持仓. Saves each to DB."""
-    from database import get_all_holdings, save_briefing, list_external_assets, list_external_actions
+    """Generate briefings for every 个股持仓(A股/港股/美股/日股). Saves each to DB."""
+    from database import get_all_holdings, save_briefing
     from services.market_data import get_realtime_quotes, is_a_share, split_stock_code
-    from services.external_assets import _is_onchain_etf, fund_theme_word
-    from services.external_ledger import compute_external_state
 
     holdings = [h for h in await get_all_holdings()
                 if (is_a_share(h["stock_code"]) or split_stock_code(h["stock_code"])[0] in ("HK", "US"))
                 and (h.get("shares") or 0) > 0]
-    # 场内 ETF 持仓(双账本): 成本用摊薄口径(与券商一致), 主题词当行业拉板块新闻
-    etfs = []
-    try:
-        for x in await list_external_assets():
-            code = str(x.get("code") or "")
-            if x.get("asset_type") != "FUND" or not _is_onchain_etf(code):
-                continue
-            st = compute_external_state(await list_external_actions(x["id"]), "FUND")
-            sh = float(st.get("shares") or 0)
-            if sh <= 0:
-                continue
-            etfs.append({"code": code, "name": x.get("name") or code, "shares": sh,
-                         "cost_price": (float(st.get("diluted_cost") or 0) / sh) if sh else 0,
-                         "theme": fund_theme_word(x.get("name") or "")})
-    except Exception as e:
-        print(f"[briefing] etf holdings scan failed: {e}")
-    if not holdings and not etfs:
+    if not holdings:
         return []
-    codes = [h["stock_code"] for h in holdings] + [e["code"] for e in etfs]
+    codes = [h["stock_code"] for h in holdings]
     quotes = await get_realtime_quotes(codes)
 
     today = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d")
@@ -327,20 +309,4 @@ async def generate_all_briefings() -> list[dict]:
             results.append(briefing)
         except Exception as e:
             print(f"[briefing] {code} failed: {e}")
-    for e in etfs:
-        code = e["code"]
-        q = quotes.get(code) or {}
-        cur = q.get("price") or 0
-        if cur <= 0:
-            cur = e["cost_price"]
-        try:
-            briefing = await generate_briefing_for_stock(
-                code, e["name"], cost_price=e["cost_price"], shares=float(e["shares"]),
-                current_price=cur, sector_hint=e["theme"])
-            briefing["briefing_date"] = today
-            briefing["asset_class"] = "etf"
-            await save_briefing(code, today, json.dumps(briefing, ensure_ascii=False))
-            results.append(briefing)
-        except Exception as ex:
-            print(f"[briefing] etf {code} failed: {ex}")
     return results

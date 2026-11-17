@@ -6,44 +6,10 @@ from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from database import get_config, set_config
-from services import feishu_notify, llm_client, proxy_config, zsxq_client
+from services import feishu_notify, llm_client, proxy_config
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-
-# ── 知识星球(可选, 只读观点面) ──────────────────────────────
-class ZsxqConfig(BaseModel):
-    """MCP 端点 URL(带 api_key) + 选哪些星球。URL 存 DB 不进 config.py, 返回前端一律脱敏。"""
-    url: Optional[str] = None
-    groups: Optional[list] = None
-
-    @field_validator("url")
-    @classmethod
-    def _vu(cls, v):
-        if v is None:
-            return v
-        v = (v or "").strip()
-        if not v:
-            return ""
-        if not v.startswith("https://"):
-            raise ValueError("MCP 端点必须是 https(URL 里带 api_key, 明文 http 会泄露)")
-        return v
-
-    @field_validator("groups")
-    @classmethod
-    def _vg(cls, v):
-        if v is None:
-            return v
-        out = []
-        for g in (v or [])[:20]:
-            if not isinstance(g, dict):
-                continue
-            gid = str(g.get("group_id") or "").strip()
-            if not gid.isdigit():
-                continue
-            out.append({"group_id": gid, "name": str(g.get("name") or gid)[:60],
-                        "owner_only": bool(g.get("owner_only", True))})
-        return out
 
 
 # --- 扩展数据源(provider) ---------------------------------------------------
@@ -132,46 +98,6 @@ async def clear_provider_config():
     reset_cache()
     return {"ok": True, **(await _provider_state())}
 
-
-@router.get("/zsxq")
-async def get_zsxq_config():
-    """当前配置 + 端点健康度。绝不回传含 api_key 的 URL, 只给脱敏 host+path。"""
-    import asyncio
-    await zsxq_client.refresh_config()          # 按当前用户加载个人配置进缓存
-    h = await asyncio.to_thread(zsxq_client.health)
-    # 显式列字段, 不 **h —— health 里也有个同名的计数字段, 盲展开会把 groups 列表覆盖成整数,
-    # 前端拿到数字再 .find 就白屏了(实测踩过)
-    return {"groups": zsxq_client.configured_groups(),
-            "enabled": zsxq_client.is_enabled(),
-            "endpoint": zsxq_client.endpoint_label(),
-            "configured": h.get("configured", False),
-            "ok": h.get("ok", False),
-            "account": h.get("account", ""),
-            "error": h.get("error", ""),
-            "hint": h.get("hint", "")}
-
-
-@router.get("/zsxq/available")
-async def list_zsxq_groups():
-    """列出该账号加入的全部星球, 供勾选。"""
-    import asyncio
-    return await asyncio.to_thread(zsxq_client.list_groups, 50)
-
-
-@router.post("/zsxq")
-async def set_zsxq_config(data: ZsxqConfig):
-    import json as _json
-    if data.url is not None:
-        await set_config("zsxq_mcp_url", data.url)
-        zsxq_client.configure(url=data.url)
-        await zsxq_client.refresh_config()
-    if data.groups is not None:
-        await set_config("zsxq_groups", _json.dumps(data.groups, ensure_ascii=False))
-        zsxq_client.configure(groups=data.groups)
-        await zsxq_client.refresh_config()
-    return {"message": "saved", "enabled": zsxq_client.is_enabled(),
-            "endpoint": zsxq_client.endpoint_label(),
-            "groups": zsxq_client.configured_groups()}
 
 
 # ── 本地代理 (OKX / 外发统一; 东财/新浪直连不受影响) ──────────────

@@ -31,13 +31,13 @@ export default function SeatHistoryModal({ seat, onClose }) {
       <div onClick={e => e.stopPropagation()}
         className="bg-surface-2 border border-border rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
         <div className="px-4 py-2.5 border-b border-border-subtle flex items-baseline gap-2">
-          <span className="text-[13.5px] font-semibold text-text-bright truncate">{seat}</span>
-          <span className="text-[10.5px] text-text-dim shrink-0">近{data?.窗口天数 || 90}天上榜记录</span>
-          <button onClick={onClose} className="ml-auto text-text-dim hover:text-text text-[16px] leading-none px-1 cursor-pointer">×</button>
+          <span className="text-[0.9643rem] font-semibold text-text-bright truncate">{seat}</span>
+          <span className="text-[0.75rem] text-text-dim shrink-0">近{data?.窗口天数 || 90}天上榜记录</span>
+          <button onClick={onClose} className="ml-auto text-text-dim hover:text-text text-[1.1429rem] leading-none px-1 cursor-pointer">×</button>
         </div>
 
         {st && (
-          <div className="px-4 py-2 border-b border-border-subtle flex gap-4 flex-wrap text-[11px] text-text-muted">
+          <div className="px-4 py-2 border-b border-border-subtle flex gap-4 flex-wrap text-[0.7857rem] text-text-muted">
             <span>上榜 <span className="text-text-bright font-mono">{st['上榜次数']}</span> 次</span>
             <span>净买入 <span className="text-text-bright font-mono">{st['净买入次数']}</span> 次</span>
             {st['净买入后1日红盘率%'] != null && (
@@ -51,26 +51,26 @@ export default function SeatHistoryModal({ seat, onClose }) {
         )}
 
         <div className="flex-1 overflow-y-auto min-h-0">
-          {!data && !err && <div className="text-center py-10 text-[12px] text-text-dim">加载席位历史…</div>}
-          {err && <div className="text-center py-10 text-[12px] text-text-dim px-6">{err}</div>}
+          {!data && !err && <div className="text-center py-10 text-[0.8571rem] text-text-dim">加载席位历史…</div>}
+          {err && <div className="text-center py-10 text-[0.8571rem] text-text-dim px-6">{err}</div>}
           {data?.rows?.map((r, i) => (
-            <div key={i} className="flex items-baseline gap-2 px-4 py-1.5 border-b border-border-subtle/50 text-[12px]">
-              <span className="font-mono text-text-muted text-[10.5px] shrink-0">{r.日期.slice(5)}</span>
+            <div key={i} className="flex items-baseline gap-2 px-4 py-1.5 border-b border-border-subtle/50 text-[0.8571rem]">
+              <span className="font-mono text-text-muted text-[0.75rem] shrink-0">{r.日期.slice(5)}</span>
               <span className="text-text-bright shrink-0">{r.name}</span>
-              <span className="font-mono text-[10.5px] text-text-muted shrink-0">{r.code}</span>
-              <span className={`font-mono text-[10.5px] shrink-0 ${pctCls(r['当日涨跌%'])}`}>{r['当日涨跌%'] >= 0 ? '+' : ''}{r['当日涨跌%']}%</span>
-              <span className="min-w-0 flex-1 truncate text-[10px] text-text-dim" title={r.上榜原因}>{r.上榜原因}</span>
+              <span className="font-mono text-[0.75rem] text-text-muted shrink-0">{r.code}</span>
+              <span className={`font-mono text-[0.75rem] shrink-0 ${pctCls(r['当日涨跌%'])}`}>{r['当日涨跌%'] >= 0 ? '+' : ''}{r['当日涨跌%']}%</span>
+              <span className="min-w-0 flex-1 truncate text-[0.7143rem] text-text-dim" title={r.上榜原因}>{r.上榜原因}</span>
               <span className={`font-mono font-semibold shrink-0 ${r.净额万 > 0 ? 'text-bear' : 'text-bull'}`}>
                 {r.净额万 > 0 ? '买' : '卖'} {(Math.abs(r.净额万) / 1e4).toFixed(2)}亿
               </span>
-              <span className="font-mono text-[10.5px] shrink-0 w-[72px] text-right">
+              <span className="font-mono text-[0.75rem] shrink-0 w-[72px] text-right">
                 后1日 <span className={pctCls(r['后1日%'])}>{r['后1日%'] == null ? '—' : `${r['后1日%'] >= 0 ? '+' : ''}${r['后1日%']}%`}</span>
               </span>
             </div>
           ))}
         </div>
 
-        <div className="px-4 py-1.5 border-t border-border-subtle text-[9.5px] text-text-muted leading-relaxed shrink-0">
+        <div className="px-4 py-1.5 border-t border-border-subtle text-[0.6786rem] text-text-muted leading-relaxed shrink-0">
           {data?.note || '交易所披露的营业部上榜明细。名号映射来自公开名录会漂移; 红盘率为纯历史统计, 不构成任何买卖建议。'}
         </div>
       </div>

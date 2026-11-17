@@ -72,21 +72,21 @@ function DigestCard() {
     <div className="border-b border-border bg-accent/5">
       <div className="px-3 md:px-5 py-2.5 flex items-baseline justify-between gap-2 flex-wrap">
         <div className="flex items-baseline gap-2">
-          <span className="text-[12px] text-text-bright font-semibold">🤖 LLM 摘要</span>
+          <span className="text-[0.8571rem] text-text-bright font-semibold">🤖 LLM 摘要</span>
           {data?.generated_at && (
-            <span className="text-[10.5px] text-text-muted font-mono">{data.generated_at.slice(5, 16)}</span>
+            <span className="text-[0.75rem] text-text-muted font-mono">{data.generated_at.slice(5, 16)}</span>
           )}
           {data?.input_count && (
-            <span className="text-[10.5px] text-text-muted">· 从 {data.input_count} 条素材</span>
+            <span className="text-[0.75rem] text-text-muted">· 从 {data.input_count} 条素材</span>
           )}
         </div>
         <div className="flex gap-1 items-center">
           <button onClick={() => setCollapsed(c => !c)}
-            className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer border border-border-med text-text-dim hover:text-accent">
+            className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer border border-border-med text-text-dim hover:text-accent">
             {collapsed ? '展开' : '收起'}
           </button>
           <button onClick={() => load(true)} disabled={loading}
-            className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer border border-accent/40 text-accent hover:bg-accent/10 disabled:opacity-50">
+            className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer border border-accent/40 text-accent hover:bg-accent/10 disabled:opacity-50">
             {loading ? '...' : '↻ 重算'}
           </button>
         </div>
@@ -96,28 +96,28 @@ function DigestCard() {
           {loading && !data ? (
             <SkeletonCard bare rows={3} label="LLM 摘要生成中…（约 10-30 秒）" />
           ) : err && !data?.highlights?.length ? (
-            <div className="text-[11px] text-bear">{err}</div>
+            <div className="text-[0.7857rem] text-bear">{err}</div>
           ) : data?.summary || data?.highlights?.length ? (
             <>
               {data.summary && (
-                <div className="text-[12px] text-text leading-snug mb-2">{data.summary}</div>
+                <div className="text-[0.8571rem] text-text leading-snug mb-2">{data.summary}</div>
               )}
               {data.highlights?.length > 0 && (
                 <div className="space-y-1.5">
                   {data.highlights.map((h, i) => {
                     const meta = LEVEL_META[h.level] || { label: '关注', icon: '⚪', color: 'var(--color-text-muted)' }
                     return (
-                      <div key={i} className="text-[11.5px] leading-snug flex gap-2 items-baseline">
-                        <span style={{ color: meta.color }} className="font-semibold text-[10.5px] whitespace-nowrap">
+                      <div key={i} className="text-[0.8214rem] leading-snug flex gap-2 items-baseline">
+                        <span style={{ color: meta.color }} className="font-semibold text-[0.75rem] whitespace-nowrap">
                           [{meta.label}]
                         </span>
                         <span className="flex-1">
                           <span className="text-text">{h.title}</span>
                           {h.related && (
-                            <span className="ml-2 text-[10.5px] font-mono text-text-muted">{h.related}</span>
+                            <span className="ml-2 text-[0.75rem] font-mono text-text-muted">{h.related}</span>
                           )}
                           {h.impact && (
-                            <span className="ml-2 text-[10.5px] text-text-muted">→ {h.impact}</span>
+                            <span className="ml-2 text-[0.75rem] text-text-muted">→ {h.impact}</span>
                           )}
                         </span>
                       </div>
@@ -127,7 +127,7 @@ function DigestCard() {
               )}
             </>
           ) : (
-            <div className="text-[11px] text-text-dim">暂无摘要</div>
+            <div className="text-[0.7857rem] text-text-dim">暂无摘要</div>
           )}
         </div>
       )}
@@ -186,7 +186,7 @@ export default function PortfolioNews() {
   }
   if (err) {
     return (
-      <section className="rounded-xl border border-border bg-surface/60 px-3 md:px-5 py-3 text-[12px] text-bear">{err}</section>
+      <section className="rounded-xl border border-border bg-surface/60 px-3 md:px-5 py-3 text-[0.8571rem] text-bear">{err}</section>
     )
   }
 
@@ -212,12 +212,12 @@ export default function PortfolioNews() {
       <div className="px-3 md:px-5 py-3 border-b border-border flex items-baseline justify-between flex-wrap gap-2"
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex items-baseline gap-2 flex-wrap">
-          <h3 className="text-[13px] font-semibold text-text-bright m-0">资讯</h3>
+          <h3 className="text-[0.9286rem] font-semibold text-text-bright m-0">资讯</h3>
           {/* 数据源切换: 持仓 vs 市场 */}
           <div className="flex gap-0.5">
             {SOURCES.map(s => (
               <button key={s} onClick={() => pickSource(s)}
-                className="px-2 py-[3px] rounded text-[11px] cursor-pointer"
+                className="px-2 py-[3px] rounded text-[0.7857rem] cursor-pointer"
                 style={{
                   border: '1px solid',
                   borderColor: source === s ? 'var(--color-accent)' : 'var(--color-border-med)',
@@ -229,7 +229,7 @@ export default function PortfolioNews() {
               </button>
             ))}
           </div>
-          <span className="text-[11px] text-text-dim">
+          <span className="text-[0.7857rem] text-text-dim">
             {source === 'jin10' ? (
               <>金十快讯 · {active?.items?.length || 0} 条 · 30s 刷新 · 关联 {(active?.items || []).filter(x => x.related).length}</>
             ) : source === 'portfolio' ? (
@@ -246,7 +246,7 @@ export default function PortfolioNews() {
             <>
               {[['all', '全部'], ['important', '重要'], ['related', '关联我']].map(([k, lb]) => (
                 <button key={k} onClick={() => setFilter(k)}
-                  className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer"
+                  className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer"
                   style={{ border: '1px solid', borderColor: filter === k ? 'var(--color-accent)' : 'var(--color-border-med)',
                     color: filter === k ? 'var(--color-accent)' : 'var(--color-text-dim)' }}>
                   {lb}
@@ -257,33 +257,33 @@ export default function PortfolioNews() {
           {source === 'portfolio' && (
             <>
               <button onClick={() => setFilter('all')}
-                className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer"
+                className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer"
                 style={{ border: '1px solid', borderColor: filter === 'all' ? 'var(--color-accent)' : 'var(--color-border-med)',
                   color: filter === 'all' ? 'var(--color-accent)' : 'var(--color-text-dim)' }}>
                 全部
               </button>
               <button onClick={() => setFilter('news')}
-                className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer"
+                className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer"
                 style={{ border: '1px solid', borderColor: filter === 'news' ? 'var(--color-accent)' : 'var(--color-border-med)',
                   color: filter === 'news' ? 'var(--color-accent)' : 'var(--color-text-dim)' }}>
                 新闻
               </button>
               <button onClick={() => setFilter('notice')}
-                className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer"
+                className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer"
                 style={{ border: '1px solid', borderColor: filter === 'notice' ? 'var(--color-accent)' : 'var(--color-border-med)',
                   color: filter === 'notice' ? 'var(--color-accent)' : 'var(--color-text-dim)' }}>
                 公告
               </button>
               <span className="mx-1 text-text-muted">·</span>
               <select value={codeFilter} onChange={e => setCodeFilter(e.target.value)}
-                className="bg-bg border border-border rounded px-1.5 py-[2px] text-[10.5px] text-text">
+                className="bg-bg border border-border rounded px-1.5 py-[2px] text-[0.75rem] text-text">
                 <option value="">所有股票</option>
                 {codes.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </>
           )}
           <button onClick={reload}
-            className="px-2 py-[2px] rounded text-[10.5px] cursor-pointer border border-border-med text-text-dim hover:text-accent hover:border-accent">
+            className="px-2 py-[2px] rounded text-[0.75rem] cursor-pointer border border-border-med text-text-dim hover:text-accent hover:border-accent">
             ↻ 刷新
           </button>
         </div>
@@ -294,7 +294,7 @@ export default function PortfolioNews() {
       {source === 'events' ? (
         <div className="max-h-[640px] overflow-y-auto">
           {(active?.events || []).length === 0 ? (
-            <div className="text-center text-text-dim text-[11.5px] py-6">未来 75 天没有已知事件</div>
+            <div className="text-center text-text-dim text-[0.8214rem] py-6">未来 75 天没有已知事件</div>
           ) : (active.events.map((e, i) => {
             const tm = EVENT_TYPE_META[e.type] || { color: '#b08d57' }
             return (
@@ -302,30 +302,30 @@ export default function PortfolioNews() {
                 onClick={() => setEventAsk(e)}
                 onKeyDown={ev => { if (ev.key === 'Enter') setEventAsk(e) }}
                 className="flex items-baseline gap-2 px-3 md:px-5 py-2 border-b border-border-subtle flex-wrap cursor-pointer hover:bg-surface-2/40 transition-colors">
-                <span className="text-[11px] font-mono text-text">{e.date}</span>
-                <span className="text-[9.5px] px-1 rounded bg-surface-3 text-text-muted font-mono">
+                <span className="text-[0.7857rem] font-mono text-text">{e.date}</span>
+                <span className="text-[0.6786rem] px-1 rounded bg-surface-3 text-text-muted font-mono">
                   {e.days === 0 ? '今天' : `+${e.days}天`}
                 </span>
-                <span className="text-[9.5px] px-1 py-[1px] rounded font-medium tracking-wider"
+                <span className="text-[0.6786rem] px-1 py-[1px] rounded font-medium tracking-wider"
                   style={{ background: tm.color + '20', color: tm.color, border: '1px solid ' + tm.color + '40' }}>
                   {e.type}
                 </span>
-                <span className="text-[12px] text-text-bright">{e.name}</span>
-                <span className="text-[10.5px] font-mono text-text-muted">{e.code}</span>
-                <span className="text-[10px] text-text-dim">{e.via}</span>
-                <span className="text-[10.5px] text-text-muted w-full md:w-auto md:ml-auto">{e.detail}</span>
-                <span className="text-[9.5px] text-accent/70 shrink-0">问AI ›</span>
+                <span className="text-[0.8571rem] text-text-bright">{e.name}</span>
+                <span className="text-[0.75rem] font-mono text-text-muted">{e.code}</span>
+                <span className="text-[0.7143rem] text-text-dim">{e.via}</span>
+                <span className="text-[0.75rem] text-text-muted w-full md:w-auto md:ml-auto">{e.detail}</span>
+                <span className="text-[0.6786rem] text-accent/70 shrink-0">问AI ›</span>
               </div>
             )
           }))}
           {active?.note && (
-            <div className="px-3 md:px-5 py-2 text-[9.5px] text-text-dim leading-relaxed">{active.note}</div>
+            <div className="px-3 md:px-5 py-2 text-[0.6786rem] text-text-dim leading-relaxed">{active.note}</div>
           )}
         </div>
       ) : (
       <div className="max-h-[640px] overflow-y-auto">
         {items.length === 0 ? (
-          <div className="text-center text-text-dim text-[11.5px] py-6">无匹配条目</div>
+          <div className="text-center text-text-dim text-[0.8214rem] py-6">无匹配条目</div>
         ) : items.map((it, i) => {
           const meta = KIND_LABEL[it.kind] || { label: it.kind || '快讯', color: '#b08d57' }
           return (
@@ -334,26 +334,26 @@ export default function PortfolioNews() {
               onKeyDown={e => { if (e.key === 'Enter') setDetail(it) }}
               className="block px-3 md:px-5 py-2.5 border-b border-border-subtle transition-colors hover:bg-surface-2/40 cursor-pointer">
               <div className="flex items-baseline gap-2 mb-0.5 flex-wrap">
-                <span className="text-[9.5px] px-1 py-[1px] rounded font-medium tracking-wider"
+                <span className="text-[0.6786rem] px-1 py-[1px] rounded font-medium tracking-wider"
                   style={{ background: meta.color + '20', color: meta.color, border: '1px solid ' + meta.color + '40' }}>
                   {meta.label}
                 </span>
-                {it.important && <span className="text-[9.5px] px-1 rounded bg-accent/15 text-accent border border-accent/30">重要</span>}
-                {it.related && <span className="text-[9.5px] px-1 rounded" style={{ background: 'var(--color-up)18', color: 'var(--color-up)', border: '1px solid var(--color-up)50' }}>关联</span>}
-                {it.tag && <span className="text-[9.5px] px-1 rounded bg-accent/10 text-accent/90 border border-accent/25">{it.tag}</span>}
-                {it.code && <span className="text-[11px] font-mono text-text-muted">{it.code}</span>}
-                {it.name && <span className="text-[11px] text-text-dim">{it.name}</span>}
+                {it.important && <span className="text-[0.6786rem] px-1 rounded bg-accent/15 text-accent border border-accent/30">重要</span>}
+                {it.related && <span className="text-[0.6786rem] px-1 rounded" style={{ background: 'var(--color-up)18', color: 'var(--color-up)', border: '1px solid var(--color-up)50' }}>关联</span>}
+                {it.tag && <span className="text-[0.6786rem] px-1 rounded bg-accent/10 text-accent/90 border border-accent/25">{it.tag}</span>}
+                {it.code && <span className="text-[0.7857rem] font-mono text-text-muted">{it.code}</span>}
+                {it.name && <span className="text-[0.7857rem] text-text-dim">{it.name}</span>}
                 {it.kind === 'notice' && it.type && (
-                  <span className="text-[10px] text-text-muted">· {it.type}</span>
+                  <span className="text-[0.7143rem] text-text-muted">· {it.type}</span>
                 )}
-                <span className="text-[10.5px] text-text-muted ml-auto font-mono">{fmtTime(it.time)}</span>
+                <span className="text-[0.75rem] text-text-muted ml-auto font-mono">{fmtTime(it.time)}</span>
                 {it.source && (
-                  <span className="text-[10px] text-text-muted">{it.source}</span>
+                  <span className="text-[0.7143rem] text-text-muted">{it.source}</span>
                 )}
               </div>
-              <div className={`text-[12px] leading-snug ${it.important ? 'text-text-bright font-medium' : 'text-text'}`}>{it.title}</div>
+              <div className={`text-[0.8571rem] leading-snug ${it.important ? 'text-text-bright font-medium' : 'text-text'}`}>{it.title}</div>
               {it.content && it.content !== it.title && (
-                <div className="text-[10.5px] text-text-muted leading-snug mt-0.5 line-clamp-2">{it.content}</div>
+                <div className="text-[0.75rem] text-text-muted leading-snug mt-0.5 line-clamp-2">{it.content}</div>
               )}
               {it.image && (
                 <div onClick={e => e.stopPropagation()}>
@@ -368,7 +368,7 @@ export default function PortfolioNews() {
       </div>
       )}
 
-      <div className="px-3 md:px-5 py-2 bg-surface-2/40 text-[10.5px] text-text-muted leading-relaxed">
+      <div className="px-3 md:px-5 py-2 bg-surface-2/40 text-[0.75rem] text-text-muted leading-relaxed">
         {source === 'jin10'
           ? '金十数据实时快讯 · 关联=命中持仓个股名或 ETF 主题词 · 点条目看 AI 解读.'
           : source === 'portfolio'

@@ -492,7 +492,7 @@ export default function Rankings() {
         <div className="no-scrollbar flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`text-[12px] px-2 py-1 rounded border whitespace-nowrap shrink-0 ${tab === t.key ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
+              className={`text-[0.8571rem] px-2 py-1 rounded border whitespace-nowrap shrink-0 ${tab === t.key ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-3 text-text-dim border-transparent hover:text-text'}`}>
               {t.label}
             </button>
           ))}
@@ -501,9 +501,9 @@ export default function Rankings() {
           <input value={sq} onChange={e => onSearch(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && sqCands.length) pickCand(sqCands[0]); if (e.key === 'Escape') { setSq(''); setSqCands([]) } }}
             placeholder="查任意股票" title="代码/名称/拼音子串, 选中后与榜单一样看K线/分时/龙虎榜/问AI"
-            className="w-[86px] focus:w-[130px] transition-all text-[11px] px-2 py-1 rounded bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none" />
+            className="w-[86px] focus:w-[130px] transition-all text-[0.7857rem] px-2 py-1 rounded bg-surface-3 border border-border text-text placeholder:text-text-muted focus:border-accent/50 outline-none" />
           {sqBusy && sqCands.length === 0 && sq.trim() && (
-            <div className="absolute right-0 top-full mt-1 z-30 w-56 bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-text-muted shadow-xl">
+            <div className="absolute right-0 top-full mt-1 z-30 w-56 bg-surface-2 border border-border rounded-lg px-2.5 py-1.5 text-[0.7857rem] text-text-muted shadow-xl">
               查询中…
             </div>
           )}
@@ -512,10 +512,10 @@ export default function Rankings() {
               {sqCands.map(c => (
                 <button key={c.code} onClick={() => pickCand(c)}
                   className="w-full flex items-baseline gap-2 px-2.5 py-1.5 text-left hover:bg-surface-3/80 border-b border-border-subtle/50">
-                  <span className="text-[12px] text-text-bright truncate">{c.name || c.code}</span>
-                  <span className="text-[10px] font-mono text-text-muted shrink-0">{c.code}</span>
+                  <span className="text-[0.8571rem] text-text-bright truncate">{c.name || c.code}</span>
+                  <span className="text-[0.7143rem] font-mono text-text-muted shrink-0">{c.code}</span>
                   {c.pct != null && (
-                    <span className={`ml-auto text-[11px] font-mono shrink-0 ${pctColor(c.pct)}`}>{c.pct >= 0 ? '+' : ''}{c.pct}%</span>
+                    <span className={`ml-auto text-[0.7857rem] font-mono shrink-0 ${pctColor(c.pct)}`}>{c.pct >= 0 ? '+' : ''}{c.pct}%</span>
                   )}
                 </button>
               ))}
@@ -525,8 +525,8 @@ export default function Rankings() {
         {/* 取数日期按页签取各自数据源的。资金热度接口不返回日期, 这里给空串而不是落到
             兜底的 data?.as_of —— 那是 /api/market/rankings 的取数时间, 跟这张榜没关系,
             印上去等于给用户一个来自别的数据集的假日期。 */}
-        <span className="text-[10px] text-text-muted whitespace-nowrap shrink-0">{(tab === 'structure' ? structure?.as_of : tab === 'lhb' ? lhbDaily?.date : tab === 'hotrank' ? '' : data?.as_of)?.slice(5, 11) || ''}</span>
-        <button onClick={load} title="刷新" className="text-[10.5px] px-1.5 py-0.5 rounded border border-border text-text-dim hover:text-text shrink-0">刷新</button>
+        <span className="text-[0.7143rem] text-text-muted whitespace-nowrap shrink-0">{(tab === 'structure' ? structure?.as_of : tab === 'lhb' ? lhbDaily?.date : tab === 'hotrank' ? '' : data?.as_of)?.slice(5, 11) || ''}</span>
+        <button onClick={load} title="刷新" className="text-[0.75rem] px-1.5 py-0.5 rounded border border-border text-text-dim hover:text-text shrink-0">刷新</button>
       </div>
 
       <div className="flex flex-col lg:flex-row flex-1 min-h-0">
@@ -555,20 +555,20 @@ export default function Rankings() {
                     title={g === WL_HELD ? '现取, 清仓即消失'
                       : g === WL_DEFAULT ? '默认组: 新加进来的票落这儿。它跟别的组平级, 一只票可以同时在这儿和别的组里'
                       : g === WL_ALL ? '持仓 + 全部分组(一票多组只算一次)' : ''}
-                    className={`text-[11px] px-2 py-0.5 rounded ${wlGroup === g ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+                    className={`text-[0.7857rem] px-2 py-0.5 rounded ${wlGroup === g ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
                     {g}<span className="text-text-muted ml-1">{n}</span>
                   </button>
                 )
               })}
               <span className="text-text-muted mx-0.5">·</span>
-              <span className="text-[10px] text-text-muted">行右侧 ⠿ 拖动排序 · ↑↓ 微调 · ⋯ 归组(可多选)</span>
+              <span className="text-[0.7143rem] text-text-muted">行右侧 ⠿ 拖动排序 · ↑↓ 微调 · ⋯ 归组(可多选)</span>
             </>
           )}
           {tab === 'structure' && (
             <>
               {['全部', '强势', '蓄势'].map(k => (
                 <button key={k} onClick={() => setPhaseFilter(k)}
-                  className={`text-[11px] px-2 py-0.5 rounded ${phaseFilter === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+                  className={`text-[0.7857rem] px-2 py-0.5 rounded ${phaseFilter === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
                   {k}
                 </button>
               ))}
@@ -579,7 +579,7 @@ export default function Rankings() {
             <>
               {['全部', '拉升', '跳水', '竞价'].map(k => (
                 <button key={k} onClick={() => { setChGroup(k); setChKind('全部') }}
-                  className={`text-[11px] px-2 py-0.5 rounded ${chGroup === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+                  className={`text-[0.7857rem] px-2 py-0.5 rounded ${chGroup === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
                   {k}
                 </button>
               ))}
@@ -590,7 +590,7 @@ export default function Rankings() {
             <>
               {[['net_buy', '机构净买入'], ['net_sell', '机构净卖出']].map(([k, lb]) => (
                 <button key={k} onClick={() => setInstSide(k)}
-                  className={`text-[11px] px-2 py-0.5 rounded ${instSide === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+                  className={`text-[0.7857rem] px-2 py-0.5 rounded ${instSide === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
                   {lb}
                 </button>
               ))}
@@ -601,7 +601,7 @@ export default function Rankings() {
             <>
               {[['预喜', `预喜 ${earnings?.['n_预喜'] ?? ''}`], ['预警', `预警 ${earnings?.['n_预警'] ?? ''}`], ['持仓关联', '持仓关联']].map(([k, lb]) => (
                 <button key={k} onClick={() => setEarnSide(k)}
-                  className={`text-[11px] px-2 py-0.5 rounded ${earnSide === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+                  className={`text-[0.7857rem] px-2 py-0.5 rounded ${earnSide === k ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
                   {lb}
                 </button>
               ))}
@@ -610,7 +610,7 @@ export default function Rankings() {
           )}
           {BOARDS.map(b => (
             <button key={b} onClick={() => setBoard(b)}
-              className={`text-[11px] px-2 py-0.5 rounded ${board === b ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+              className={`text-[0.7857rem] px-2 py-0.5 rounded ${board === b ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
               {b}{b !== '全部' && rawList.length > 0 ? ` ${rawList.filter(r => boardOf(r.code) === b).length}` : ''}
             </button>
           ))}
@@ -620,12 +620,12 @@ export default function Rankings() {
         {tab === 'changes' && (changes?.kinds || []).length > 0 && (
           <div className="no-scrollbar flex gap-1 px-3 py-1.5 border-b border-border-subtle overflow-x-auto whitespace-nowrap shrink-0">
             <button data-chkind="全部" onClick={() => setChKind('全部')}
-              className={`text-[10.5px] px-1.5 py-0.5 rounded shrink-0 ${chKind === '全部' ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+              className={`text-[0.75rem] px-1.5 py-0.5 rounded shrink-0 ${chKind === '全部' ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
               全部
             </button>
             {changes.kinds.map(k => (
               <button key={k.kind} data-chkind={k.kind} onClick={() => setChKind(k.kind)}
-                className={`text-[10.5px] px-1.5 py-0.5 rounded shrink-0 ${chKind === k.kind ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+                className={`text-[0.75rem] px-1.5 py-0.5 rounded shrink-0 ${chKind === k.kind ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
                 {k.kind} <span className={k.up ? 'text-bear' : 'text-bull'}>{k.n}</span>
               </button>
             ))}
@@ -636,12 +636,12 @@ export default function Rankings() {
         {tab === 'structure' && (structure?.groups || []).length > 0 && (
           <div className="no-scrollbar flex gap-1 px-3 py-1.5 border-b border-border-subtle overflow-x-auto whitespace-nowrap shrink-0">
             <button data-ind="全部" onClick={() => setIndFilter('全部')}
-              className={`text-[10.5px] px-1.5 py-0.5 rounded shrink-0 ${indFilter === '全部' ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+              className={`text-[0.75rem] px-1.5 py-0.5 rounded shrink-0 ${indFilter === '全部' ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
               全部
             </button>
             {structure.groups.map(g => (
               <button key={g.行业} data-ind={g.行业} onClick={() => setIndFilter(g.行业)}
-                className={`text-[10.5px] px-1.5 py-0.5 rounded shrink-0 ${indFilter === g.行业 ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
+                className={`text-[0.75rem] px-1.5 py-0.5 rounded shrink-0 ${indFilter === g.行业 ? 'bg-accent/15 text-accent' : 'text-text-dim hover:text-text'}`}>
                 {g.行业} {g.n}
               </button>
             ))}
@@ -650,7 +650,7 @@ export default function Rankings() {
 
         <div className="flex-1 overflow-y-auto min-h-0">
           {!loading && !err && list.length === 0 && (
-            <div className="text-center py-8 text-text-dim text-[12px] px-4 leading-relaxed">
+            <div className="text-center py-8 text-text-dim text-[0.8571rem] px-4 leading-relaxed">
               {tab === 'structure' ? '今天龙头池里没有满足条件的蓄势/强势结构（大波动市里稀缺属正常）'
                 : tab === 'lhb' ? (lhbDaily?.note || '近10天无龙虎榜披露数据')
                 : tab === 'watch' ? '空——持有的 A 股个股会自动出现在这里(持仓组); 想额外跟踪没持有的票, 在榜单点开右上角 ☆ 加入'
@@ -658,13 +658,13 @@ export default function Rankings() {
                 : `榜单 top100 里暂无${board}标的`}
             </div>
           )}
-          {loading && <div className="text-center py-8 text-text-dim text-[12px]">{tab === 'structure' ? '全市场扫描中…（首扫约1分钟, 之后10分钟缓存秒开）' : '加载榜单…'}</div>}
-          {err && <div className="text-center py-8 text-text-dim text-[12px]">榜单源暂不可达（东财抖动），<button onClick={load} className="text-accent">重试</button></div>}
+          {loading && <div className="text-center py-8 text-text-dim text-[0.8571rem]">{tab === 'structure' ? '全市场扫描中…（首扫约1分钟, 之后10分钟缓存秒开）' : '加载榜单…'}</div>}
+          {err && <div className="text-center py-8 text-text-dim text-[0.8571rem]">榜单源暂不可达（东财抖动），<button onClick={load} className="text-accent">重试</button></div>}
           {!loading && !err && list.map((r, i) => {
             if (r._wh) {
               return (
                 <div key={`wh-${r.标题}`}
-                  className="px-3 py-1 text-[10px] border-t border-b border-border-subtle flex items-baseline gap-2 sticky top-0 z-10"
+                  className="px-3 py-1 text-[0.7143rem] border-t border-b border-border-subtle flex items-baseline gap-2 sticky top-0 z-10"
                   style={{ background: 'var(--color-surface-2)' }}>
                   <span className="font-semibold text-accent/90">{r.标题}</span>
                   <span className="text-text-muted">{r.说明}</span>
@@ -674,7 +674,7 @@ export default function Rankings() {
             if (r._gheader) {
               return (
                 <div key={`g-${r.行业}`}
-                  className="px-3 py-1 text-[10px] text-accent/90 border-t border-b border-border-subtle flex items-baseline gap-2 sticky top-0 z-10"
+                  className="px-3 py-1 text-[0.7143rem] text-accent/90 border-t border-b border-border-subtle flex items-baseline gap-2 sticky top-0 z-10"
                   style={{ background: 'var(--color-surface-2)' }}>
                   <span className="font-semibold">{r.行业}</span>
                   <span className="text-text-muted">{r.n}只</span>
@@ -694,59 +694,59 @@ export default function Rankings() {
                 onDrop={wlCtl ? (e) => { e.preventDefault(); dropOn(r.code) } : undefined}>
               <button data-row={r.code} onClick={() => setSelected(r)} title={r['AI理由'] || r['上榜原因'] || undefined}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-left border-b border-border-subtle/60 ${active ? 'bg-accent/15' : 'hover:bg-surface-3/60'}`}>
-                <span className="text-[10px] font-mono text-text-muted w-5 shrink-0 text-right">{r._idx ?? i + 1}</span>
+                <span className="text-[0.7143rem] font-mono text-text-muted w-5 shrink-0 text-right">{r._idx ?? i + 1}</span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     <StockLogo type="A" code={r.code} name={r.name} size={20} />
-                    <span className="text-[12.5px] text-text-bright truncate">{r.name}</span>
+                    <span className="text-[0.8929rem] text-text-bright truncate">{r.name}</span>
                     {tab === 'structure' && r.phase && (
-                      <span className={`text-[8.5px] px-1 rounded shrink-0 ${r.phase === '强势' ? 'bg-bear/15 text-bear-bright' : 'bg-accent/15 text-accent'}`}>{r.phase}</span>
+                      <span className={`text-[0.6071rem] px-1 rounded shrink-0 ${r.phase === '强势' ? 'bg-bear/15 text-bear-bright' : 'bg-accent/15 text-accent'}`}>{r.phase}</span>
                     )}
                     {tab === 'changes' && (
-                      <span className={`text-[8.5px] px-1 rounded shrink-0 ${r.up ? 'bg-bear/15 text-bear-bright' : 'bg-bull/15 text-bull-bright'}`}>{r['类型']}</span>
+                      <span className={`text-[0.6071rem] px-1 rounded shrink-0 ${r.up ? 'bg-bear/15 text-bear-bright' : 'bg-bull/15 text-bull-bright'}`}>{r['类型']}</span>
                     )}
                     {tab === 'changes' && r.n_today >= 3 && (
-                      <span className="text-[8.5px] px-1 rounded bg-accent/15 text-accent shrink-0" title="该股今日在当前事件流内反复触发异动">今日{r.n_today}次</span>
+                      <span className="text-[0.6071rem] px-1 rounded bg-accent/15 text-accent shrink-0" title="该股今日在当前事件流内反复触发异动">今日{r.n_today}次</span>
                     )}
                     {/* 「持」= 这一行是我当前持仓。判据只看行上的 source, 不看页签:
                         观察池的持仓组、资金热度榜上命中持仓的行走同一个标记, 两处长一样。 */}
                     {r.source === '持仓' && (
-                      <span className="text-[8.5px] px-1 rounded bg-accent/20 text-accent shrink-0" title="当前持仓, 自动跟踪">持</span>
+                      <span className="text-[0.6071rem] px-1 rounded bg-accent/20 text-accent shrink-0" title="当前持仓, 自动跟踪">持</span>
                     )}
-                    {r.is_new && <span className="text-[8.5px] px-1 rounded bg-accent/15 text-accent shrink-0" title="上市前5日无涨跌幅限制">新</span>}
-                    {r.is_st && <span className="text-[8.5px] px-1 rounded bg-bear/15 text-bear-bright shrink-0">ST</span>}
+                    {r.is_new && <span className="text-[0.6071rem] px-1 rounded bg-accent/15 text-accent shrink-0" title="上市前5日无涨跌幅限制">新</span>}
+                    {r.is_st && <span className="text-[0.6071rem] px-1 rounded bg-bear/15 text-bear-bright shrink-0">ST</span>}
                   </span>
-                  <span className={`text-[10px] text-text-muted font-mono ${tab === 'lhb' || tab === 'changes' ? 'block truncate' : ''}`}>
+                  <span className={`text-[0.7143rem] text-text-muted font-mono ${tab === 'lhb' || tab === 'changes' ? 'block truncate' : ''}`}>
                     {boardOf(r.code)} · {r.code}{mTail ? ` · ${mTail}` : ''}
                     {tab === 'watch' && r['业绩预告'] && (
-                      <span className="ml-1 px-1 rounded bg-accent/15 text-accent text-[9px] whitespace-nowrap">{r['业绩预告']}</span>
+                      <span className="ml-1 px-1 rounded bg-accent/15 text-accent text-[0.6429rem] whitespace-nowrap">{r['业绩预告']}</span>
                     )}
                     {/* 所属分组: 一票多组时得看得见它还在哪些组里, 否则在某个组里看到一只票
                         根本不知道它同时也在别的组。当前正在看的那个组不再重复显示。 */}
                     {tab === 'watch' && (r['分组'] || []).filter(g => g !== wlGroup).length > 0 && (
-                      <span className="ml-1 text-[9px] text-text-dim whitespace-nowrap"
+                      <span className="ml-1 text-[0.6429rem] text-text-dim whitespace-nowrap"
                         title={`所属分组: ${(r['分组'] || []).join(' · ')}`}>
                         {(r['分组'] || []).filter(g => g !== wlGroup).join('·')}
                       </span>
                     )}
                     {tab === 'earnings' && r['持仓关联'] && (
-                      <span className="ml-1 px-1 rounded bg-accent/15 text-accent text-[9px]">{r['持仓关联']}</span>
+                      <span className="ml-1 px-1 rounded bg-accent/15 text-accent text-[0.6429rem]">{r['持仓关联']}</span>
                     )}
                     {/* 它在今天哪条线上 —— 只标进了前几堆的概念, 这才是"为什么它在榜上" */}
                     {(tab === 'gainers' || tab === 'by_amount') && hotOf(r).length > 0 && (
-                      <span className="ml-1 text-[9px] text-accent/85 whitespace-nowrap"
+                      <span className="ml-1 text-[0.6429rem] text-accent/85 whitespace-nowrap"
                         title={`所属概念: ${(r['概念'] || []).join(' · ')}`}>
                         {hotOf(r).join('·')}
                       </span>
                     )}
                   </span>
                   {tab === 'structure' && (
-                    <span className="block text-[9.5px] text-text-dim truncate">
+                    <span className="block text-[0.6786rem] text-text-dim truncate">
                       {r['标签']}{r['业绩预告'] ? ` · ${r['业绩预告']}` : ''}
                     </span>
                   )}
                   {tab === 'watch' && (
-                    <span className="block text-[9.5px] text-text-dim truncate">
+                    <span className="block text-[0.6786rem] text-text-dim truncate">
                       {r['结构'] || '结构无显著形态'}
                     </span>
                   )}
@@ -754,10 +754,10 @@ export default function Rankings() {
                 <span className="text-right shrink-0">
                   {tab === 'changes'
                     ? (r.pct != null
-                        ? <span className={`block text-[12.5px] font-mono font-semibold ${pctColor(r.pct)}`}>{r.pct >= 0 ? '+' : ''}{r.pct}%</span>
-                        : <span className="block text-[11.5px] font-mono text-text-dim">{r['时间']}</span>)
-                    : <span className={`block text-[12.5px] font-mono font-semibold ${pctColor(r.pct)}`}>{r.pct >= 0 ? '+' : ''}{r.pct}%</span>}
-                  <span className="block text-[10px] text-text-muted font-mono">
+                        ? <span className={`block text-[0.8929rem] font-mono font-semibold ${pctColor(r.pct)}`}>{r.pct >= 0 ? '+' : ''}{r.pct}%</span>
+                        : <span className="block text-[0.8214rem] font-mono text-text-dim">{r['时间']}</span>)
+                    : <span className={`block text-[0.8929rem] font-mono font-semibold ${pctColor(r.pct)}`}>{r.pct >= 0 ? '+' : ''}{r.pct}%</span>}
+                  <span className="block text-[0.7143rem] text-text-muted font-mono">
                     {tab === 'structure'
                       ? (r.phase === '强势'
                           ? `距高${r['距60日高%']}%·超额${r['近10日超额%'] >= 0 ? '+' : ''}${r['近10日超额%']}%`
@@ -791,12 +791,12 @@ export default function Rankings() {
                                  bg-surface-2/95 rounded px-1 py-0.5 border border-border-subtle">
                   <span title="按住拖动排序" className="cursor-grab text-text-muted px-0.5 select-none">⠿</span>
                   <button title="上移" onClick={(e) => { e.stopPropagation(); nudge(r.code, -1) }}
-                    className="text-[11px] leading-none px-1 text-text-dim hover:text-accent">↑</button>
+                    className="text-[0.7857rem] leading-none px-1 text-text-dim hover:text-accent">↑</button>
                   <button title="下移" onClick={(e) => { e.stopPropagation(); nudge(r.code, 1) }}
-                    className="text-[11px] leading-none px-1 text-text-dim hover:text-accent">↓</button>
+                    className="text-[0.7857rem] leading-none px-1 text-text-dim hover:text-accent">↓</button>
                   <button title="归组(可多选)" data-grp-trigger
                     onClick={(e) => { e.stopPropagation(); setGrpMenu(m => (m === r.code ? '' : r.code)) }}
-                    className="text-[11px] leading-none px-1 text-text-dim hover:text-accent">⋯</button>
+                    className="text-[0.7857rem] leading-none px-1 text-text-dim hover:text-accent">⋯</button>
                 </span>
               )}
               {grpMenu === r.code && (
@@ -814,7 +814,7 @@ export default function Rankings() {
         {tab === 'changes' && (changes?.rows || []).length > 0 && (
           <div className="shrink-0 border-t border-border-subtle px-3 py-1.5">
             {(changes?.hot || []).length > 0 && (
-              <div className="text-[9.5px] text-text-muted mb-1">
+              <div className="text-[0.6786rem] text-text-muted mb-1">
                 今日最活跃:{' '}
                 {changes.hot.map(h => (
                   <button key={h.code} onClick={() => setSelected({ code: h.code, name: h.name })}
@@ -838,40 +838,40 @@ export default function Rankings() {
                       </g>
                     ))}
                   </svg>
-                  <span className="text-[9.5px] text-text-muted leading-tight">
+                  <span className="text-[0.6786rem] text-text-muted leading-tight">
                     全天脉搏 {bs[0].t}–{bs[bs.length - 1].t}(5分钟/档)
                     <br />近30分钟 <span className="text-bear">拉升 {changes?.pulse?.['近30分钟拉升类']}</span> vs <span className="text-bull">跳水 {changes?.pulse?.['近30分钟跳水类']}</span>
                   </span>
                 </div>
               )
             })()}
-            <div className="text-[9.5px] text-text-muted leading-relaxed">
+            <div className="text-[0.6786rem] text-text-muted leading-relaxed">
               交易所盘口异动(东财), 盘中60s自动刷新, 收盘后为当日全程 · 竞价类=9:15-9:25集合竞价产物 · 纯客观事件, 非买卖建议
             </div>
           </div>
         )}
         {tab === 'watch' && !loading && (watch?.rows || []).length > 0 && (
-          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[9.5px] text-text-muted leading-relaxed">
+          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[0.6786rem] text-text-muted leading-relaxed">
             观察池=按分组管理的跟踪清单（在看但未必持有，一只票可同时属于多个组，「自选」是新加时默认落的组、与其他组平级），副行是当下K线结构形态与业绩预告 · 选中后点右上 ★ 移出 · 纯客观结构描述，非买卖建议
           </div>
         )}
         {tab === 'lhb' && !loading && (
-          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[9.5px] text-text-muted leading-relaxed">
+          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[0.6786rem] text-text-muted leading-relaxed">
             {lhbDaily?.date || '最新披露日'} 全部上榜个股（涨跌幅偏离/换手/振幅触发交易所披露，盘后约17点起更新）· 按龙虎榜净买额排序，同股多榜单口径取金额最大一条 · 点个股直接弹开该日买卖前五席位 · 纯客观数据，非买卖建议
           </div>
         )}
         {tab === 'inst' && !loading && (
-          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[9.5px] text-text-muted leading-relaxed">
+          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[0.6786rem] text-text-muted leading-relaxed">
             近{inst?.window_days || 30}天龙虎榜机构专用席位统计（上榜日才披露，抽样非全量）· 主数字=现价较最近上榜日收盘的涨跌：净买入+至今大跌="机构接在山顶"，净卖出+至今大跌="机构跑对了" · 纯客观数字，非买卖建议
           </div>
         )}
         {tab === 'earnings' && !loading && (
-          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[9.5px] text-text-muted leading-relaxed">
+          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[0.6786rem] text-text-muted leading-relaxed">
             最新报告期（{earnings?.period || '中报'}）业绩预告，全市场已披露 {earnings?.total ?? '—'} 家 · 主数字=归母净利同比变动中值% · 未披露≠业绩差（预告只对大幅变动强制），正式财报以披露日公告为准 · 持仓关联=直持或经由在持ETF前十大成分 · 纯客观数据，非买卖建议
           </div>
         )}
         {tab === 'structure' && !loading && (
-          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[9.5px] text-text-muted leading-relaxed">
+          <div className="shrink-0 px-3 py-1.5 border-t border-border-subtle text-[0.6786rem] text-text-muted leading-relaxed">
             结构观察池（按行业分组，同行业强势多=主线在推进、蓄势多=可能在孕育）：<span className="text-bear-bright">强势</span>=K线没砸下去（距60日高≤12%、近10日无大阴、上行结构未破位、不跑输沪深300）；<span className="text-accent">蓄势</span>=安静横盘基座（AI看图复核）· 带业绩预告凭据 · ↑↓ 翻K线、←→ 切行业 · 结构完好只是当下事实，随时可能被砸 · 纯客观结构，非买卖建议
           </div>
         )}

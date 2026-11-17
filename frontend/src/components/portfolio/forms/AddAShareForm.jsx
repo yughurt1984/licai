@@ -161,7 +161,7 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
     }
   }
 
-  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[13px] text-text outline-none focus:border-accent'
+  const inp = 'bg-bg border border-border rounded px-2 py-1.5 text-[0.9286rem] text-text outline-none focus:border-accent'
   const metaOr = (key) => (STOCK_MARKETS[market] || {})[key]
 
   return (
@@ -170,7 +170,7 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
           录入入口已锁小类时显示静态徽标, 避免二次选择; 否则用下拉级联。 */}
       {subRow ? (
         <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-text-dim">分类</label>
+          <label className="text-[0.7857rem] text-text-dim">分类</label>
           <div className={`${inp} w-40 !bg-surface-3/40 text-text-bright flex items-center`}>
             {subRow.sub_assets_type_name || sub}
           </div>
@@ -181,7 +181,7 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
           onMain={setMain} onCurrency={setCurrency} inp={inp} />
       )}
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">代码</label>
+        <label className="text-[0.7857rem] text-text-dim">代码</label>
         <input className={`${inp} w-28 font-mono`} placeholder={metaOr('placeholder')}
           value={form.code}
           onChange={e => {
@@ -198,17 +198,17 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
           }} />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">名称</label>
+        <label className="text-[0.7857rem] text-text-dim">名称</label>
         <input className={`${inp} w-28`} placeholder={nameLooking ? '查询中...' : '可留空'}
           value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
       </div>
       {/* 方向: 多红/空绿(A股习惯涨=红), 与期货开仓表单同款交互 */}
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">方向</label>
+        <label className="text-[0.7857rem] text-text-dim">方向</label>
         <div className="flex gap-1">
           {[['LONG', '多'], ['SHORT', '空']].map(([d, label]) => (
             <button key={d} onClick={() => setDirection(d)}
-              className={`px-2.5 py-1.5 rounded-md text-[12px] font-semibold border transition-colors cursor-pointer
+              className={`px-2.5 py-1.5 rounded-md text-[0.8571rem] font-semibold border transition-colors cursor-pointer
                 ${direction === d
                   ? d === 'LONG' ? 'bg-bull/20 text-bull border-bull/60' : 'bg-bear/20 text-bear border-bear/60'
                   : 'border-border text-text-dim hover:text-text'}`}>
@@ -219,8 +219,8 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
       </div>
       {/* 字段顺序与加仓/减仓表单一致: 先价格后数量 */}
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">
-          {direction === 'SHORT' ? '开仓价' : '成本价'} <span className="text-text-muted text-[10px]">{curSymbol}</span>
+        <label className="text-[0.7857rem] text-text-dim">
+          {direction === 'SHORT' ? '开仓价' : '成本价'} <span className="text-text-muted text-[0.7143rem]">{curSymbol}</span>
         </label>
         <input type="number" className={`${inp} w-28 font-mono`}
           placeholder="12.7401" step={0.0001} value={form.cost}
@@ -228,21 +228,21 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
           onChange={e => setForm({ ...form, cost: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">数量</label>
+        <label className="text-[0.7857rem] text-text-dim">数量</label>
         <input type="number" className={`${inp} w-24 font-mono`}
           placeholder={market === 'US' ? '10' : '300'}
           min={metaOr('minShares')} step={metaOr('step')} value={form.shares}
           onChange={e => setForm({ ...form, shares: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">税费 <span className="text-text-muted text-[10px]">自动算·可改</span></label>
+        <label className="text-[0.7857rem] text-text-dim">税费 <span className="text-text-muted text-[0.7143rem]">自动算·可改</span></label>
         <input type="number" className={`${inp} w-24 font-mono`}
           placeholder="0" step={0.01} min={0} value={form.fee}
           title="手续费(人民币): 默认按费率配置自动估算, 可手动覆盖; 留空由后端按费率自动算"
           onChange={e => { setFeeTouched(true); setForm({ ...form, fee: e.target.value }) }} />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim" title={market === 'US' ? US_DATE_HINT : undefined}>
+        <label className="text-[0.7857rem] text-text-dim" title={market === 'US' ? US_DATE_HINT : undefined}>
           {market === 'US' ? '美东交易日' : direction === 'SHORT' ? '开仓日期' : '买入日期'}
         </label>
         <input type="date" className={`${inp} w-36 font-mono`}
@@ -251,21 +251,21 @@ export function AddAShareForm({ sub, initialMarket = 'A', onDone, onCancel, brok
           onChange={e => setForm({ ...form, tradeDate: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-text-dim">券商</label>
+        <label className="text-[0.7857rem] text-text-dim">券商</label>
         <select className={`${inp} w-28`} value={broker} onChange={e => setBroker(e.target.value)}>
           <option value="">无</option>
           {brokerOptions.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
         </select>
       </div>
       <button onClick={submit} disabled={submitting}
-        className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[13px] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
+        className="px-4 py-1.5 rounded-md bg-accent text-bg font-medium text-[0.9286rem] hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer">
         {submitting ? '...' : direction === 'SHORT' ? '开仓' : '确认'}
       </button>
       <button onClick={onCancel}
-        className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[13px] hover:text-text transition-colors cursor-pointer">
+        className="px-3 py-1.5 rounded-md border border-border text-text-dim text-[0.9286rem] hover:text-text transition-colors cursor-pointer">
         取消
       </button>
-      <div className="text-[10px] text-text-muted pb-1">
+      <div className="text-[0.7143rem] text-text-muted pb-1">
         {market ? STOCK_MARKETS[market].hint : '代码格式随匹配到的市场而定'}
         {' · '}{direction === 'SHORT' ? '开仓价' : '成本价'}按{matched?.currency || 'CNY'}({curSymbol})录入，总资产自动折人民币
         {market === 'US' && <> · 日期按美东填({US_DATE_HINT})</>}

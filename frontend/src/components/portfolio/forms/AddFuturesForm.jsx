@@ -150,10 +150,10 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
   }
 
 
-  const inp = 'bg-bg border border-border rounded px-1.5 py-1.5 text-[13px] text-text font-mono outline-none focus:border-accent'
+  const inp = 'bg-bg border border-border rounded px-1.5 py-1.5 text-[0.9286rem] text-text font-mono outline-none focus:border-accent'
   const field = (label, value, set, placeholder, step = '0.01', type = 'number', w = 'w-[62px]', grow = false) => (
     <div className={`flex flex-col gap-0.5 min-w-0${grow ? ' flex-1' : ''}`}>
-      <label className="text-[11px] text-text-muted truncate" title={label}>{label}</label>
+      <label className="text-[0.7857rem] text-text-muted truncate" title={label}>{label}</label>
       <input type={type} step={step} min="0" className={`${inp} ${grow ? 'w-full min-w-[70px]' : w} text-right`} placeholder={placeholder}
         value={value} onChange={e => set(e.target.value)} />
     </div>
@@ -165,7 +165,7 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
       <div className="flex flex-wrap items-end gap-1.5">
         {subRow ? (
           <div className="flex flex-col gap-0.5">
-            <label className="text-[11px] text-text-muted">分类</label>
+            <label className="text-[0.7857rem] text-text-muted">分类</label>
             <div className={`${inp} w-[76px] !bg-surface-3/40 text-text-bright flex items-center justify-center text-center`}
               title={subRow.sub_assets_type_name || sub}>
               {(subRow.sub_assets_type_name || sub).slice(0, 6)}
@@ -179,17 +179,17 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
             onMain={setMain} onCurrency={setCurrency} />
         )}
         <div className="flex flex-col gap-0.5">
-          <label className="text-[11px] text-text-muted">{isOpt ? '期权品种' : '期货品种'}</label>
+          <label className="text-[0.7857rem] text-text-muted">{isOpt ? '期权品种' : '期货品种'}</label>
           <input className={`${inp} w-[56px] font-sans`} autoFocus placeholder="CU / 沪铜"
             value={query} onChange={e => setQuery(e.target.value)} />
         </div>
         <div className="flex flex-col gap-0.5 flex-1 min-w-[90px] max-w-[108px]">
-          <label className="text-[11px] text-text-muted truncate">名称</label>
+          <label className="text-[0.7857rem] text-text-muted truncate">名称</label>
           <input className={`${inp} w-full font-sans`} placeholder={searching ? '查询中…' : '自动带出'}
             value={name} onChange={e => setName(e.target.value)} />
         </div>
         <div className="flex flex-col gap-0.5">
-          <label className="text-[11px] text-text-muted">{isOpt ? '方向(权利方/义务方)' : '方向'}</label>
+          <label className="text-[0.7857rem] text-text-muted">{isOpt ? '方向(权利方/义务方)' : '方向'}</label>
           <div className="flex gap-0.5">
             {(isOpt
               ? [['LONG', '权利方', '买期权(权利方): 付权利金, 最大亏损=权利金'],
@@ -197,7 +197,7 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
               : [['LONG', '多', '买涨: 价格涨=盈利'], ['SHORT', '空', '卖跌: 价格跌=盈利']]
             ).map(([d, label, tip]) => (
               <button key={d} onClick={() => setDirection(d)} title={tip}
-                className={`px-3 py-1.5 rounded text-[14px] font-semibold border transition-colors cursor-pointer
+                className={`px-3 py-1.5 rounded text-[1rem] font-semibold border transition-colors cursor-pointer
                   ${direction === d
                     ? d === 'LONG' ? 'bg-bull/20 text-bull border-bull/60' : 'bg-bear/20 text-bear border-bear/60'
                     : 'border-border text-text-dim hover:text-text'}`}>
@@ -208,11 +208,11 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
         </div>
         {isOpt && (
           <div className="flex flex-col gap-0.5">
-            <label className="text-[11px] text-text-muted">类型(C/P)</label>
+            <label className="text-[0.7857rem] text-text-muted">类型(C/P)</label>
             <div className="flex gap-0.5">
               {[['CALL', 'C 认购'], ['PUT', 'P 认沽']].map(([t, label]) => (
                 <button key={t} onClick={() => setOptionType(t)} title={t === 'CALL' ? '认购期权(CALL)' : '认沽期权(PUT)'}
-                  className={`px-2.5 py-1.5 rounded text-[13px] font-semibold border transition-colors cursor-pointer
+                  className={`px-2.5 py-1.5 rounded text-[0.9286rem] font-semibold border transition-colors cursor-pointer
                     ${optionType === t
                       ? 'bg-accent/20 text-accent border-accent/60'
                       : 'border-border text-text-dim hover:text-text'}`}>
@@ -223,14 +223,14 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
           </div>
         )}
         <div className="flex flex-col gap-0.5">
-          <label className="text-[11px] text-text-muted">月份</label>
+          <label className="text-[0.7857rem] text-text-muted">月份</label>
           <select className={`${inp} w-[64px]`} value={month} onChange={e => setMonth(e.target.value)}>
             {months.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
         {isOpt && field('行权价', strikePrice, setStrikePrice, '合约行权价', '0.001', 'number', 'w-[72px]')}
         <div className="flex flex-col gap-0.5">
-          <label className="text-[11px] text-text-muted">合约代码</label>
+          <label className="text-[0.7857rem] text-text-muted">合约代码</label>
           <span className={`${inp} w-[136px] !bg-surface-3/60 text-text-bright select-all text-center`}
             title={thscode || '选品种+月份后自动拼接'}>{thscode || '—'}</span>
         </div>
@@ -240,7 +240,7 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
         {field('手续费', fee, setFee, feeAuto != null ? feeAuto.toFixed(1) : '自动', '0.01')}
         {!isOpt && (
           <div className="flex flex-col gap-0.5">
-            <label className="text-[11px] text-text-muted truncate" title="开仓价 × 乘数 × 手数 × 保证金率(交易所口径)">保证金</label>
+            <label className="text-[0.7857rem] text-text-muted truncate" title="开仓价 × 乘数 × 手数 × 保证金率(交易所口径)">保证金</label>
             <span className={`${inp} w-[92px] !bg-surface-3/40 text-warn text-right select-all`}
               title="开仓价 × 每手乘数 × 手数 × 保证金率(交易所口径, 期货公司加收)">
               {marginEst != null ? `¥${marginEst.toFixed(0)}` : '—'}
@@ -248,7 +248,7 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
           </div>
         )}
         <div className="flex flex-col gap-0.5">
-          <label className="text-[11px] text-text-muted">券商</label>
+          <label className="text-[0.7857rem] text-text-muted">券商</label>
           <select className={`${inp} w-[96px] font-sans`} value={broker} onChange={e => setBroker(e.target.value)}>
             <option value="">无</option>
             {brokerOptions.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
@@ -257,22 +257,22 @@ export function AddFuturesForm({ sub, brokers, onDone, onCancel }) {
         {field('日期', tradeDate, setTradeDate, '', undefined, 'date', 'w-[112px]')}
         <div className="flex gap-1 pb-0.5">
           <button onClick={submit} disabled={busy || !product}
-            className={`px-3 py-1 rounded-md bg-accent text-bg text-[13px] font-medium ${busy || !product ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}>
+            className={`px-3 py-1 rounded-md bg-accent text-bg text-[0.9286rem] font-medium ${busy || !product ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}>
             {busy ? '开仓中…' : '开仓'}
           </button>
           <button onClick={onCancel}
-            className="px-2 py-1 rounded-md border border-border text-text-dim text-[13px] hover:text-text cursor-pointer">取消</button>
+            className="px-2 py-1 rounded-md border border-border text-text-dim text-[0.9286rem] hover:text-text cursor-pointer">取消</button>
         </div>
       </div>
       {/* 条件提示与说明: 单行截断, 悬停看全文, 不占默认布局 */}
       {!product && query.trim() && !searching && (
-        <p className="text-[11.5px] text-warn m-0 mt-1 truncate"
+        <p className="text-[0.8214rem] text-warn m-0 mt-1 truncate"
           title={`当前分类「${matched?.sub_assets_type_name || subType}」下没有品种行: 需在 symbol_dict 维护 code(如 CU)/name/exchange(如 SHF), 并确认 sub_assets_type=${subType || '(未匹配)'}`}>
           {`「${matched?.sub_assets_type_name || subType || '未匹配'}」下没有品种行 — 需在 symbol_dict 维护 code/exchange`}
         </p>
       )}
-      {err && <p className="text-[12.5px] text-bear m-0 mt-1 truncate" title={err}>{err}</p>}
-      <p className="text-[11px] text-text-muted m-0 mt-1 truncate"
+      {err && <p className="text-[0.8929rem] text-bear m-0 mt-1 truncate" title={err}>{err}</p>}
+      <p className="text-[0.7857rem] text-text-muted m-0 mt-1 truncate"
         title="品种在 symbol_dict 维护(code=CU, exchange=SHF, trade_amount=每手乘数); 费率/保证金率在 assets_classify 按资产小类维护; 手续费留空按分类比例费率自动(没配则回退券商档案); 同一合约多空各占一行, 再次开仓同合约同方向请在该行点「加仓」">
         同一合约多空各占一行 · 再次开仓同合约同方向在该行「加仓」 · 手续费留空按分类费率自动
       </p>

@@ -61,7 +61,7 @@ const FEE_HINT = {
 }
 
 const DirectionBadge = ({ d }) => d ? (
-  <span className={`ml-1 text-[10px] px-1 py-[1px] rounded border font-semibold
+  <span className={`ml-1 text-[0.7143rem] px-1 py-[1px] rounded border font-semibold
     ${d === 'LONG' ? 'bg-bull/15 text-bull border-bull/40' : 'bg-bear/15 text-bear border-bear/40'}`}>
     {d === 'LONG' ? '多' : '空'}
   </span>
@@ -88,25 +88,25 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
     return (
       <tr className="border-t border-border-subtle hover:bg-surface-2/30">
         <td className="py-1.5 px-2 text-text-muted">{action.trade_date || '--'}
-          {action.at_time && <span className="block text-[10px] text-text-dim font-mono">{String(localTime(market, action.trade_date, action.at_time)).slice(0, 5)}{market === 'US' && <span className="text-text-muted ml-0.5" title="美东时间">美东</span>}{!action.trade_time && <span title="按录入时间推断">~</span>}</span>}
+          {action.at_time && <span className="block text-[0.7143rem] text-text-dim font-mono">{String(localTime(market, action.trade_date, action.at_time)).slice(0, 5)}{market === 'US' && <span className="text-text-muted ml-0.5" title="美东时间">美东</span>}{!action.trade_time && <span title="按录入时间推断">~</span>}</span>}
         </td>
-        <td className={`py-1.5 px-2 text-[11px] ${isAcquire ? 'text-bull' : 'text-bear'}`}>{typeLabel}
+        <td className={`py-1.5 px-2 text-[0.7857rem] ${isAcquire ? 'text-bull' : 'text-bear'}`}>{typeLabel}
           <DirectionBadge d={action.direction} />
-          {action.broker_effective && <span className="block text-[10px] text-text-dim">{action.broker_effective}{!action.broker && <span title="用持仓券商">~</span>}</span>}
+          {action.broker_effective && <span className="block text-[0.7143rem] text-text-dim">{action.broker_effective}{!action.broker && <span title="用持仓券商">~</span>}</span>}
         </td>
         <td className="py-1.5 px-2 text-right font-mono">{isSplit && market !== 'A' ? `×${action.price}` : fmtPrice(action.price, code)}
-          {market !== 'A' && action.fx_rate > 0 && <span className="block text-[10px] text-text-dim" title="成交汇率(1 外币 = ? 人民币)">汇 {Number(action.fx_rate).toFixed(4)}</span>}
+          {market !== 'A' && action.fx_rate > 0 && <span className="block text-[0.7143rem] text-text-dim" title="成交汇率(1 外币 = ? 人民币)">汇 {Number(action.fx_rate).toFixed(4)}</span>}
         </td>
         <td className="py-1.5 px-2 text-right font-mono">{isSplit && market !== 'A' ? '--' : action.shares}</td>
-        <td className="py-1.5 px-2 text-right font-mono text-[11px]"
+        <td className="py-1.5 px-2 text-right font-mono text-[0.7857rem]"
           title={feeOverride ? '已手填覆盖' : FEE_HINT[market]}>
           {action.fee_effective != null ? `${CCY[market]}${action.fee_effective.toFixed(2)}` : '--'}
           {feeOverride && <span className="text-accent ml-0.5">·</span>}
         </td>
-        <td className="py-1.5 px-2 text-[11px] text-text-muted">{action.note || '--'}</td>
+        <td className="py-1.5 px-2 text-[0.7857rem] text-text-muted">{action.note || '--'}</td>
         <td className="py-1.5 px-2 text-center">
-          <button onClick={() => onEdit()} className="text-[11px] text-accent hover:underline cursor-pointer mr-2">编辑</button>
-          <button onClick={() => onDelete()} className="text-[11px] text-bear hover:underline cursor-pointer">删除</button>
+          <button onClick={() => onEdit()} className="text-[0.7857rem] text-accent hover:underline cursor-pointer mr-2">编辑</button>
+          <button onClick={() => onDelete()} className="text-[0.7857rem] text-bear hover:underline cursor-pointer">删除</button>
         </td>
       </tr>
     )
@@ -119,35 +119,35 @@ function ActionRow({ action, editing, onSave, onCancel, onEdit, onDelete, broker
   return (
     <tr className="border-t border-border-subtle bg-surface-3/40">
       <td className="py-1.5 px-2">
-        <input type="date" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-32" value={draft.trade_date || ''} onChange={e => setDraft({ ...draft, trade_date: e.target.value })} title={market === 'US' ? US_DATE_HINT : undefined} />
-        <input type="time" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-24 mt-1 block text-text-dim" value={draft.trade_time || ''} onChange={e => setDraft({ ...draft, trade_time: e.target.value })} title={TIME_HINT[market]} />
+        <input type="date" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-32" value={draft.trade_date || ''} onChange={e => setDraft({ ...draft, trade_date: e.target.value })} title={market === 'US' ? US_DATE_HINT : undefined} />
+        <input type="time" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-24 mt-1 block text-text-dim" value={draft.trade_time || ''} onChange={e => setDraft({ ...draft, trade_time: e.target.value })} title={TIME_HINT[market]} />
       </td>
       <td className="py-1.5 px-2">
-        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px]" value={draft.action_type} onChange={e => setDraft({ ...draft, action_type: e.target.value })}>
+        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem]" value={draft.action_type} onChange={e => setDraft({ ...draft, action_type: e.target.value })}>
           {types.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={draft.broker || ''} onChange={e => setDraft({ ...draft, broker: e.target.value })} title="本笔券商, 留空=无">
+        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.7857rem] mt-1 block text-text-dim w-full" value={draft.broker || ''} onChange={e => setDraft({ ...draft, broker: e.target.value })} title="本笔券商, 留空=无">
           <option value="">无</option>
           {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
         </select>
       </td>
-      <td className="py-1.5 px-2"><input type="number" step="0.0001" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" value={draft.price} onChange={e => setDraft({ ...draft, price: parseFloat(e.target.value) || 0 })} title={draft.action_type === 'SPLIT' ? '拆股比例: 1 拆 4 填 4, 10 合 1 填 0.1' : undefined} />
+      <td className="py-1.5 px-2"><input type="number" step="0.0001" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-20 text-right font-mono" value={draft.price} onChange={e => setDraft({ ...draft, price: parseFloat(e.target.value) || 0 })} title={draft.action_type === 'SPLIT' ? '拆股比例: 1 拆 4 填 4, 10 合 1 填 0.1' : undefined} />
         {market !== 'A' && draft.action_type !== 'SPLIT' && <input type="number" step="0.0001" min="0" placeholder="汇率" title={FX_HINT}
-          className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] w-20 text-right font-mono mt-1 block text-text-dim"
+          className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.7857rem] w-20 text-right font-mono mt-1 block text-text-dim"
           value={draft.fx_rate ?? ''} onChange={e => setDraft({ ...draft, fx_rate: e.target.value === '' ? null : (parseFloat(e.target.value) || 0), fx_set: true })} />}
       </td>
-      <td className="py-1.5 px-2"><input type="number" step={market === 'A' ? 100 : (market === 'US' || market === 'OF') ? 'any' : 1} min={market === 'A' ? 100 : (market === 'US' || market === 'OF') ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" value={draft.shares} onChange={e => setDraft({ ...draft, shares: parseFloat(e.target.value) || 0 })} /></td>
+      <td className="py-1.5 px-2"><input type="number" step={market === 'A' ? 100 : (market === 'US' || market === 'OF') ? 'any' : 1} min={market === 'A' ? 100 : (market === 'US' || market === 'OF') ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-20 text-right font-mono" value={draft.shares} onChange={e => setDraft({ ...draft, shares: parseFloat(e.target.value) || 0 })} /></td>
       <td className="py-1.5 px-2">
         <input type="number" step="0.01" min="0"
           placeholder={action.fee_auto != null ? `估 ${action.fee_auto.toFixed(2)}` : '0'}
-          className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono"
+          className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-20 text-right font-mono"
           value={feeInput} onChange={e => onFeeChange(e.target.value)}
           title={`留空 = 用券商费率自动估算; 填值 = 覆盖(单位 ${CCY[market]})`} />
       </td>
-      <td className="py-1.5 px-2"><input type="text" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-full" placeholder="备注" value={draft.note || ''} onChange={e => setDraft({ ...draft, note: e.target.value })} /></td>
+      <td className="py-1.5 px-2"><input type="text" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-full" placeholder="备注" value={draft.note || ''} onChange={e => setDraft({ ...draft, note: e.target.value })} /></td>
       <td className="py-1.5 px-2 text-center">
-        <button onClick={() => onSave(draft)} className="text-[11px] text-bull hover:underline cursor-pointer mr-2">保存</button>
-        <button onClick={() => onCancel()} className="text-[11px] text-text-dim hover:underline cursor-pointer">取消</button>
+        <button onClick={() => onSave(draft)} className="text-[0.7857rem] text-bull hover:underline cursor-pointer mr-2">保存</button>
+        <button onClick={() => onCancel()} className="text-[0.7857rem] text-text-dim hover:underline cursor-pointer">取消</button>
       </td>
     </tr>
   )
@@ -281,8 +281,8 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
         onClick={e => e.stopPropagation()}>
 
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[15px] font-semibold text-text-bright">
-            交易历史 — {stockName} <span className="text-[12px] font-mono text-text-dim">({stockCode})</span>
+          <h3 className="text-[1.0714rem] font-semibold text-text-bright">
+            交易历史 — {stockName} <span className="text-[0.8571rem] font-mono text-text-dim">({stockCode})</span>
           </h3>
           <button onClick={onClose} className="text-text-dim hover:text-text cursor-pointer">✕</button>
         </div>
@@ -291,9 +291,9 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
           {loading ? (
             <div className="text-center text-text-dim py-6">加载中...</div>
           ) : (
-            <table className="w-full text-[12px]">
+            <table className="w-full text-[0.8571rem]">
               <thead>
-                <tr className="text-text-dim text-[11px] sticky top-0 bg-surface">
+                <tr className="text-text-dim text-[0.7857rem] sticky top-0 bg-surface">
                   <th className="py-2 px-2 text-left font-normal" title={market === 'US' ? US_DATE_HINT : undefined}>{market === 'US' ? '美东交易日' : '日期'}</th>
                   <th className="py-2 px-2 text-left font-normal">类型</th>
                   <th className="py-2 px-2 text-right font-normal">价格</th>
@@ -323,38 +323,38 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
                 {adding && (
                   <tr className="border-t border-border-subtle bg-bull-bg">
                     <td className="py-1.5 px-2">
-                      <input type="date" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-32" value={newAction.trade_date} onChange={e => setNewAction({ ...newAction, trade_date: e.target.value })} title={market === 'US' ? US_DATE_HINT : undefined} />
-                      <input type="time" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-24 mt-1 block text-text-dim" value={newAction.trade_time} onChange={e => setNewAction({ ...newAction, trade_time: e.target.value })} title={TIME_HINT[market]} />
+                      <input type="date" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-32" value={newAction.trade_date} onChange={e => setNewAction({ ...newAction, trade_date: e.target.value })} title={market === 'US' ? US_DATE_HINT : undefined} />
+                      <input type="time" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-24 mt-1 block text-text-dim" value={newAction.trade_time} onChange={e => setNewAction({ ...newAction, trade_time: e.target.value })} title={TIME_HINT[market]} />
                     </td>
                     <td className="py-1.5 px-2">
-                      <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px]" value={newAction.action_type} onChange={e => setNewAction({ ...newAction, action_type: e.target.value })}>
+                      <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem]" value={newAction.action_type} onChange={e => setNewAction({ ...newAction, action_type: e.target.value })}>
                         {addTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                       </select>
                       {isDeriv ? (
-                        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={newAction.direction} onChange={e => setNewAction({ ...newAction, direction: e.target.value })} title="方向(与本行持仓一致)">
+                        <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.7857rem] mt-1 block text-text-dim w-full" value={newAction.direction} onChange={e => setNewAction({ ...newAction, direction: e.target.value })} title="方向(与本行持仓一致)">
                           <option value="LONG">多 (LONG)</option>
                           <option value="SHORT">空 (SHORT)</option>
                         </select>
                       ) : direction === 'SHORT' && (
-                        <span className="inline-block mt-1 text-[10px] px-1 py-[1px] rounded border font-semibold bg-bear/15 text-bear border-bear/40">做空 (SHORT)</span>
+                        <span className="inline-block mt-1 text-[0.7143rem] px-1 py-[1px] rounded border font-semibold bg-bear/15 text-bear border-bear/40">做空 (SHORT)</span>
                       )}
-                      <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] mt-1 block text-text-dim w-full" value={newAction.broker} onChange={e => setNewAction({ ...newAction, broker: e.target.value })} title="本笔券商, 留空=无">
+                      <select className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.7857rem] mt-1 block text-text-dim w-full" value={newAction.broker} onChange={e => setNewAction({ ...newAction, broker: e.target.value })} title="本笔券商, 留空=无">
                         <option value="">无</option>
                         {brokers.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                       </select>
                     </td>
-                    <td className="py-1.5 px-2"><input type="number" step="0.0001" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder={newAction.action_type === 'SPLIT' ? '比例' : '价格'} value={newAction.price} onChange={e => setNewAction({ ...newAction, price: e.target.value })} title={newAction.action_type === 'SPLIT' ? '拆股比例: 1 拆 4 填 4, 10 合 1 填 0.1' : undefined} />
+                    <td className="py-1.5 px-2"><input type="number" step="0.0001" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-20 text-right font-mono" placeholder={newAction.action_type === 'SPLIT' ? '比例' : '价格'} value={newAction.price} onChange={e => setNewAction({ ...newAction, price: e.target.value })} title={newAction.action_type === 'SPLIT' ? '拆股比例: 1 拆 4 填 4, 10 合 1 填 0.1' : undefined} />
                       {market !== 'A' && newAction.action_type !== 'SPLIT' && <input type="number" step="0.0001" min="0" placeholder="汇率(可选)" title={FX_HINT}
-                        className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] w-20 text-right font-mono mt-1 block text-text-dim"
+                        className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.7857rem] w-20 text-right font-mono mt-1 block text-text-dim"
                         value={newAction.fx_rate ?? ''} onChange={e => setNewAction({ ...newAction, fx_rate: e.target.value })} />}
                     </td>
-                    <td className="py-1.5 px-2">{newAction.action_type === 'SPLIT' ? <span className="text-[11px] text-text-dim">--</span>
-                      : <input type="number" step={market === 'A' && !isDeriv ? 100 : (market === 'US' || market === 'OF') ? 'any' : 1} min={market === 'A' && !isDeriv ? 100 : (market === 'US' || market === 'OF') ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="数量" value={newAction.shares} onChange={e => setNewAction({ ...newAction, shares: e.target.value })} />}</td>
-                    <td className="py-1.5 px-2"><input type="number" step="0.01" min="0" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-20 text-right font-mono" placeholder="自动估" value={newAction.fee ?? ''} onChange={e => setNewAction({ ...newAction, fee: e.target.value })} title={`留空 = 按券商费率自动估; 填值 = 实际手续费(单位 ${CCY[market]})`} /></td>
-                    <td className="py-1.5 px-2"><input type="text" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[12px] w-full" placeholder="备注" value={newAction.note} onChange={e => setNewAction({ ...newAction, note: e.target.value })} /></td>
+                    <td className="py-1.5 px-2">{newAction.action_type === 'SPLIT' ? <span className="text-[0.7857rem] text-text-dim">--</span>
+                      : <input type="number" step={market === 'A' && !isDeriv ? 100 : (market === 'US' || market === 'OF') ? 'any' : 1} min={market === 'A' && !isDeriv ? 100 : (market === 'US' || market === 'OF') ? 0.0001 : 1} className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-20 text-right font-mono" placeholder="数量" value={newAction.shares} onChange={e => setNewAction({ ...newAction, shares: e.target.value })} />}</td>
+                    <td className="py-1.5 px-2"><input type="number" step="0.01" min="0" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-20 text-right font-mono" placeholder="自动估" value={newAction.fee ?? ''} onChange={e => setNewAction({ ...newAction, fee: e.target.value })} title={`留空 = 按券商费率自动估; 填值 = 实际手续费(单位 ${CCY[market]})`} /></td>
+                    <td className="py-1.5 px-2"><input type="text" className="bg-bg border border-border rounded px-1.5 py-0.5 text-[0.8571rem] w-full" placeholder="备注" value={newAction.note} onChange={e => setNewAction({ ...newAction, note: e.target.value })} /></td>
                     <td className="py-1.5 px-2 text-center">
-                      <button onClick={handleAdd} className="text-[11px] text-bull hover:underline cursor-pointer mr-2">确认</button>
-                      <button onClick={() => setAdding(false)} className="text-[11px] text-text-dim hover:underline cursor-pointer">取消</button>
+                      <button onClick={handleAdd} className="text-[0.7857rem] text-bull hover:underline cursor-pointer mr-2">确认</button>
+                      <button onClick={() => setAdding(false)} className="text-[0.7857rem] text-text-dim hover:underline cursor-pointer">取消</button>
                     </td>
                   </tr>
                 )}
@@ -364,13 +364,13 @@ export default function TransactionHistory({ stockCode, stockName, direction, co
         </div>
 
         <div className="flex items-center justify-between pt-3 border-t border-border mt-2">
-          <div className="text-[11px] text-text-muted">
+          <div className="text-[0.7857rem] text-text-muted">
             {actions.length} 条记录 · 每次修改会自动按 FIFO 重算持仓均价
-            {market === 'US' && <span className="block text-[10.5px]">日期/时刻按美东填: 盈立成交记录上的日期; 北京时间凌晨成交算前一天</span>}
+            {market === 'US' && <span className="block text-[0.75rem]">日期/时刻按美东填: 盈立成交记录上的日期; 北京时间凌晨成交算前一天</span>}
           </div>
           {!adding && (
             <button onClick={() => setAdding(true)}
-              className="text-[12px] px-3 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 cursor-pointer">
+              className="text-[0.8571rem] px-3 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20 cursor-pointer">
               + 添加记录
             </button>
           )}

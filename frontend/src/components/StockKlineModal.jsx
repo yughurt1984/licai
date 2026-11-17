@@ -26,7 +26,6 @@ export default function StockKlineModal({ holding, onClose }) {
   const [err, setErr] = useState('')
 
   const code = holding?.stock_code
-  const assetId = holding?.asset_id               // 场外 ETF: 据此走 assets 流水端点
   const isA = code && /^\d{6}$/.test(String(code).replace(/^(sh|sz|SH|SZ)/, ''))
   const foreign = code && /^(HK|US)\./i.test(String(code))   // 港美股: 分时走腾讯(最近一个交易日), 周/月K、盘口不支持
 
@@ -49,10 +48,8 @@ export default function StockKlineModal({ holding, onClose }) {
         .then(d => setMinute(d?.data || null)).catch(e => setErr(e?.message || '加载失败')).finally(done)
     } else {
       // 日/周/月 K 线交给 ProKline 自取(可缩放, 与榜单同源)。这里只取买卖点流水传给它。
-      // 场内 ETF 走 /api/assets/{id}/actions; A股走 portfolio actions。
-      const actUrl = assetId
-        ? `/api/assets/${assetId}/actions`
-        : `/api/portfolio/${encodeURIComponent(code)}/actions`
+      // 买卖点流水走 portfolio actions。
+      const actUrl = `/api/portfolio/${encodeURIComponent(code)}/actions`
       fetchJSON(actUrl).catch(() => []).then(a => {
         // 份额拆分后 K 线是前复权标度: 标记优先用后端算的 adj_price/adj_shares; SPLIT 不打点
         const raw = Array.isArray(a) ? a : (a?.actions || [])
@@ -63,7 +60,7 @@ export default function StockKlineModal({ holding, onClose }) {
         })))
       }).finally(done)
     }
-  }, [code, tab, tdxOn, assetId, tickMode, foreign])
+  }, [code, tab, tdxOn, tickMode, foreign])
 
   // 五档 + 逐笔 (TDX, 仅 A 股; 5s 刷新)
   useEffect(() => {
@@ -109,14 +106,14 @@ export default function StockKlineModal({ holding, onClose }) {
         {/* header */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-baseline gap-x-2 gap-y-1 flex-wrap min-w-0 flex-1">
-            <h3 className="text-[15px] font-semibold text-text-bright m-0">{holding.stock_name}</h3>
-            <span className="text-[11px] font-mono text-text-dim">{holding.stock_code}</span>
-            <span className="text-[14px] font-mono text-text-bright">{fmtVal(book?.price || holding.current_price)}</span>
-            <span className={`text-[12px] font-mono ${colorPct(holding.price_change_pct)}`}>{fmtPct(holding.price_change_pct)}</span>
-            {cost != null && <span className={`text-[11px] font-mono ${colorPct(vsCostPct)}`} title="相对持仓成本">vs 成本 {fmtPct(vsCostPct)}</span>}
-            {book?.['盘口'] && <span className="text-[10.5px] text-accent">· {book['盘口']}</span>}
+            <h3 className="text-[1.0714rem] font-semibold text-text-bright m-0">{holding.stock_name}</h3>
+            <span className="text-[0.7857rem] font-mono text-text-dim">{holding.stock_code}</span>
+            <span className="text-[1rem] font-mono text-text-bright">{fmtVal(book?.price || holding.current_price)}</span>
+            <span className={`text-[0.8571rem] font-mono ${colorPct(holding.price_change_pct)}`}>{fmtPct(holding.price_change_pct)}</span>
+            {cost != null && <span className={`text-[0.7857rem] font-mono ${colorPct(vsCostPct)}`} title="相对持仓成本">vs 成本 {fmtPct(vsCostPct)}</span>}
+            {book?.['盘口'] && <span className="text-[0.75rem] text-accent">· {book['盘口']}</span>}
             {panic && (
-              <span className="text-[10.5px] font-mono px-1.5 py-0.5 rounded"
+              <span className="text-[0.75rem] font-mono px-1.5 py-0.5 rounded"
                 style={{ border: '1px solid var(--color-border-med)' }}
                 title={`恐慌逃离指数 ${panic.score}/100(${panic.level})· 今天卖压比该股过去${panic.sample_days}日里 ${panic.percentile}% 的日子更急。跌${panic.drop_pct}% 收盘位置${panic.close_pos} 量比${panic.vol_ratio}${panic.limit_down ? ' 跌停' : ''}${panic.new_low ? ' 破新低' : ''}。${panic.history ? `\n历史上「${panic.history.band}」档之后(全市场 2019~2026, ${panic.history.n}次): 次日开盘相对大盘 ${panic.history.next_open > 0 ? '+' : ''}${panic.history.next_open}%, 20日超额 ${panic.history.ex20 > 0 ? '+' : ''}${panic.history.ex20}%, 跑赢 ${Math.round(panic.history.win20 * 100)}%${panic.history.band === '跌停' ? '(跌停之后持续偏弱, 是各档里唯一明显的)' : '(高分之后没有明显的继续跌或反弹, 扣掉跌幅本身后差异只有零点几个百分点)'}。` : ''}\n客观卖压强度, 不预示反弹, 非买卖信号。`}>
                 恐慌 <span style={{ color: panic.score >= 50 ? 'var(--color-bull-bright)' : 'var(--color-text)' }}>{panic.score}</span>
@@ -124,7 +121,7 @@ export default function StockKlineModal({ holding, onClose }) {
               </span>
             )}
             {inst && (
-              <span className="text-[10.5px] font-mono px-1.5 py-0.5 rounded"
+              <span className="text-[0.75rem] font-mono px-1.5 py-0.5 rounded"
                 style={{ border: '1px solid var(--color-border-med)' }}
                 title={inst.appearances ? `近30天龙虎榜机构专用席位: ${inst.direction} 净额 ${inst.net_buy_yi}亿, ${inst.appearances}次上榜, 最近 ${inst.last_date}(现价较上榜${inst.since_last_pct}%)。上榜日才披露=抽样滞后,非全量、非买卖信号。` : '近30天该股无龙虎榜机构席位披露(上榜才披露,不代表机构没动作)'}>
                 机构 {inst.appearances
@@ -136,10 +133,10 @@ export default function StockKlineModal({ holding, onClose }) {
           </div>
           <div className="flex gap-1 items-center shrink-0">
             {showTabs.map(t => (
-              <button key={t} onClick={() => setTab(t)} className="px-2.5 py-[3px] rounded text-[11px] cursor-pointer transition-colors"
+              <button key={t} onClick={() => setTab(t)} className="px-2.5 py-[3px] rounded text-[0.7857rem] cursor-pointer transition-colors"
                 style={{ border: '1px solid', borderColor: tab === t ? 'var(--color-accent)' : 'var(--color-border-med)', color: tab === t ? 'var(--color-accent)' : 'var(--color-text-dim)', background: tab === t ? 'rgba(200,168,118,.1)' : 'transparent' }}>{t}{(t !== '分时' && t !== '分价') ? 'K' : ''}</button>
             ))}
-            <button onClick={onClose} className="text-text-dim hover:text-text text-[18px] leading-none px-2 ml-1 cursor-pointer">×</button>
+            <button onClick={onClose} className="text-text-dim hover:text-text text-[1.2857rem] leading-none px-2 ml-1 cursor-pointer">×</button>
           </div>
         </div>
 
@@ -152,21 +149,21 @@ export default function StockKlineModal({ holding, onClose }) {
           <div className="flex-1 min-w-0">
             {/* 分时: 逐笔精绘开关. 1分钟采样丢失分钟内秒级尖峰(盘口被打空的"闪电"), 逐笔精绘用全天逐笔还原 */}
             {tab === '分时' && foreign && minute?.date && (
-              <div className="mb-2 text-[10.5px] text-text-muted">{minute.date} 分时 · 交易所当地时间{String(code).toUpperCase().startsWith('US') ? '(美东)' : ''} · 量单位: 股</div>
+              <div className="mb-2 text-[0.75rem] text-text-muted">{minute.date} 分时 · 交易所当地时间{String(code).toUpperCase().startsWith('US') ? '(美东)' : ''} · 量单位: 股</div>
             )}
             {tab === '分时' && !foreign && (
               <div className="flex gap-1 mb-2 items-center">
-                <button onClick={() => setTickMode(false)} className="px-2 py-[2px] rounded text-[10px] cursor-pointer"
+                <button onClick={() => setTickMode(false)} className="px-2 py-[2px] rounded text-[0.7143rem] cursor-pointer"
                   style={{ border: '1px solid', borderColor: !tickMode ? 'var(--color-accent)' : 'var(--color-border-med)', color: !tickMode ? 'var(--color-accent)' : 'var(--color-text-dim)' }}>1分钟</button>
-                <button onClick={() => setTickMode(true)} className="px-2 py-[2px] rounded text-[10px] cursor-pointer"
+                <button onClick={() => setTickMode(true)} className="px-2 py-[2px] rounded text-[0.7143rem] cursor-pointer"
                   style={{ border: '1px solid', borderColor: tickMode ? 'var(--color-accent)' : 'var(--color-border-med)', color: tickMode ? 'var(--color-accent)' : 'var(--color-text-dim)' }}
                   title="用全天逐笔重画, 还原分钟内的秒级尖峰(盘口被打空的闪电), 数据量更大">逐笔精绘</button>
               </div>
             )}
             <div className="bg-surface-3 rounded-md p-2">
               {tab === '分价' ? <PriceVolumeTable code={code} prevClose={prevClose} decimals={/^[15]\d{5}$/.test(String(code)) ? 3 : 2} />
-                : tab === '分时' ? (loading ? <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">加载中…</div>
-                    : err ? <div className="h-[360px] flex items-center justify-center text-text-dim text-[12px]">{err}</div>
+                : tab === '分时' ? (loading ? <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">加载中…</div>
+                    : err ? <div className="h-[360px] flex items-center justify-center text-text-dim text-[0.8571rem]">{err}</div>
                     : <MinuteChart points={minute?.points || []} prevClose={prevClose} actions={actions} day={minute?.date} tickMode={tickMode && !foreign} volUnit={foreign ? '股' : '手'}
                         tz={/^US\./i.test(String(code)) ? 'America/New_York' : null} />)
                 : <ProKline code={code} period={tab === '周' ? 'week' : tab === '月' ? 'month' : 'day'}
@@ -188,7 +185,7 @@ export default function StockKlineModal({ holding, onClose }) {
 
         {isA && <LhbPanel code={code} />}
 
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-dim">
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[0.7857rem] text-text-dim">
           {cost != null && <span>成本 <span className="text-accent font-mono">{fmtVal(cost)}</span></span>}
           <span><span className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: BUY_COLOR }} />B 买入<span className="mx-1.5" /><span className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: SELL_COLOR }} />S 卖出</span>
           {tdxOn && !foreign && <span className="text-accent/70">TDX 盘口/分时已接入</span>}

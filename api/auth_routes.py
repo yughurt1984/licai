@@ -54,9 +54,10 @@ class BindEmailBody(BaseModel):
 
 
 class PreferencesBody(BaseModel):
-    theme: str | None = None           # light | dark | system
+    theme: str | None = None           # light | dark | eyecare(护眼=旧暖纸配色)
     wan_unit: bool | None = None       # True=金额≥1万显示「万」
     updown_red: bool | None = None     # True=红涨绿跌(中国惯例)
+    font_scale: str | None = None      # s | m | l(小/中/大, html 根字号 14/16/18px)
 
 
 def _set_cookie(resp: Response, token: str):
@@ -186,14 +187,19 @@ async def bind_email(body: BindEmailBody):
 
 @router.get("/preferences")
 async def get_preferences():
-    """显示偏好(账户页 → 显示设置)。未设置给默认: 浅色 / 万单位开 / 红涨绿跌。"""
+    """显示偏好(账户页 → 显示设置)。未设置给默认: 浅色(纯白) / 万单位开 / 红涨绿跌 / 中号字体。
+    主题三选 light|dark|eyecare; 旧存档的 'system'(跟随系统, 已下线)按浅色返回。"""
     uid = _uid_or_401()
     from database import get_config
     theme = (await get_config("pref_theme")) or "light"
     wan = (await get_config("pref_wan_unit")) != "0"      # 缺省开(=既有显示口径)
     red = (await get_config("pref_updown_red")) != "0"    # 缺省红涨绿跌
-    return {"theme": theme if theme in ("light", "dark", "system") else "light",
-            "wan_unit": wan, "updown_red": red}
+    scale = (await get_config("pref_font_scale")) or "m"  # 缺省中号
+    if theme not in ("light", "dark", "eyecare"):
+        theme = "light"
+    return {"theme": theme,
+            "wan_unit": wan, "updown_red": red,
+            "font_scale": scale if scale in ("s", "m", "l") else "m"}
 
 
 @router.put("/preferences")
@@ -201,11 +207,15 @@ async def put_preferences(body: PreferencesBody):
     uid = _uid_or_401()
     from database import set_config
     if body.theme is not None:
-        if body.theme not in ("light", "dark", "system"):
-            raise HTTPException(400, "theme 只支持 light/dark/system")
+        if body.theme not in ("light", "dark", "eyecare"):
+            raise HTTPException(400, "theme 只支持 light/dark/eyecare")
         await set_config("pref_theme", body.theme)
     if body.wan_unit is not None:
         await set_config("pref_wan_unit", "1" if body.wan_unit else "0")
     if body.updown_red is not None:
         await set_config("pref_updown_red", "1" if body.updown_red else "0")
+    if body.font_scale is not None:
+        if body.font_scale not in ("s", "m", "l"):
+            raise HTTPException(400, "font_scale 只支持 s/m/l")
+        await set_config("pref_font_scale", body.font_scale)
     return await get_preferences()

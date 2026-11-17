@@ -119,6 +119,8 @@ async def price_monitor_loop():
                 with run_as_user(uid):
                     from database import get_all_holdings
                     holdings = await get_all_holdings()
+                    # 已清仓(shares=0)的行不再推行情: 它们不在主列表展示, 也不该占行情额度
+                    holdings = [h for h in holdings if (h.get("shares") or 0) > 0]
                     if not holdings:
                         continue
                     codes = [h["stock_code"] for h in holdings]

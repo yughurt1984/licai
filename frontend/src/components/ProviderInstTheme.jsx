@@ -11,8 +11,8 @@ const fmtYi = (v) => v == null ? '—' : `${v > 0 ? '+' : ''}${v}亿`
 function NeedLogin({ what }) {
   return (
     <div className="bg-surface-2 border border-border rounded-xl p-4 md:p-5">
-      <h3 className="text-[14px] font-semibold text-text-bright m-0 mb-1.5">{what}</h3>
-      <div className="text-[11.5px] text-text-muted leading-relaxed">
+      <h3 className="text-[1rem] font-semibold text-text-bright m-0 mb-1.5">{what}</h3>
+      <div className="text-[0.8214rem] text-text-muted leading-relaxed">
         扩展数据源凭证已失效,去<span className="text-accent">设置</span>里更新后可见。
       </div>
     </div>
@@ -25,8 +25,8 @@ function NeedLogin({ what }) {
 function NotConnected() {
   return (
     <div className="bg-surface-2 border border-border rounded-xl p-4 md:p-5">
-      <h3 className="text-[14px] font-semibold text-text-bright m-0 mb-1.5">机构增仓 · 本月热门题材</h3>
-      <div className="text-[11.5px] text-text-muted leading-relaxed">
+      <h3 className="text-[1rem] font-semibold text-text-bright m-0 mb-1.5">机构增仓 · 本月热门题材</h3>
+      <div className="text-[0.8214rem] text-text-muted leading-relaxed">
         这一页的两块内容——机构季报行业增减仓、当月题材热度——自带的公开行情源没有这个口径，
         由可选的<span className="text-accent">扩展数据源</span>提供。装一个 provider 插件后在
         「设置 → 扩展数据源」里选中即可；不接不影响其它任何页面。
@@ -62,12 +62,12 @@ export default function ProviderInstTheme({ standalone = false }) {
       {hasTheme && (
         <div>
           <div className="flex items-baseline gap-2 mb-2 flex-wrap">
-            <h3 className="text-[14px] font-semibold text-text-bright m-0">本月热门题材</h3>
-            <span className="text-[10.5px] text-text-muted">扩展数据源 · 按热度降序</span>
+            <h3 className="text-[1rem] font-semibold text-text-bright m-0">本月热门题材</h3>
+            <span className="text-[0.75rem] text-text-muted">扩展数据源 · 按热度降序</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {theme['题材榜'].map((t) => (
-              <span key={t['代码']} className="text-[11.5px] bg-surface-3 rounded px-2 py-1">
+              <span key={t['代码']} className="text-[0.8214rem] bg-surface-3 rounded px-2 py-1">
                 <span className="text-text-muted font-mono mr-1">{t['排名']}</span>
                 <span className="text-text-bright">{t['题材']}</span>
               </span>
@@ -80,8 +80,8 @@ export default function ProviderInstTheme({ standalone = false }) {
       {hasPos && (
         <div>
           <div className="flex items-baseline gap-2 mb-2 flex-wrap">
-            <h3 className="text-[14px] font-semibold text-text-bright m-0">机构增仓</h3>
-            <span className="text-[10.5px] text-text-muted">
+            <h3 className="text-[1rem] font-semibold text-text-bright m-0">机构增仓</h3>
+            <span className="text-[0.75rem] text-text-muted">
               扩展数据源 · {pos.date} 季报 · 行业板块 · 全市场机构增仓合计
               <span className={yiColor(pos['全市场机构增仓合计亿'])}> {fmtYi(pos['全市场机构增仓合计亿'])}</span>
             </span>
@@ -90,7 +90,7 @@ export default function ProviderInstTheme({ standalone = false }) {
             <PosList title="增仓榜" rows={pos['增仓榜']} />
             <PosList title="减仓榜" rows={pos['减仓榜']} />
           </div>
-          <div className="text-[10px] text-text-muted mt-2 pt-1.5 border-t border-border-subtle">
+          <div className="text-[0.7143rem] text-text-muted mt-2 pt-1.5 border-t border-border-subtle">
             季报持仓口径(中线机构搬仓方向), 区别于龙虎榜机构席位(短线)。已披露客观数据, 非买卖建议。
           </div>
         </div>
@@ -103,14 +103,14 @@ function PosList({ title, rows }) {
   if (!rows || !rows.length) return null
   return (
     <div>
-      <div className="text-[11px] text-text-muted mb-1.5">{title}</div>
+      <div className="text-[0.7857rem] text-text-muted mb-1.5">{title}</div>
       <div className="space-y-1">
         {rows.slice(0, 8).map((r) => (
-          <div key={r['代码']} className="flex items-baseline justify-between gap-2 text-[12px]">
+          <div key={r['代码']} className="flex items-baseline justify-between gap-2 text-[0.8571rem]">
             <span className="text-text-bright truncate">{r['名称']}</span>
             <span className="flex items-baseline gap-2 shrink-0 font-mono">
               {r['持仓占流通%'] != null && (
-                <span className="text-text-dim text-[10.5px]">占流通{r['持仓占流通%']}%</span>
+                <span className="text-text-dim text-[0.75rem]">占流通{r['持仓占流通%']}%</span>
               )}
               <span className={yiColor(r['增仓金额亿'])}>{fmtYi(r['增仓金额亿'])}</span>
             </span>

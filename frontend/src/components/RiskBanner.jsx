@@ -38,13 +38,13 @@ export default function RiskBanner({ holdings }) {
     <div className="mx-4 mt-3 px-4 py-2 rounded-lg bg-bear/15 border border-bear/30 flex items-center justify-between"
       style={{ animation: 'fade-up 0.3s ease-out' }}>
       <div className="flex items-center gap-2">
-        <span className="text-bear text-[14px]">&#9888;</span>
-        <span className="text-[13px] text-bear-bright font-medium">
+        <span className="text-bear text-[1rem]">&#9888;</span>
+        <span className="text-[0.9286rem] text-bear-bright font-medium">
           风控警告：今日浮亏 {fmtMoney(Math.abs(todayPnl))}，超过阈值 {fmtMoney(threshold)}，建议暂停加仓
         </span>
       </div>
       <button onClick={() => setDismissed(true)}
-        className="text-[11px] px-2 py-0.5 rounded border border-bear/30 text-bear hover:bg-bear/20 cursor-pointer shrink-0">
+        className="text-[0.7857rem] px-2 py-0.5 rounded border border-bear/30 text-bear hover:bg-bear/20 cursor-pointer shrink-0">
         知道了
       </button>
     </div>

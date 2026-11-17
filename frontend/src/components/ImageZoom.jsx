@@ -21,7 +21,7 @@ export default function ImageZoom({ src, alt = '', className = '', imgProps = {}
           onClick={() => setOpen(false)}>
           <img src={src} alt={alt} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
           <button onClick={() => setOpen(false)} aria-label="关闭"
-            className="absolute top-3 right-4 text-white/70 hover:text-white text-[30px] leading-none">×</button>
+            className="absolute top-3 right-4 text-white/70 hover:text-white text-[2.1429rem] leading-none">×</button>
         </div>,
         document.body
       )}

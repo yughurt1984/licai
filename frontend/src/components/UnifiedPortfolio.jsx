@@ -3,10 +3,9 @@ import { fmtMoney, fmtPct, loadBrokers, priceColor } from '../helpers'
 import { api, fetchJSON } from '../hooks/useApi'
 import SkeletonCard from './Skeleton'
 import Tooltip from './Tooltip'
-import { AllocationDonut, FxHint, MarketChip, ProxyPulse, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './portfolio/atoms'
+import { AllocationDonut, FxHint, MarketChip, RowActions, TodayPulse, TypeChip, TypeMiniInfo, WeightBar } from './portfolio/atoms'
 import { TYPE_COLOR, TYPE_ORDER, TYPE_META, typeFromClassify } from './portfolio/constants'
-import { formatCurrencyMoney } from './portfolio/helpers'
-import { aggregate, normalizeAsset, normalizeFixIncomeAsset, normalizeHolding } from './portfolio/model'
+import { aggregate, normalizeHolding, todayPnlOf } from './portfolio/model'
 import { HoldingRow } from './portfolio/HoldingRow'
 import { PortfolioModals } from './portfolio/PortfolioModals'
 import { ClosedPositionsBlock, SummaryStrip } from './portfolio/summary'
@@ -14,16 +13,20 @@ import { usePortfolioModals } from './portfolio/useModals'
 import { useAllAssetClasses } from './portfolio/forms/AssetClassPicker'
 
 // ============================================================
-// UnifiedPortfolio — replaces Portfolio + ExternalAssets
-// Groups: A股 / 基金 / 加密 / 机器人. Sorted by market value desc
+// UnifiedPortfolio — 持仓总览
+// Groups: A股 / 基金 / 固定收益 / 现金 / 衍生品. Sorted by market value desc
 // within groups. Hover-only row actions. Donut allocation header.
 // ============================================================
+
+// 顶部资产大类标签的固定顺序(按 assets_class key)。「全部」由渲染处固定在最前。
+// 未在此列出的大类(如 commodity/forex/insurance)与兜底展示桶(机器人等)排在已知大类之后,
+// 保持目录出现顺序 —— 这样目录新增大类不会打乱既定顺序。
+const ASSET_CLASS_TAB_ORDER = ['stock', 'fund', 'derivatives', 'crypto', 'fix-income', 'cash_equal']
 
 // ============================================================
 // Main
 // ============================================================
 export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, dataVersion = 0, onHoldingsChanged }) {
-  const [assets, setAssets] = useState([])
   const [brokers, setBrokers] = useState([])
   useEffect(() => { loadBrokers().then(setBrokers) }, [])
   // 个人中心改了券商费率 → 立即重拉(顺带清 helpers 的模块缓存)
@@ -32,8 +35,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
     window.addEventListener('licai:brokers-changed', onChange)
     return () => window.removeEventListener('licai:brokers-changed', onChange)
   }, [])
-  const [assetsLoaded, setAssetsLoaded] = useState(false)
-  const [tradingDay, setTradingDay] = useState(null)
   const [collapsed, setCollapsed] = useState({})
   const [hoverId, setHoverId] = useState(null)
   const [filter, setFilter] = useState('ALL')
@@ -66,6 +67,15 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         defs.push({ key: t, label: TYPE_META[t].label, buckets: new Set([t]), color: TYPE_COLOR[t] || '#8a8378' })
       }
     }
+    // 按固定顺序排: 已知大类优先(全部在渲染处固定最前), 其余(未列出大类/兜底桶)后置且保持原顺序
+    defs.sort((a, b) => {
+      const ia = ASSET_CLASS_TAB_ORDER.indexOf(a.key)
+      const ib = ASSET_CLASS_TAB_ORDER.indexOf(b.key)
+      if (ia === -1 && ib === -1) return 0
+      if (ia === -1) return 1
+      if (ib === -1) return -1
+      return ia - ib
+    })
     return defs
   }, [classOptions, classBuckets])
   const activeTab = filter === 'ALL' ? null : tabDefs.find(d => d.key === filter)
@@ -79,46 +89,20 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
     } catch {}
   }, [])
   useEffect(() => { loadThesisCodes() }, [loadThesisCodes])
-  const [realized, setRealized] = useState({ stock: 0, asset: 0 })
+  const [realized, setRealized] = useState({ stock: 0 })
   const [todayPnl, setTodayPnl] = useState(null)     // 券商口径当日盈亏(后端算)
-  const loadAssets = useCallback(async () => {
-    try {
-      const d = await fetchJSON('/api/assets')
-      setAssets(d.assets || [])
-    } catch {} finally { setAssetsLoaded(true) }
-  }, [])
-
-  // 固定收益(fix-income: 理财/债券)走独立账本 /api/fix-income, 不在 /api/assets 里。
-  const [fixAssets, setFixAssets] = useState([])
-  const loadFixAssets = useCallback(async () => {
-    try {
-      const d = await fetchJSON('/api/fix-income')
-      setFixAssets(d.assets || [])
-    } catch {}
-  }, [])
 
   const loadRealized = useCallback(async () => {
     try {
-      const [s, a] = await Promise.all([
-        fetchJSON('/api/portfolio/realized'),
-        fetchJSON('/api/assets/realized'),
-      ])
-      // 总盈亏 = 浮动(行内 pnl) + 已实现. 但有两处会重复算, 必须从已实现里剔掉:
-      //  1) 股票: 当前持仓段的 realized 已被「综合成本法」摊进剩余成本 → 行内浮动已含。
-      //     只补 realized_carry (已平仓段 + 分红, 后端算好), 含清仓后又复活的旧那轮。
-      //  2) CASH 的 realized(利息) 已作为现金行的 pnl 计入浮动 → 资产已实现里排除 CASH。
-      // FUND/CRYPTO/WEALTH 的成本只算剩余 lot, 浮动不含 realized, 所以全额计入。
-      const stockCarry = s.total_realized_carry != null
-        ? s.total_realized_carry
-        : (s.items || []).filter(it => !it.still_holding).reduce((sum, it) => sum + (it.realized_pnl || 0), 0)
-      const assetExclCash = (a.items || [])
-        .filter(it => it.asset_type !== 'CASH')
-        .reduce((sum, it) => sum + (it.closed_realized ?? it.realized_pnl ?? 0), 0)
+      const s = await fetchJSON('/api/portfolio/realized')
+      // 加权平均口径: 浮动 = 市值 − 成本×份额, 从不含已实现 → 总盈亏 = 浮动 + 已实现
+      // 直接相加(切换日后的平仓事件 + 分红), 无需任何补偿。
+      const realizedTotal = s.total_realized_pnl != null
+        ? s.total_realized_pnl
+        : (s.items || []).reduce((sum, it) => sum + (it.realized_pnl || 0), 0)
       setRealized({
-        stock: Math.round(stockCarry * 100) / 100,
-        asset: Math.round(assetExclCash * 100) / 100,
+        stock: Math.round(realizedTotal * 100) / 100,
         stockItems: s.items || [],
-        assetItems: a.items || [],
       })
     } catch (e) { console.error('realized load failed', e) }
   }, [])
@@ -131,51 +115,32 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   }, [])
 
   useEffect(() => {
-    loadAssets()
-    loadFixAssets()
     loadRealized()
     loadTodayPnl()
-    // Crypto & OKX bots are 24/7 markets; use shorter interval. Server-side
-    // caches handle upstream rate limits (crypto 30s, fund 120s).
-    const t = setInterval(() => { loadAssets(); loadFixAssets(); loadRealized(); loadTodayPnl() }, 20000)
+    const t = setInterval(() => { loadRealized(); loadTodayPnl() }, 30000)
     return () => clearInterval(t)
-  }, [loadAssets, loadFixAssets, loadRealized, loadTodayPnl])
+  }, [loadRealized, loadTodayPnl])
 
+  // 交易流水编辑后 (dataVersion 变化): 立即重载已实现, 不用等轮询
   useEffect(() => {
-    fetchJSON('/api/market/trading-day').then(setTradingDay).catch(() => {})
-    const t = setInterval(() => fetchJSON('/api/market/trading-day').then(setTradingDay).catch(() => {}), 3600000)
-    return () => clearInterval(t)
-  }, [])
+    if (dataVersion > 0) { loadRealized(); loadTodayPnl() }
+  }, [dataVersion, loadRealized, loadTodayPnl])
 
-  // 交易流水编辑后 (dataVersion 变化): 立即重载已实现/已清仓/资产, 不用等 20s 轮询
-  useEffect(() => {
-    if (dataVersion > 0) { loadRealized(); loadAssets(); loadFixAssets(); loadTodayPnl() }
-  }, [dataVersion, loadRealized, loadAssets, loadFixAssets, loadTodayPnl])
-
+  // 固收已并入持仓账本: rows = holdings(含固收 nav/quote 行, 按目录大类自动归 W 桶)
   const rows = useMemo(() => {
     // 0 持仓的股票/基金 不在主列表显示, 走 "已清仓" 区块
     const a = (holdings || []).filter(h => (h.shares || 0) > 0).map(normalizeHolding)
-    // BOT/CASH 常驻; 基金/加密 已清仓(无成本/无市值/无在途)的不进主列表, 走"已清仓"区块
-    const e = (assets || []).filter(x => x.asset_type === 'BOT' || x.asset_type === 'CASH'
-      || (x.shares || 0) > 0 || (x.cost_amount || 0) > 0
-      || (x.current_value || 0) > 0 || (x.pending_amount || 0) > 0).map(normalizeAsset)
-    // 固定收益(W 桶): 本金或市值 > 0 的在持行; 已到期/结清(principal=0 且 mv=0)不进主列表
-    const fi = (fixAssets || []).filter(x => (x.principal || 0) > 0 || (x.current_value || 0) > 0)
-      .map(normalizeFixIncomeAsset)
-    return [...a, ...e, ...fi]
-  }, [holdings, assets, fixAssets])
+    return [...a]
+  }, [holdings])
 
   const filtered = useMemo(
     () => (filter === 'ALL' || !activeTab) ? rows : rows.filter(r => activeTab.buckets.has(r.type)),
     [rows, filter, activeTab]
   )
 
-  const aShareTradingDay = tradingDay
-    ? !!tradingDay.is_trading_day
-    : ![0, 6].includes(new Date().getDay())
-  const agg = useMemo(() => aggregate(filtered, aShareTradingDay), [filtered, aShareTradingDay])
-  // 个股「历史已实现」(清仓段+分红, 不在当前浮动里). 用来在行内补「真实总盈亏」,
-  // 否则清仓后复活的票只看浮动会误判 (锡业股份浮动+245 实则全周期 -373)。
+  const agg = useMemo(() => aggregate(filtered), [filtered])
+  // 个股「历史已实现」(平仓事件+分红, 不在当前浮动里 —— 浮动只看市值−成本). 用来在
+  // 行内补「真实总盈亏」: 浮动 + 已实现, 否则只看浮动会误判这只票全周期的赚赔。
   const carryByCode = useMemo(() => {
     const m = {}
     for (const it of (realized?.stockItems || [])) {
@@ -187,128 +152,48 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
   // visibleTypes: from filtered rows — drives content section rendering
   const visibleTypes = TYPE_ORDER.filter(t => agg.groups[t])
 
-  // Risk insights: 板块集中度提示(仅 A 股行业, 数据来自东财一级行业; 基金行业分类已下线,
-  // 基金桶的 category 现在是「基金类别」(场内ETF/场外基金…), 不再参与板块分散判断)。
-  // Always computed from ALL rows (not filtered) so toggling filter doesn't change advice.
-  // 大类集中度提示已按需求移除。
-  const insights = useMemo(() => {
-    const allAgg = aggregate(rows, true)
-    const warnings = []
-    const g = allAgg.groups.A
-    // 股票桶里港股/美股的分类是「市场」不是行业板块, 不参与板块分散判断(只看 A 股行业)
-    const items = (g?.items || []).filter(it => (it.extra?.market || 'A') === 'A')
-    if (items.length >= 2) {
-      const itemsMv = items.reduce((s, it) => s + (it.mv || 0), 0)
-      if (itemsMv > 0) {
-        const subs = {}
-        for (const it of items) {
-          const cid = it.category?.id || 'other'
-          subs[cid] = (subs[cid] || 0) + (it.mv || 0)
-        }
-        const entries = Object.entries(subs)
-        if (entries.length === 1) {
-          const cat = items[0].category?.label || '同一类'
-          warnings.push({
-            level: 'high',
-            text: `A股全押「${cat}」，板块未分散`,
-          })
-        } else {
-          const top = entries.sort((a, b) => b[1] - a[1])[0]
-          const topPct = top[1] / itemsMv * 100
-          if (topPct >= 70) {
-            const cat = items.find(it => (it.category?.id || 'other') === top[0])?.category?.label || '某类'
-            warnings.push({
-              level: 'med',
-              text: `A股内「${cat}」占 ${topPct.toFixed(0)}%，板块过度集中`,
-            })
-          }
-        }
-      }
-    }
-    return { warnings }
-  }, [rows])
-
   const removeAsset = async (row) => {
     if (!confirm(`删除 ${row.name}？`)) return
-    // 证券持仓(A股/期货/期权)是 holdings 表 → 按 code(+方向) 删; 固定收益走 fix-income 路由;
-    // 其余场外资产走 assets 路由
-    if (row.src === 'fix-income') {
-      await fetchJSON(`/api/fix-income/${row._raw.id}`, { method: 'DELETE' })
-      loadFixAssets()
-      return
-    }
-    if (row.type === 'A' || row.type === 'T' || row.type === 'O') {
-      await api.deleteHolding(row._raw.stock_code, row._raw.direction)
-      onHoldingsChanged?.()
-    } else {
-      await fetchJSON(`/api/assets/${row._raw.id}`, { method: 'DELETE' })
-    }
-    loadAssets()
+    // 全部资产行(股票/期货/期权/基金/固收)都是 holdings 表 → 按 code(+方向) 删
+    await api.deleteHolding(row._raw.stock_code, row._raw.direction)
+    onHoldingsChanged?.()
   }
 
   const handleEdit = (row) => {
-    // 持仓行(A股/期货/期权/基金, src=holding) → App 的 EditModal(shares/成本/最新价/删除);
-    // 固定收益(src=fix-income) → FixIncomeEditRow; 其余场外资产(src=asset) → EditAssetRow
+    // 持仓行(A股/期货/期权/基金/固收, src=holding) → App 的 EditModal(shares/成本/最新价/删除)
     if (row.src === 'holding') onEdit?.(row._raw)
-    else if (row.src === 'fix-income') show('editFix', row._raw)
-    else show('edit', row._raw)
   }
   const handleAddLot = (row) => {
     if (row.type === 'A') return  // A股 走 TransactionHistory
     if (row.type === 'T' || row.type === 'O') return show('futLot', row._raw)  // 期货/期权: 同向 OPEN
-    if (row.src === 'holding') return onHistory?.(row._raw, 'BUY')  // 基金持仓: 买入=持仓流水预选 BUY
-    show('addLot', row._raw)
+    onHistory?.(row._raw, 'BUY')  // 基金/固收持仓: 买入=持仓流水预选 BUY
   }
   const handleCloseLot = (row) => {
     if (row.type === 'T' || row.type === 'O') show('futClose', row._raw)       // 平仓 CLOSE
   }
   const handleReduceLot = (row) => {
-    if (row.src === 'holding') return onHistory?.(row._raw, 'SELL') // 基金持仓: 卖出=持仓流水预选 SELL
-    show('reduce', row._raw)
+    onHistory?.(row._raw, 'SELL') // 基金/固收持仓: 卖出=持仓流水预选 SELL
   }
   const handleShowActions = (row) => {
     if (row.type === 'A') return
-    if (row.src === 'holding') return onHistory?.(row._raw)   // 基金持仓: 流水=position_actions(按代码)
-    show('actions', row._raw)
-  }
-
-  // 马丁策略的"总预算"。OKX 的 raw 里没有这个字段, 算法反推出来的常常不准,
-  // 所以允许按 OKX 客户端里看到的实际值覆盖(留空 = 恢复估算)。
-  const editBotBudget = async (row) => {
-    const cur = row.extra?.okxTotalBudgetUsdt
-    const next = prompt(
-      `「${row.name}」马丁实际总预算 (USDT)\n填 OKX 客户端策略详情看到的"总投资额", 留空恢复算法估算`,
-      cur ? String(cur) : ''
-    )
-    if (next === null) return
-    const v = next.trim() === '' ? null : parseFloat(next)
-    if (next.trim() !== '' && (!v || v <= 0)) { alert('总预算必须为正数'); return }
-    try {
-      await fetchJSON(`/api/assets/${row.extra.assetIdRaw}`, {
-        method: 'PUT',
-        body: JSON.stringify({ bot_budget_override_usdt: v }),
-      })
-      await loadAssets()
-    } catch (err) { alert('保存失败: ' + (err?.message || '')) }
+    onHistory?.(row._raw)   // 流水=position_actions(按代码)
   }
 
   // 行内操作的一整套回调。RowActions 的入参本来就是这几个, 所以整体传,
   // 不在 HoldingRow 上摊成九个 prop。
   // onHistory(raw, preset): A股 买入/卖出按钮打开流水弹窗并预选方向, preset 挂在 raw 上带给 App。
   const rowActions = {
-    onEditBotBudget: editBotBudget,
     onEdit: handleEdit,
     onHistory: (raw, preset) => onHistory?.(preset ? { ...raw, presetType: preset } : raw), onRemove: removeAsset,
     onAddLot: handleAddLot, onReduceLot: handleReduceLot, onCloseLot: handleCloseLot,
     onShowActions: handleShowActions,
-    onCashAdjust: (r) => show('cashAdjust', r._raw),
     onKline: (h) => show('kline', h),
     onThesis: (r) => show('thesis', r),
     onQuality: (r) => show('quality', r),
   }
 
   const isEmpty = rows.length === 0
-  if (isEmpty && !assetsLoaded) {
+  if (isEmpty) {
     return <SkeletonCard rows={8} label="持仓加载中" />
   }
 
@@ -320,32 +205,16 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         style={{ background: 'linear-gradient(180deg, var(--color-surface-2), var(--color-surface))' }}>
         <div className="flex flex-col gap-3 w-full md:flex-1 md:w-auto min-w-0 md:min-w-[340px]">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-[15]px font-semibold text-text-bright tracking-wide m-0">持仓总览</h2>
-            <span className="text-[12]px text-text-dim">股票 · 基金 · 固定收益 · 现金 · 加密 · 机器人</span>
+            <h2 className="text-[1.0714rem] font-semibold text-text-bright tracking-wide m-0">持仓总览</h2>
+            <span className="text-[0.8571rem] text-text-dim">股票 · 基金 · 固定收益 · 现金 · 加密 · 机器人</span>
           </div>
           {isEmpty
-            ? <div className="text-text-dim text-[13]px py-2">还没有持仓,点击下方「+ 添加」开始</div>
-            : <SummaryStrip agg={agg} aShareClosed={!aShareTradingDay} realized={realized} todayPnl={todayPnl} scope={filter} />
+            ? <div className="text-text-dim text-[0.9286rem] py-2">还没有持仓,点击下方「+ 添加」开始</div>
+            : <SummaryStrip agg={agg} realized={realized} todayPnl={todayPnl} scope={filter} />
           }
         </div>
         {!isEmpty && <AllocationDonut groups={agg.groups} totalMv={agg.totalMv} />}
       </div>
-
-      {/* Risk insights strip */}
-      {!isEmpty && insights.warnings.length > 0 && (
-        <div className="px-3 md:px-6 py-2.5 border-b border-border bg-surface-2/60 flex flex-col gap-1.5">
-          {insights.warnings.map((w, i) => {
-            const color = w.level === 'high' ? '#e58a8a' : '#d4a05c'
-            return (
-              <div key={i} className="flex items-center gap-2 text-[12.5]px">
-                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[11]px font-bold shrink-0"
-                  style={{ background: `${color}1f`, color, border: `1px solid ${color}60` }}>!</span>
-                <span className="text-text">{w.text}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
 
       {/* Toolbar */}
       <div className="px-3 md:px-6 py-2 border-b border-border flex justify-between items-center gap-3 flex-wrap"
@@ -356,7 +225,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
             const c = k === 'ALL' ? '#c8a876' : (tabDefs.find(d => d.key === k)?.color || '#8a8378')
             return (
               <button key={k} onClick={() => setFilter(k)}
-                className="px-2.5 py-[3px] rounded-md text-[12]px border transition-colors cursor-pointer"
+                className="px-2.5 py-[3px] rounded-md text-[0.8571rem] border transition-colors cursor-pointer"
                 style={{
                   borderColor: active ? c : 'var(--color-border-med)',
                   background: active ? `${c}1a` : 'transparent',
@@ -369,14 +238,14 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
         </div>
         <div className="flex gap-1.5">
           <button onClick={() => setSortKey(sortKey === 'mv' ? 'pnl' : 'mv')}
-            className="px-2.5 py-[3px] rounded-md text-[12]px border border-border-med bg-transparent text-text-dim hover:text-text transition-colors cursor-pointer">
+            className="px-2.5 py-[3px] rounded-md text-[0.8571rem] border border-border-med bg-transparent text-text-dim hover:text-text transition-colors cursor-pointer">
             排序 · {sortKey === 'mv' ? '市值' : '盈亏'}
           </button>
           {/* 已选中具体类型时直接打开对应大类表单(表单内再选中类/币种); 只有 ALL 才出类型菜单。
               展示桶 → 大类(assets_classify.assets_class): 期货/期权同归 derivatives。 */}
           <button onClick={() => show('add', filter === 'ALL' ? 'menu' : filter)}
             title={filter !== 'ALL' ? `添加${tabDefs.find(d => d.key === filter)?.label || ''}` : undefined}
-            className="px-2.5 py-[3px] rounded-md text-[12]px border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer">
+            className="px-2.5 py-[3px] rounded-md text-[0.8571rem] border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors cursor-pointer">
             {filter !== 'ALL' ? `+ 添加${tabDefs.find(d => d.key === filter)?.label || ''}` : '+ 添加'}
           </button>
         </div>
@@ -386,14 +255,12 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       <PortfolioModals
         open={open} show={show} hide={hide} brokers={brokers}
         onAdd={onAdd}
-        onAssetsChanged={loadAssets}
-        onFixIncomeChanged={loadFixAssets}
-        onRealizedChanged={() => { loadAssets(); loadFixAssets(); loadRealized() }}
+        onRealizedChanged={loadRealized}
         onThesisSaved={loadThesisCodes} />
 
       {/* Column headers */}
       {!isEmpty && (
-        <div className="licai-row px-3 md:px-6 py-2 text-[11.5]px text-text-dim tracking-wider font-medium border-b border-border bg-surface">
+        <div className="licai-row px-3 md:px-6 py-2 text-[0.8214rem] text-text-dim tracking-wider font-medium border-b border-border bg-surface">
           <div className="text-left">名称 · 代码</div>
           <div className="text-left">交易方向</div>
           <div className="text-right">市值</div>
@@ -409,7 +276,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       {visibleTypes.map(type => {
         const g = agg.groups[type]
         const isCol = collapsed[type]
-        const groupFxExposure = type === 'A' ? (agg.fxExposure || []) : []
         const items = [...g.items].sort((a, b) =>
           sortKey === 'pnl'
             ? (b.pnl || 0) - (a.pnl || 0)
@@ -419,30 +285,30 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
           <div key={type}>
             {/* Group strip */}
             <div onClick={() => setCollapsed(c => ({ ...c, [type]: !c[type] }))}
-              className="licai-row px-3 md:px-6 py-2 border-b border-border cursor-pointer select-none items-center text-[12]px font-semibold text-text"
+              className="licai-row px-3 md:px-6 py-2 border-b border-border cursor-pointer select-none items-center text-[0.8571rem] font-semibold text-text"
               style={{ background: 'var(--color-surface-2)' }}>
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2 text-text-dim transition-transform"
                   style={{ transform: isCol ? 'rotate(-90deg)' : 'rotate(0)' }}>▾</span>
                 <div className="w-[3px] h-[13px] rounded-sm" style={{ background: TYPE_COLOR[type] }} />
                 <span>{TYPE_META[type].label}</span>
-                <span className="text-text-dim font-normal text-[11.5]px">{items.length} 项</span>
+                <span className="text-text-dim font-normal text-[0.8214rem]">{items.length} 项</span>
               </div>
               <div />
               <div className="text-right flex flex-col items-end">
                 <span className="font-mono text-text">¥{fmtMoney(g.mv)}</span>
-                {groupFxExposure.length > 0 && (
-                  <span className="font-mono text-[10.5]px text-text-muted hidden md:inline">
-                    {groupFxExposure.map(e => formatCurrencyMoney(e.currency, e.originalMarketValue)).join(' / ')}
-                  </span>
-                )}
               </div>
-              <div className="text-right font-mono text-text-dim text-[11.5]px licai-md-only">¥{fmtMoney(g.cost)}</div>
+              <div className="text-right font-mono text-text-dim text-[0.8214rem] licai-md-only">¥{fmtMoney(g.cost)}</div>
               <div className={`text-right font-mono ${priceColor(g.pnl)}`}>
                 {g.pnl >= 0 ? '+' : ''}{fmtMoney(g.pnl)}
-                <span className="text-[11]px opacity-80 ml-1.5">({fmtPct(g.pnlPct)})</span>
+                <span className="text-[0.7857rem] opacity-80 ml-1.5">({fmtPct(g.pnlPct)})</span>
               </div>
-              <div />
+              {/* 今日栏汇总: 与浮动盈亏同构, 口径同 model.js 的 g.todayPnl(T+1 闭市/净值滞后已剔除) */}
+              <div className="text-right font-mono">
+                <span className={priceColor(g.todayPnl)}>
+                  {g.todayPnl >= 0 ? '+' : ''}{fmtMoney(g.todayPnl)}
+                </span>
+              </div>
               <div className="text-right font-mono text-text licai-md-only">{(g.weight * 100).toFixed(1)}%</div>
               <div />
             </div>
@@ -467,11 +333,12 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                 const clusters = {}
                 for (const it of items) {
                   const mk = it.extra?.market || 'A'
-                  if (!clusters[mk]) clusters[mk] = { id: `mk-${mk}`, label: MK_LABEL[mk] || mk, items: [], mv: 0, cost: 0, pnl: 0 }
+                  if (!clusters[mk]) clusters[mk] = { id: `mk-${mk}`, label: MK_LABEL[mk] || mk, items: [], mv: 0, cost: 0, pnl: 0, todayPnl: 0 }
                   clusters[mk].items.push(it)
                   clusters[mk].mv += it.mv || 0
                   clusters[mk].cost += it.cost || 0
                   clusters[mk].pnl += it.pnl || 0
+                  clusters[mk].todayPnl += todayPnlOf(it)
                 }
                 const ordered = MK_ORDER.filter(mk => clusters[mk]).map(mk => clusters[mk])
                 if (ordered.length > 1) {
@@ -479,7 +346,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                     const isLastCluster = ci === ordered.length - 1
                     return (
                       <React.Fragment key={cl.id}>
-                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[11.5]px text-text-dim border-b border-border-subtle"
+                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[0.8214rem] text-text-dim border-b border-border-subtle"
                           style={{ background: 'var(--color-surface)' }}>
                           <div className="flex items-center gap-1.5 pl-4">
                             <span className="inline-block w-1 h-1 rounded-full" style={{ background: TYPE_COLOR[type] }} />
@@ -492,7 +359,11 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                           <div className={`text-right font-mono ${priceColor(cl.pnl)}`}>
                             {cl.pnl >= 0 ? '+' : ''}{fmtMoney(cl.pnl)}
                           </div>
-                          <div />
+                          <div className="text-right font-mono">
+                            <span className={priceColor(cl.todayPnl)}>
+                              {cl.todayPnl >= 0 ? '+' : ''}{fmtMoney(cl.todayPnl)}
+                            </span>
+                          </div>
                           <div className="licai-md-only" />
                           <div />
                         </div>
@@ -509,11 +380,12 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                 const clusters = {}
                 for (const it of items) {
                   const cid = it.category?.id || 'other'
-                  if (!clusters[cid]) clusters[cid] = { id: cid, label: it.category?.label || '其他', items: [], mv: 0, cost: 0, pnl: 0 }
+                  if (!clusters[cid]) clusters[cid] = { id: cid, label: it.category?.label || '其他', items: [], mv: 0, cost: 0, pnl: 0, todayPnl: 0 }
                   clusters[cid].items.push(it)
                   clusters[cid].mv += it.mv || 0
                   clusters[cid].cost += it.cost || 0
                   clusters[cid].pnl += it.pnl || 0
+                  clusters[cid].todayPnl += todayPnlOf(it)
                 }
                 const ordered = Object.values(clusters).sort((a, b) => b.mv - a.mv)
                 if (ordered.length > 1) {
@@ -521,7 +393,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                     const isLastCluster = ci === ordered.length - 1
                     return (
                       <React.Fragment key={cl.id}>
-                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[11.5]px text-text-dim border-b border-border-subtle"
+                        <div className="licai-row px-3 md:px-6 py-1.5 items-center text-[0.8214rem] text-text-dim border-b border-border-subtle"
                           style={{ background: 'var(--color-surface)' }}>
                           <div className="flex items-center gap-1.5 pl-4">
                             <span className="inline-block w-1 h-1 rounded-full" style={{ background: TYPE_COLOR[type] }} />
@@ -534,7 +406,11 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
                           <div className={`text-right font-mono ${priceColor(cl.pnl)}`}>
                             {cl.pnl >= 0 ? '+' : ''}{fmtMoney(cl.pnl)}
                           </div>
-                          <div />
+                          <div className="text-right font-mono">
+                            <span className={priceColor(cl.todayPnl)}>
+                              {cl.todayPnl >= 0 ? '+' : ''}{fmtMoney(cl.todayPnl)}
+                            </span>
+                          </div>
                           <div className="licai-md-only" />
                           <div />
                         </div>
@@ -552,7 +428,7 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       })}
 
       {filtered.length === 0 && !isEmpty && (
-        <div className="py-8 text-center text-text-dim text-[13]px">
+        <div className="py-8 text-center text-text-dim text-[0.9286rem]">
           当前筛选下没有持仓
         </div>
       )}
@@ -560,20 +436,6 @@ export default function UnifiedPortfolio({ holdings, onEdit, onHistory, onAdd, d
       <ClosedPositionsBlock
         items={[
           ...(realized?.stockItems || []).filter(i => !i.still_holding),
-          // 已清仓的理财/基金/加密 (排除 CASH/BOT): 同一只基金分多次买卖会记成多条(不同 asset_id),
-          // 按 code 合并、已实现盈亏求和, 一只基金只显示一行(避免同名重复)。
-          ...Object.values(
-            (realized?.assetItems || [])
-              .filter(i => !i.still_holding && i.asset_type !== 'CASH' && i.asset_type !== 'BOT'
-                && (i.realized_pnl || 0) !== 0)
-              .reduce((acc, i) => {
-                const key = i.code || `#${i.asset_id}`
-                if (!acc[key]) acc[key] = { stock_code: key, stock_name: i.name, realized_pnl: 0,
-                  _asset: true, asset_id: i.asset_id, code: i.code }
-                acc[key].realized_pnl += (i.realized_pnl || 0)
-                return acc
-              }, {})
-          ),
         ]}
         onHistory={onHistory} onKline={(h) => show('kline', h)} />
     </section>

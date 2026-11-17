@@ -32,9 +32,6 @@ const TOOL_ICONS = {
   web_search: <><circle cx="12" cy="12" r="8" /><path d="M4 12h16M12 4c2.5 2.4 2.5 13.6 0 16M12 4c-2.5 2.4-2.5 13.6 0 16" /></>,
   get_chain_quote: <><circle cx="6" cy="6" r="2.2" /><circle cx="18" cy="6" r="2.2" /><circle cx="12" cy="18" r="2.2" /><path d="M8 7l8 0M7 8l4 8M17 8l-4 8" /></>,
   read_url: <><rect x="5" y="3.5" width="14" height="17" rx="2" /><path d="M8 8h8M8 11.5h8M8 15h5" /></>,
-  get_zsxq_digest: <><path d="M12 3l2.6 5.4 5.9.8-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.2l5.9-.8z" /></>,
-  search_zsxq: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="M19.5 19.5l-4.2-4.2M8 10.5h5M10.5 8v5" /></>,
-  read_zsxq_file: <><path d="M7 4h7l4 4v12H7z" /><path d="M14 4v4h4M10 13h5M10 16.5h3" /></>,
   // 下面两个不是工具, 是过程提示胶囊(见 ToolCallStrip 里的 meta 分支)
   llm_retry: <><path d="M20 12a8 8 0 11-2.3-5.7" /><path d="M20 4v3.5h-3.5" /></>,
   self_check: <><path d="M4 12.5l4.5 4.5L20 5.5" /><path d="M4 19h9" /></>,
@@ -62,7 +59,7 @@ export function ToolCallStrip({ steps, settled }) {
   const nTools = steps.reduce((n, s) => n + (META_STEPS.includes(s.tool) ? 0 : 1), 0)
   return (
     <div className="mb-2">
-      <div className="flex items-center gap-1.5 mb-1.5 text-[10px] text-text-muted">
+      <div className="flex items-center gap-1.5 mb-1.5 text-[0.7143rem] text-text-muted">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
           <path d="M14.5 4.5a4 4 0 00-5 5L4 15v5h5l5.5-5.5a4 4 0 005-5l-3 3-2.5-2.5z" />
@@ -84,7 +81,7 @@ export function ToolCallStrip({ steps, settled }) {
           const retry = META_STEPS.includes(s.tool)
           return (
             <span key={j} title={s.failed ? `这一项没取到: ${s.err || '接口报错'}` : undefined}
-              className={`inline-flex items-center gap-1 text-[10.5px] pl-1.5 pr-2 py-[3px] rounded-full border transition-colors ${
+              className={`inline-flex items-center gap-1 text-[0.75rem] pl-1.5 pr-2 py-[3px] rounded-full border transition-colors ${
                 s.failed ? 'bg-bear/12 border-bear/40 text-bear'
                 : retry ? 'bg-warn/12 border-warn/40 text-warn'
                 : settled ? 'bg-accent/8 border-accent/25 text-text-dim' : 'bg-accent/12 border-accent/40 text-text'}`}>
@@ -93,7 +90,7 @@ export function ToolCallStrip({ steps, settled }) {
               {s.arg ? <span className="font-mono text-text-muted">{s.arg}</span> : null}
               {/* 失败的不能打勾 —— 原来 settled 时一律打绿勾, 挂掉的工具跟成功的长得一模一样,
                   于是"某一块其实没数"这件事在界面上完全看不出来 */}
-              {s.failed ? <span className="text-bear text-[11px] leading-none font-bold">!</span>
+              {s.failed ? <span className="text-bear text-[0.7857rem] leading-none font-bold">!</span>
                 : retry ? null : settled
                 ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="text-bull shrink-0"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
                 : <span className="text-accent/50 leading-none">·</span>}
@@ -117,7 +114,7 @@ export function domainOf(url) {
 
 // 正文内联引用角标 ⟦N⟧ → 可点上标
 export function CiteMark({ n, src }) {
-  const cls = 'align-super text-[8.5px] font-medium text-accent/90 hover:text-accent px-[1px]'
+  const cls = 'align-super text-[0.6071rem] font-medium text-accent/90 hover:text-accent px-[1px]'
   const href = src && safeUrl(src.url)
   if (!href) return <sup className={cls}>[{n}]</sup>
   return (
@@ -241,7 +238,7 @@ export function MiniMarkdown({ text, sources }) {
       while (j < lines.length && isTableRow(lines[j].trim())) { rows.push(splitCells(lines[j].trim())); j++ }
       out.push(
         <div key={i} className="my-2 overflow-x-auto">
-          <table className="text-[11.5px] border-collapse w-full">
+          <table className="text-[0.8214rem] border-collapse w-full">
             <thead><tr>{header.map((h, k) => (
               <th key={k} className="text-left font-semibold text-text-bright px-2 py-1 border-b border-border bg-surface-3 whitespace-nowrap">{renderInline(h, `h${i}-${k}`)}</th>
             ))}</tr></thead>
@@ -259,20 +256,20 @@ export function MiniMarkdown({ text, sources }) {
     const widgets = [...t.matchAll(WIDGET_RE)]
     if (widgets.length) {
       const rest = t.replace(WIDGET_RE, '').trim()
-      if (rest) out.push(<div key={`${i}-t`} className="text-[12px] text-text-dim leading-relaxed">{renderInline(rest.replace(/^[-•*]\s+/, ''), i)}</div>)
+      if (rest) out.push(<div key={`${i}-t`} className="text-[0.8571rem] text-text-dim leading-relaxed">{renderInline(rest.replace(/^[-•*]\s+/, ''), i)}</div>)
       widgets.forEach((m, k) => out.push(<AnswerWidget key={`${i}-w${k}-${m[0]}`} spec={parseWidget(m[1], m[2])} />))
       i++
       continue
     }
     if (!t) { out.push(<div key={i} className="h-1.5" />) }
     else if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) out.push(<hr key={i} className="my-2.5 border-0 border-t border-border-subtle" />)
-    else if (t.startsWith('## ')) out.push(<div key={i} className="text-[12.5px] font-semibold text-accent mt-2 mb-0.5">{renderInline(t.slice(3), i)}</div>)
-    else if (t.startsWith('### ')) out.push(<div key={i} className="text-[12px] font-semibold text-text-bright mt-1.5">{renderInline(t.slice(4), i)}</div>)
-    else if (t.startsWith('# ')) out.push(<div key={i} className="text-[13px] font-semibold text-accent mt-2 mb-0.5">{renderInline(t.slice(2), i)}</div>)
-    else if (t.startsWith('> ')) out.push(<div key={i} className="text-[12px] text-text-muted border-l-2 border-accent/40 pl-2 my-1 italic">{renderInline(t.slice(2), i)}</div>)
-    else if (t.startsWith('- ') || t.startsWith('• ') || t.startsWith('* ')) out.push(<div key={i} className="flex gap-1.5 text-[12px] leading-relaxed"><span className="text-accent shrink-0">·</span><span className="text-text-dim">{renderInline(t.slice(2), i)}</span></div>)
-    else if (/^\d+\.\s/.test(t)) { const m = t.match(/^(\d+)\.\s+(.*)$/); out.push(<div key={i} className="flex gap-1.5 text-[12px] leading-relaxed"><span className="text-accent shrink-0 font-medium">{m[1]}.</span><span className="text-text-dim">{renderInline(m[2], i)}</span></div>) }
-    else out.push(<div key={i} className="text-[12px] text-text-dim leading-relaxed">{renderInline(t, i)}</div>)
+    else if (t.startsWith('## ')) out.push(<div key={i} className="text-[0.8929rem] font-semibold text-accent mt-2 mb-0.5">{renderInline(t.slice(3), i)}</div>)
+    else if (t.startsWith('### ')) out.push(<div key={i} className="text-[0.8571rem] font-semibold text-text-bright mt-1.5">{renderInline(t.slice(4), i)}</div>)
+    else if (t.startsWith('# ')) out.push(<div key={i} className="text-[0.9286rem] font-semibold text-accent mt-2 mb-0.5">{renderInline(t.slice(2), i)}</div>)
+    else if (t.startsWith('> ')) out.push(<div key={i} className="text-[0.8571rem] text-text-muted border-l-2 border-accent/40 pl-2 my-1 italic">{renderInline(t.slice(2), i)}</div>)
+    else if (t.startsWith('- ') || t.startsWith('• ') || t.startsWith('* ')) out.push(<div key={i} className="flex gap-1.5 text-[0.8571rem] leading-relaxed"><span className="text-accent shrink-0">·</span><span className="text-text-dim">{renderInline(t.slice(2), i)}</span></div>)
+    else if (/^\d+\.\s/.test(t)) { const m = t.match(/^(\d+)\.\s+(.*)$/); out.push(<div key={i} className="flex gap-1.5 text-[0.8571rem] leading-relaxed"><span className="text-accent shrink-0 font-medium">{m[1]}.</span><span className="text-text-dim">{renderInline(m[2], i)}</span></div>) }
+    else out.push(<div key={i} className="text-[0.8571rem] text-text-dim leading-relaxed">{renderInline(t, i)}</div>)
     i++
   }
   return <div>{out}</div>
@@ -285,7 +282,7 @@ export function SourcesBlock({ sources }) {
   return (
     <div className="mt-2.5 pt-2 border-t border-border-subtle">
       <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 text-[10.5px] text-text-muted hover:text-text-dim">
+        className="flex items-center gap-1.5 text-[0.75rem] text-text-muted hover:text-text-dim">
         <span>联网来源</span><span className="font-mono text-text-dim">{sources.length}</span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -297,10 +294,10 @@ export function SourcesBlock({ sources }) {
             const href = safeUrl(s.url)
             const inner = (<>
               <span className="block truncate group-hover:underline">{s.title}</span>
-              <span className="block truncate text-[9.5px] text-text-muted">{domainOf(s.url)}{s.age ? ` · ${s.age}` : ''}</span>
+              <span className="block truncate text-[0.6786rem] text-text-muted">{domainOf(s.url)}{s.age ? ` · ${s.age}` : ''}</span>
             </>)
             return (
-              <li key={i} className="flex gap-1.5 text-[11px] leading-snug">
+              <li key={i} className="flex gap-1.5 text-[0.7857rem] leading-snug">
                 <span className="text-text-muted font-mono shrink-0 w-4 text-right">{i + 1}</span>
                 {href
                   ? <a href={href} target="_blank" rel="noopener noreferrer" className="group min-w-0 flex-1 hover:text-accent text-text-dim">{inner}</a>

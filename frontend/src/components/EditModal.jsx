@@ -68,67 +68,67 @@ export default function EditModal({ holding, onClose, onChange }) {
       <div className="bg-surface-2 border border-border rounded-xl p-5 w-[360px] max-w-[90vw] space-y-4"
         onClick={e => e.stopPropagation()}
         style={{ animation: 'fade-up 0.2s ease-out' }}>
-        <h3 className="text-[15px] font-medium text-accent">编辑持仓</h3>
+        <h3 className="text-[1.0714rem] font-medium text-accent">编辑持仓</h3>
 
         <div className="space-y-3">
           <div>
-            <label className="text-[12px] text-text-dim block mb-1">股票代码</label>
-            <input className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent disabled:opacity-60"
+            <label className="text-[0.8571rem] text-text-dim block mb-1">股票代码</label>
+            <input className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text font-mono outline-none focus:border-accent disabled:opacity-60"
               placeholder="600362 / 00700.HK / SNDK.US"
               disabled={lockCode}
               title={lockCode ? '空头/衍生品行不支持换代码' : undefined}
               value={code} onChange={e => setCode(e.target.value)} />
           </div>
           <div>
-            <label className="text-[12px] text-text-dim block mb-1">持仓数量</label>
-            <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
+            <label className="text-[0.8571rem] text-text-dim block mb-1">持仓数量</label>
+            <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text font-mono outline-none focus:border-accent"
               min={mkt === 'A' ? 100 : mkt === 'US' ? 0.0001 : 1} step={mkt === 'A' ? 100 : mkt === 'US' ? 'any' : 1} value={shares} onChange={e => setShares(e.target.value)} />
           </div>
           <div>
-            <label className="text-[12px] text-text-dim block mb-1">成本价{ccy && <span className="text-text-muted text-[11px] ml-1">{ccy}</span>}</label>
-            <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
+            <label className="text-[0.8571rem] text-text-dim block mb-1">成本价{ccy && <span className="text-text-muted text-[0.7857rem] ml-1">{ccy}</span>}</label>
+            <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text font-mono outline-none focus:border-accent"
               step={0.0001} value={cost} onChange={e => setCost(e.target.value)} />
           </div>
           {isDeriv && (
             <div>
-              <label className="text-[12px] text-text-dim block mb-1">每手乘数</label>
+              <label className="text-[0.8571rem] text-text-dim block mb-1">每手乘数</label>
               <input type="number" disabled
-                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text-muted font-mono"
+                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text-muted font-mono"
                 value={holding.contract_multiplier || 1} />
             </div>
           )}
           {typeOfSub(holding.sub_assets_type) === 'O' && (
             <div>
-              <label className="text-[12px] text-text-dim block mb-1">行权价 <span className="text-text-muted text-[11px]">期权合约固定属性</span></label>
-              <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
+              <label className="text-[0.8571rem] text-text-dim block mb-1">行权价 <span className="text-text-muted text-[0.7857rem]">期权合约固定属性</span></label>
+              <input type="number" className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text font-mono outline-none focus:border-accent"
                 step={0.0001} value={strikePrice} onChange={e => setStrikePrice(e.target.value)} />
             </div>
           )}
           <div>
-            <label className="text-[12px] text-text-dim block mb-1">手动报价 <span className="text-text-muted text-[11px]">覆盖实时价(次日有报价自动回退)</span></label>
+            <label className="text-[0.8571rem] text-text-dim block mb-1">手动报价 <span className="text-text-muted text-[0.7857rem]">覆盖实时价(次日有报价自动回退)</span></label>
             <div className="flex gap-2">
-              <input type="number" className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-[13px] text-text font-mono outline-none focus:border-accent"
+              <input type="number" className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-[0.9286rem] text-text font-mono outline-none focus:border-accent"
                 step={0.0001} value={quotePrice} onChange={e => setQuotePrice(e.target.value)} placeholder="填现价" />
               <button onClick={applyQuote} disabled={quoteSaving || quotePrice === ''}
-                className="px-3 py-2 rounded-lg bg-accent/15 text-accent text-[13px] hover:bg-accent/25 disabled:opacity-50 cursor-pointer">
+                className="px-3 py-2 rounded-lg bg-accent/15 text-accent text-[0.9286rem] hover:bg-accent/25 disabled:opacity-50 cursor-pointer">
                 {quoteSaving ? '保存中' : '应用'}
               </button>
             </div>
-            {quoteMsg && <p className="text-[11px] text-text-muted mt-1">{quoteMsg}</p>}
+            {quoteMsg && <p className="text-[0.7857rem] text-text-muted mt-1">{quoteMsg}</p>}
           </div>
         </div>
 
         <div className="flex gap-2 pt-1">
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 py-2 rounded-lg bg-accent text-bg font-medium text-[13px] hover:opacity-90 disabled:opacity-50 cursor-pointer">
+            className="flex-1 py-2 rounded-lg bg-accent text-bg font-medium text-[0.9286rem] hover:opacity-90 disabled:opacity-50 cursor-pointer">
             {saving ? '保存中...' : '保存'}
           </button>
           <button onClick={onClose}
-            className="flex-1 py-2 rounded-lg border border-border text-text-dim text-[13px] hover:text-text transition-colors cursor-pointer">
+            className="flex-1 py-2 rounded-lg border border-border text-text-dim text-[0.9286rem] hover:text-text transition-colors cursor-pointer">
             取消
           </button>
           <button onClick={handleDelete}
-            className="py-2 px-4 rounded-lg bg-bear/15 text-bear text-[13px] hover:bg-bear/25 transition-colors cursor-pointer">
+            className="py-2 px-4 rounded-lg bg-bear/15 text-bear text-[0.9286rem] hover:bg-bear/25 transition-colors cursor-pointer">
             删除
           </button>
         </div>

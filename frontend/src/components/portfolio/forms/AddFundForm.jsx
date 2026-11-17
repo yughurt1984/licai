@@ -60,6 +60,9 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
   const [feeRatePct, setFeeRatePct] = useState('')   // FUND 申购费率 %, C 类填 0
   // 场内基金的买入日期 / 场外的申购日期, 种子流水 start_date 用它
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().slice(0, 10))
+  // 方向(参考股票/期货表单): 多头=普通行(买入/申购语义); 空头=SHORT 行(卖出开仓)。
+  // 仅海外场内基金支持做空; 中国基金/场外基金不可做空(见下方 canShort)。
+  const [direction, setDirection] = useState('LONG')
   // FUND 细分类型(记账口径)由分类小类推导: etf(场内, 市价) / open(场外, NAV T+1) / reits(场内, tickflow)。
   // 小类没匹配到(目录在加载)时按代码段位兜底, 与老逻辑一致。
   const fundKind = matched ? fundKindOfSub(matched.sub_assets_type)
@@ -77,6 +80,16 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
     : (matched ? fundKindOfSub(matched.sub_assets_type) === 'open' : isOnchainFundKind(fundKind))
   const isInlineFund = !isOtcFund
   const toHoldings = true   // 全部基金统一走 holdings(净值=价格, 申购=买入)
+
+  // 做空资格(参考股票录入, 但中国基金禁做空): 小类前缀 cn_=中国 → 不可做空;
+  // hk_/us_/jp_=海外 → 允许做空。场外 nav 基金(申购口径)无做空机制, 一并禁掉。
+  const fundSub = String(matched?.sub_assets_type || (isOtcFund ? 'cn_otc_fund' : ''))
+  const fundIsCN = /^cn_/.test(fundSub) || (!/^(hk|us|jp)_/.test(fundSub))
+  const canShort = !fundIsCN && !isOtcFund
+  // 市场切到中国/场外时, 若当前选了空头则回落多头(避免残留 SHORT 状态)
+  useEffect(() => {
+    if (!canShort && direction === 'SHORT') setDirection('LONG')
+  }, [canShort, direction])
 
   // 申购口径自动计算(外扣法): 净申购金额/手续费 由 申购金额+费率; 确认份额 还需申购净值
   const amt = parseFloat(cost) || 0
@@ -106,16 +119,23 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
   }, [shares, unitPrice, fee, costTouched])
 
   // 基金代码自动查名: 防抖后查 /api/market/symbol-name 两级链(① ledger.symbol_dict 底表,
-  // 纯本地零联网; ② 底表没有 → instruments 源, 命中后端自动登记底稿)。触发门槛是**完整
-  // 6 位码**(正则锁死, 半截码永不触发)。quote/估值不在这条链里 —— 天天基金估值已下线,
-  // 名称查不到就手填。quote 行情在「确认」添加完成后才发起(与股票表单同口径)。
+  // 纯本地零联网; ② 底表没有 → instruments 源, 命中后端自动登记底稿)。触发门槛**完整码位**:
+  // 6 位(沪深场内/场外)或 5 位(港基/港 ETF, 如 02800)—— 半截码永不触发。quote/估值不在这条
+  // 链里(天天基金估值已下线), 名称查不到就手填; 行情在「确认」添加完成后才发起。
   const autoSeq = useRef(0)
   const autoTimer = useRef(null)
   useEffect(() => () => clearTimeout(autoTimer.current), [])
   useEffect(() => {
-    const c = code.trim().split('.')[0]      // 兼容带 .OF 后缀的输入, 查询一律用裸码
+    const c = code.trim().toUpperCase().split('.')[0]   // 兼容带 .OF 后缀的输入, 查询一律用裸码
     clearTimeout(autoTimer.current)
-    if (!/^\d{6}$/.test(c)) return
+    // 触发门槛按市场: CN 基金 6 位数字 / HK 基金·ETF 5 位数字 / US ticker 字母数字(≥2)。
+    // 半截码永不触发; 完整码即查(底稿 → instruments)。
+    const sub = matched?.sub_assets_type || ''
+    const mkt = sub.startsWith('hk_') ? 'HK' : sub.startsWith('us_') ? 'US' : 'CN'
+    const ok = mkt === 'HK' ? /^\d{5}$/.test(c)
+             : mkt === 'US' ? /^[A-Z0-9]{2,6}$/.test(c)
+             : /^\d{6}$/.test(c)
+    if (!ok) return
     const seq = ++autoSeq.current
     autoTimer.current = setTimeout(async () => {
       try {
@@ -124,15 +144,16 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
         if (seq === autoSeq.current && name) setName(name)
       } catch { /* 查不到就留手填 */ }
     }, 350)
-  }, [code])
+  }, [code, matched?.sub_assets_type])   // matched 变化(选好币种/目录加载完)后重评门槛, 补触发查名
 
   const submit = async () => {
     // 场内基金按股票口径: 累计投入 = 份额×单价+手续费 全自动, 不要求用户填
     const effCost = (!cost && isInlineFund && parseFloat(shares) > 0 && parseFloat(unitPrice) > 0)
       ? (parseFloat(shares) * parseFloat(unitPrice) + (parseFloat(fee) || 0)).toFixed(2)
       : cost
-    if (!effCost) return alert(isInlineFund ? '请输入买入单价和份额' : '请输入申购金额')
-    if (isInlineFund && !(parseFloat(unitPrice) > 0)) return alert('请输入买入单价')
+    const pxLabel = direction === 'SHORT' ? '开仓价' : '买入单价'
+    if (!effCost) return alert(isInlineFund ? `请输入${pxLabel}和份额` : '请输入申购金额')
+    if (isInlineFund && !(parseFloat(unitPrice) > 0)) return alert(`请输入${pxLabel}`)
     if (isInlineFund && !(parseFloat(shares) > 0)) return alert('请输入份额')
     if (isOtcFund && !(amt > 0)) return alert('请输入申购金额')
     if (isOtcFund && !confShares) return alert('请输入申购净值(确认份额=净申购金额÷净值)')
@@ -159,24 +180,25 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
           trade_date: tradeDate || undefined,
           broker: selectedBroker || null,
           sub_assets_type: matched?.sub_assets_type,
+          direction: canShort ? direction : 'LONG',   // 空头落 SHORT 行; 不支持做空时强制多头
         }),
       })
     } catch (e) { return alert(e.message || '保存失败') }   // 后端拒绝(路由校验/查重)要给用户看到
     onDone?.()
   }
 
-  const inp = 'bg-bg border border-border rounded px-1.5 py-1.5 text-[12.5px] text-text outline-none focus:border-accent'
+  const inp = 'bg-bg border border-border rounded px-1.5 py-1.5 text-[0.8929rem] text-text outline-none focus:border-accent'
   const autoInp = `${inp} font-mono text-text-dim bg-surface-3/40`   // 自动计算灰显只读
 
   return (
-    <div className="px-6 py-3 bg-surface-2/50 border-b border-border space-y-2.5 text-[13px]">
+    <div className="px-6 py-3 bg-surface-2/50 border-b border-border space-y-2.5 text-[0.9286rem]">
       {/* 单行自适应: 各控件 flex-1 均分一行宽度(宽屏自动拉伸/窄屏收缩到 min-w 后折行兜底) */}
       <div className="flex flex-wrap gap-1.5 items-end">
         {/* 资产类型 / 币种 / 市场自动匹配: 选项全部来自 PG assets_classify; 大类由上层入口点选。
             录入入口已锁小类时显示静态徽标, 避免二次选择; 否则用下拉级联。 */}
         {subRow ? (
           <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-            <label className="text-[12px] text-text-dim whitespace-nowrap">分类</label>
+            <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">分类</label>
             <div className={`${inp} w-full !bg-surface-3/40 text-text-bright flex items-center`}>
               {subRow.sub_assets_type_name || sub}
             </div>
@@ -187,27 +209,52 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
             onMain={v => setMain(v)} onCurrency={v => setCurrency(v)} />
         )}
         <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-          <label className="text-[12px] text-text-dim whitespace-nowrap">基金代码</label>
-          <input value={code} onChange={e => setCode(e.target.value)}
+          <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">基金代码</label>
+          <input value={code} onChange={e => setCode(e.target.value.toUpperCase())}
             className={`${inp} w-full font-mono`} placeholder="161226" />
         </div>
         <div className="flex flex-col gap-1 flex-[1.3] min-w-[96px]">
-          <label className="text-[12px] text-text-dim whitespace-nowrap">基金名称</label>
+          <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">基金名称</label>
           <input value={name} onChange={e => setName(e.target.value)} className={`${inp} w-full`}
             placeholder="自动带出" />
         </div>
 
+        {/* 方向: 多红/空绿, 与股票/期货开仓表单同款。中国基金/场外基金不支持做空 → 空按钮禁用 */}
+        <div className="flex flex-col gap-1 shrink-0">
+          <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">方向</label>
+          <div className="flex gap-1">
+            {[['LONG', '多'], ['SHORT', '空']].map(([d, label]) => {
+              const disabled = d === 'SHORT' && !canShort
+              return (
+                <button key={d} type="button" disabled={disabled}
+                  onClick={() => setDirection(d)}
+                  title={disabled ? '中国基金/场外基金不支持做空' : d === 'LONG' ? '买入/申购(看涨)' : '卖出开仓(看跌, 价跌=赚)'}
+                  className={`px-2.5 py-1.5 rounded-md text-[0.8571rem] font-semibold border transition-colors
+                    ${disabled
+                      ? 'opacity-40 cursor-not-allowed border-border text-text-dim'
+                      : direction === d
+                        ? d === 'LONG' ? 'bg-bull/20 text-bull border-bull/60' : 'bg-bear/20 text-bear border-bear/60'
+                        : 'border-border text-text-dim hover:text-text cursor-pointer'}`}>
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {/* 申购净值(场外) / 买入单价(场内): 先价格后数量; 场外的份额走自动确认份额(见下) */}
         <div className="flex flex-col gap-1 flex-1 min-w-[68px]">
-          <label className="text-[12px] text-text-dim whitespace-nowrap">
-            {isInlineFund ? `买入单价 ${curSymbol}` : `申购净值 ${curSymbol}`}
+          <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">
+            {isInlineFund
+              ? `${direction === 'SHORT' ? '开仓价' : '买入单价'} ${curSymbol}`
+              : `申购净值 ${curSymbol}`}
           </label>
           <input type="number" step="0.0001" value={unitPrice} onChange={e => setUnitPrice(e.target.value)}
             className={`${inp} w-full font-mono`} placeholder="3.4915" />
         </div>
         {isInlineFund && (
           <div className="flex flex-col gap-1 flex-1 min-w-[68px]">
-            <label className="text-[12px] text-text-dim whitespace-nowrap">份额</label>
+            <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">份额</label>
             <input type="number" step="0.0001" value={shares} onChange={e => setShares(e.target.value)}
               className={`${inp} w-full font-mono`} placeholder="1500.23" />
           </div>
@@ -217,17 +264,17 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
         {isOtcFund && (
           <>
             <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">申购金额 {curSymbol}</label>
+              <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">申购金额 {curSymbol}</label>
               <input type="number" step="0.01" value={cost}
                 onChange={e => { setCost(e.target.value); setCostTouched(true) }}
                 className={`${inp} w-full font-mono`} placeholder="10000" />
             </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[68px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">申购费率 %
+              <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">申购费率 %
                 <Tooltip content={
                   <div className="leading-relaxed">
                     <div className="text-text-bright font-semibold mb-0.5">申购费率 (外扣法)</div>
-                    <div className="text-text-dim text-[10.5px]">
+                    <div className="text-text-dim text-[0.75rem]">
                       净申购金额 = 申购金额 ÷ (1 + 费率)<br/>
                       手续费 = 申购金额 − 净申购金额<br/>
                       确认份额 = 净申购金额 ÷ T日净值<br/>
@@ -243,21 +290,21 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
                 title="净申购金额 = 申购金额 ÷ (1+费率); A类填折后实际费率(如0.15), C类/无申购费填0或留空" />
             </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">净申购金额 ¥</label>
+              <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">净申购金额 ¥</label>
               <input type="number" step="0.0001" readOnly tabIndex={-1}
                 value={netAmount != null ? netAmount.toFixed(4) : ''}
                 className={`${autoInp} w-full`} placeholder="自动计算"
                 title="净申购金额 = 申购金额 ÷ (1 + 申购费率)" />
             </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[68px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">确认份额</label>
+              <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">确认份额</label>
               <input type="number" step="0.0001" readOnly tabIndex={-1}
                 value={confShares != null ? confShares.toFixed(4) : ''}
                 className={`${autoInp} w-full`} placeholder="自动计算"
                 title="确认份额 = 净申购金额 ÷ T日申购净值; 净值没填(当日申购)则留空 → 记 T+1 待确认" />
             </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[68px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">手续费 ¥</label>
+              <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">手续费 ¥</label>
               <input type="number" step="0.01" readOnly tabIndex={-1}
                 value={fundFee != null ? fundFee.toFixed(2) : ''}
                 className={`${autoInp} w-full`} placeholder="自动计算"
@@ -265,12 +312,12 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
             </div>
             {/* 购买渠道: 场外显示(移到日期前); 场内按股票口径不显示 */}
             <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">购买渠道</label>
+              <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">购买渠道</label>
               <input value={platform} onChange={e => setPlatform(e.target.value)} className={`${inp} w-full`}
                 placeholder="银行/天天基金" />
             </div>
             <div className="flex flex-col gap-1 flex-1 min-w-[104px]">
-              <label className="text-[12px] text-text-dim whitespace-nowrap">日期</label>
+              <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">日期</label>
               <input type="date" value={tradeDate} onChange={e => setTradeDate(e.target.value)}
                 className={`${inp} w-full font-mono`} />
             </div>
@@ -280,10 +327,10 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
         {/* 场内: 累计投入 = 份额×单价+手续费 自动, 可覆盖 */}
         {isInlineFund && (
           <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-            <label className="text-[12px] text-text-dim whitespace-nowrap">
+            <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">
               累计投入 {curSymbol}
               {!costTouched && parseFloat(shares) > 0 && parseFloat(unitPrice) > 0 && (
-                <span className="text-[9.5px] text-accent ml-1">自动算</span>
+                <span className="text-[0.6786rem] text-accent ml-1">自动算</span>
               )}
             </label>
             <input type="number" step="0.01" value={cost}
@@ -294,12 +341,12 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
         {/* 手续费(场内): 按券商费率估算, 可覆盖; 场外走申购公式(上面只读展示) */}
         {isInlineFund && (
           <div className="flex flex-col gap-1 flex-1 min-w-[68px]">
-            <label className="text-[12px] text-text-dim whitespace-nowrap">
+            <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">
               手续费 ¥
               <Tooltip content={
                 <div className="leading-relaxed">
                   <div className="text-text-bright font-semibold mb-0.5">手续费 (单笔)</div>
-                  <div className="text-text-dim text-[10.5px]">
+                  <div className="text-text-dim text-[0.75rem]">
                     场内基金: 默认按 config.commission_rate (万 {(BROKER_COMMISSION_RATE * 10000).toFixed(2)}) + 最低 ¥{BROKER_COMMISSION_MIN}
                   </div>
                 </div>
@@ -314,37 +361,39 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
         )}
         {isInlineFund && (
           <div className="flex flex-col gap-1 flex-1 min-w-[104px]">
-            <label className="text-[12px] text-text-dim whitespace-nowrap">买入日期</label>
+            <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">
+              {direction === 'SHORT' ? '开仓日期' : '买入日期'}
+            </label>
             <input type="date" value={tradeDate} onChange={e => setTradeDate(e.target.value)}
               className={`${inp} w-full font-mono`} />
           </div>
         )}
         {isInlineFund && (
           <div className="flex flex-col gap-1 flex-1 min-w-[76px]">
-            <label className="text-[12px] text-text-dim whitespace-nowrap">券商</label>
+            <label className="text-[0.8571rem] text-text-dim whitespace-nowrap">券商</label>
             <select className={`${inp} w-full font-mono`} value={selectedBroker} onChange={e => setSelectedBroker(e.target.value)}>
               <option value="">无</option>
               {brokersOfType(brokers, assetType).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
             </select>
           </div>
         )}
-        <button onClick={submit} className="shrink-0 px-3 py-1.5 rounded-md bg-accent text-bg font-semibold text-[13px] hover:opacity-90 cursor-pointer">
-          保存
+        <button onClick={submit} className="shrink-0 px-3 py-1.5 rounded-md bg-accent text-bg font-semibold text-[0.9286rem] hover:opacity-90 cursor-pointer">
+          {direction === 'SHORT' ? '开仓' : '保存'}
         </button>
-        <button onClick={onCancel} className="shrink-0 px-2.5 py-1.5 rounded-md border border-border text-text-dim text-[13px] hover:text-text cursor-pointer">
+        <button onClick={onCancel} className="shrink-0 px-2.5 py-1.5 rounded-md border border-border text-text-dim text-[0.9286rem] hover:text-text cursor-pointer">
           取消
         </button>
       </div>
 
       {/* Pending hint: 场外基金填了申购金额但净值没填(当日申购 T+1) → 先记待确认 */}
       {isOtcFund && amt > 0 && !confShares && (
-        <div className="text-[10.5px] font-mono text-accent">
+        <div className="text-[0.75rem] font-mono text-accent">
           💡 申购净值没填(当日申购 T+1 未公布) → 确认份额暂缺，¥{amt.toFixed(2)} 先记到 pending，净值公布后在该资产行编辑补上份额/净值确认。
         </div>
       )}
 
       {assetType === 'FUND' && (
-        <div className="text-[10.5px] text-text-muted">
+        <div className="text-[0.75rem] text-text-muted">
           {fundKind === 'mm'
             ? '场内货币基金(交易资产): 按份额 × 单价 + 券商记账(口径同股票), 行情走 ths 每日价格; 无申购费/交易佣金'
             : fundKind === 'etf'
@@ -355,6 +404,7 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
           {toHoldings
             ? ` · 估值类型 ${vtype || '(未配)'} → 计入持仓账本(holdings)`
             : matched ? ` · 估值类型 ${vtype || '(未配)'} → 计入场外账本` : ''}
+          {direction === 'SHORT' && <> · 做空: 卖出开仓、买入平仓, 价跌=赚; 仅海外场内基金支持, 流水的开仓/平仓在该行记</>}
         </div>
       )}
 
@@ -365,7 +415,7 @@ export function AddFundForm({ sub, typeKey, onDone, onCancel, brokers = [] }) {
         const total = gross + f
         const avg = total / s
         return (
-          <div className="text-[10.5px] font-mono text-bull">
+          <div className="text-[0.75rem] font-mono text-bull">
             ✓ 按股买: {s.toFixed(4)} × ¥{u.toFixed(4)} = ¥{gross.toFixed(2)}
             {f > 0 && ` + 手续费 ¥${f.toFixed(2)} = ¥${total.toFixed(2)}`}
             <span className="ml-2 text-text-dim">持有成本 ¥{avg.toFixed(4)}/份</span>
